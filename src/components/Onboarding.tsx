@@ -1,9 +1,7 @@
 import React, { useState } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, SafeAreaView, Dimensions, ScrollView } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity, SafeAreaView, useWindowDimensions, ScrollView } from 'react-native';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-
-const { width } = Dimensions.get('window');
 
 const slides = [
   {
@@ -27,8 +25,12 @@ const slides = [
 ];
 
 export function Onboarding() {
+  const { width, height } = useWindowDimensions();
   const [currentIndex, setCurrentIndex] = useState(0);
   const router = useRouter();
+  
+  // Calculate a responsive image size, capped at a maximum of 400px so it doesn't dominate large screens
+  const imageSize = Math.min(width * 0.8, height * 0.4, 400);
 
   const handleNext = () => {
     if (currentIndex < slides.length - 1) {
@@ -51,7 +53,7 @@ export function Onboarding() {
   };
 
   const navigateToAuth = () => {
-    router.replace('/auth');
+    router.replace('/(auth)/signup');
   };
 
   const currentSlide = slides[currentIndex];
@@ -72,7 +74,7 @@ export function Onboarding() {
 
       {/* Content */}
       <View style={styles.content}>
-        <View style={styles.imageContainer}>
+        <View style={[styles.imageContainer, { width: imageSize, height: imageSize }]}>
           <Image 
             source={currentSlide.image}
             style={styles.image}
@@ -164,8 +166,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 32,
   },
   imageContainer: {
-    width: width * 0.8,
-    height: width * 0.8,
     marginBottom: 40,
     justifyContent: 'center',
     alignItems: 'center',

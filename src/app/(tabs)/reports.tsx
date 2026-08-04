@@ -1,10 +1,9 @@
-import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 
-export default function AuthScreen() {
+export default function ReportsScreen() {
   return (
     <View style={styles.container}>
-      <Text style={styles.text}>Authentication Screen (Sign Up / Log In)</Text>
+      <Text>Reports</Text>
     </View>
   );
 }
@@ -14,10 +13,5 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#fff',
-  },
-  text: {
-    fontSize: 20,
-    fontWeight: 'bold',
   },
 });

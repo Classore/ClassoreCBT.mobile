@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "ClassoreCBT.mobile",
-    "slug": "ClassoreCBT.mobile",
+    "slug": "Classorecbt-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -17,7 +17,8 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.samrheglobal.classore"
     },
     "web": {
       "output": "static",
@@ -32,11 +33,18 @@
           "image": "./assets/images/Classore Logo.png",
           "imageWidth": 150
         }
-      ]
+      ],
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "3f681f03-eeef-482a-98d4-3c3bcded99da"
+      }
     }
   }
 }
