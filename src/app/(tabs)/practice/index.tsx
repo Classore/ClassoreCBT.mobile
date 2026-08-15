@@ -1,26 +1,82 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, Platform } from 'react-native';
 import { Image } from 'expo-image';
 import { SymbolView } from 'expo-symbols';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { CustomButton } from '@/components/CustomButton';
 
 export default function ExamSetupScreen() {
   const router = useRouter();
-  const [selectedExam, setSelectedExam] = useState('jamb');
+  const params = useLocalSearchParams<{ exam?: string }>();
+  const [selectedExam, setSelectedExam] = useState<string>(params.exam ? (Array.isArray(params.exam) ? params.exam[0] : params.exam).toLowerCase() : 'jamb');
   const [selectedMode, setSelectedMode] = useState('practice');
 
+  useEffect(() => {
+    if (params.exam) {
+      const examParam = Array.isArray(params.exam) ? params.exam[0] : params.exam;
+      setSelectedExam(examParam.toLowerCase());
+    }
+  }, [params.exam]);
+
   const exams = [
-    { id: 'jamb', name: 'JAMB UTME', fullName: 'Joint Admissions and Matriculation Board', users: '12.5K', icon: 'graduationcap', popular: true },
-    { id: 'waec', name: 'WAEC', fullName: 'West African Examinations Council', users: '8.7K', icon: 'doc.plaintext', popular: false },
-    { id: 'neco', name: 'NECO', fullName: 'National Examinations Council', users: '5.3K', icon: 'doc.text', popular: false }
+    { 
+      id: 'jamb', 
+      name: 'JAMB UTME', 
+      fullName: 'Joint Admissions and Matriculation Board', 
+      users: '12.5K', 
+      icon: 'graduationcap',
+      iconSource: require('../../../../assets/images/jamb-logo.png'),
+      popular: true 
+    },
+    { 
+      id: 'ielts', 
+      name: 'IELTS', 
+      fullName: 'International English Language Testing System', 
+      users: '10.2K', 
+      icon: 'headphones',
+      iconSource: require('../../../../assets/images/ielts-logo.png'),
+      popular: true 
+    },
+    { 
+      id: 'toefl', 
+      name: 'TOEFL', 
+      fullName: 'Test of English as a Foreign Language', 
+      users: '6.4K', 
+      icon: 'globe',
+      iconSource: require('../../../../assets/images/toefl-logo.png'),
+      popular: false 
+    },
+    { 
+      id: 'waec', 
+      name: 'WAEC', 
+      fullName: 'West African Examinations Council', 
+      users: '8.7K', 
+      icon: 'doc.plaintext',
+      iconSource: require('../../../../assets/images/waec-logo.png'),
+      popular: false 
+    },
+    { 
+      id: 'neco', 
+      name: 'NECO', 
+      fullName: 'National Examinations Council', 
+      users: '5.3K', 
+      icon: 'doc.text',
+      iconSource: require('../../../../assets/images/neco-logo.png'),
+      popular: false 
+    }
   ];
 
   const handleContinue = () => {
     if (selectedMode === 'practice') {
-      router.push('/(tabs)/practice/practice-setup');
+      router.push({
+        pathname: '/(tabs)/practice/practice-setup',
+        params: { exam: selectedExam }
+      });
     } else {
-      router.push('/(tabs)/practice/standard-setup');
+      router.push({
+        pathname: '/(tabs)/practice/standard-setup',
+        params: { exam: selectedExam }
+      });
     }
   };
 
@@ -79,7 +135,11 @@ export default function ExamSetupScreen() {
               >
                 {selectedExam === exam.id && <View style={styles.examCardSelectedDot} />}
                 <View style={[styles.examIconContainer, selectedExam === exam.id ? styles.examIconSelected : styles.examIconUnselected]}>
-                  <SymbolView name={exam.icon as any} size={20} tintColor={selectedExam === exam.id ? '#6D28D9' : '#10B981'} />
+                  {exam.iconSource ? (
+                    <Image source={exam.iconSource} style={{ width: 22, height: 22 }} contentFit="contain" />
+                  ) : (
+                    <SymbolView name={exam.icon as any} size={20} tintColor={selectedExam === exam.id ? '#6D28D9' : '#10B981'} />
+                  )}
                 </View>
                 <Text style={styles.examName}>{exam.name}</Text>
                 <Text style={styles.examFullName} numberOfLines={3}>{exam.fullName}</Text>
@@ -99,10 +159,12 @@ export default function ExamSetupScreen() {
             ))}
           </ScrollView>
           <View style={styles.paginationDots}>
-            <View style={[styles.dot, styles.dotActive]} />
-            <View style={styles.dot} />
-            <View style={styles.dot} />
-            <View style={styles.dot} />
+            {exams.map((exam) => (
+              <View 
+                key={exam.id} 
+                style={[styles.dot, selectedExam === exam.id && styles.dotActive]} 
+              />
+            ))}
           </View>
         </View>
 

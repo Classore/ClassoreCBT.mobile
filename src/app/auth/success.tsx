@@ -1,9 +1,7 @@
-import React from 'react';
-import { View, Text, StyleSheet, SafeAreaView } from 'react-native';
-import { useRouter } from 'expo-router';
-import { Image } from 'expo-image';
-import { SymbolView } from 'expo-symbols';
 import { CustomButton } from '@/components/CustomButton';
+import { Image } from 'expo-image';
+import { useRouter } from 'expo-router';
+import { SafeAreaView, StyleSheet, Text, View } from 'react-native';
 
 export default function SuccessScreen() {
   const router = useRouter();

@@ -1,26 +1,27 @@
-import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  TextInput,
-  StyleSheet,
-  TouchableOpacity,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  SafeAreaView,
-  ActivityIndicator,
-  Alert
-} from 'react-native';
+import { CustomInput } from '@/components/CustomInput';
+import { api } from '@/services/api';
+import { GoogleSignin, isErrorWithCode, isSuccessResponse, statusCodes } from '@react-native-google-signin/google-signin';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import { GoogleSignin, isSuccessResponse, isErrorWithCode, statusCodes } from '@react-native-google-signin/google-signin';
+import { useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
+} from 'react-native';
 
 GoogleSignin.configure({
   webClientId: 'PLACEHOLDER_WEB_CLIENT_ID', // Replace with actual Web Client ID from Google Cloud
   iosClientId: 'PLACEHOLDER_IOS_CLIENT_ID', // Replace if needed for iOS
 });
-import { api } from '@/services/api';
 
 export default function SignupScreen() {
   const router = useRouter();
@@ -31,12 +32,14 @@ export default function SignupScreen() {
   const [referralId, setReferralId] = useState('');
   const [agreeTerms, setAgreeTerms] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
-
   const [isLoading, setIsLoading] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   const handleSignup = async () => {
+    setFormError(null);
+    
     if (!agreeTerms) {
-      Alert.alert('Error', 'Please agree to the terms and conditions');
+      setFormError('Please agree to the terms and conditions to continue.');
       return;
     }
 
@@ -44,10 +47,13 @@ export default function SignupScreen() {
       setIsLoading(true);
       const username = firstName && lastName ? `${firstName}_${lastName}` : email.split('@')[0];
       
-      await api.post('/auth/register/', {
+      await api.post('/api/auth/register/', {
         email: email,
         password: password,
-        username: username
+        username: username,
+        first_name: firstName,
+        last_name: lastName,
+        referral_id: referralId
       });
       
       router.push({
@@ -55,8 +61,9 @@ export default function SignupScreen() {
         params: { email: email }
       });
     } catch (error: any) {
+      console.error("Signup error: ", error);
       const errorMsg = error.response?.data?.message || error.response?.data?.error || 'Registration failed';
-      Alert.alert('Error', errorMsg);
+      setFormError(errorMsg);
     } finally {
       setIsLoading(false);
     }
@@ -73,7 +80,7 @@ export default function SignupScreen() {
         const idToken = response.data.idToken;
         
         // Send to backend
-        const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8000';
+        const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.43.237:8081';
         const res = await fetch(`${API_URL}/api/auth/google/`, {
           method: 'POST',
           headers: {
@@ -114,6 +121,14 @@ export default function SignupScreen() {
     }
   };
 
+  const handleBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace('/auth/login');
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView
@@ -123,7 +138,12 @@ export default function SignupScreen() {
         <ScrollView contentContainerStyle={styles.scrollContent}>
           {/* Header */}
           <View style={styles.header}>
-            <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+            <TouchableOpacity 
+              onPress={handleBack} 
+              style={styles.backButton}
+              activeOpacity={0.7}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
               <Image source={require('../../../assets/images/back-icon.svg')} style={styles.backIcon} />
             </TouchableOpacity>
             <Text style={styles.headerTitle}>Sign up</Text>
@@ -169,17 +189,13 @@ export default function SignupScreen() {
             />
           </View>
 
-          <View style={styles.inputContainer}>
-            <Text style={styles.label}>Password</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="****************"
-              secureTextEntry
-              value={password}
-              onChangeText={setPassword}
-              placeholderTextColor="#D0D0D0"
-            />
-          </View>
+          <CustomInput
+            label="Password"
+            placeholder="****************"
+            value={password}
+            onChangeText={setPassword}
+            isPassword
+          />
 
           <View style={styles.inputContainer}>
             <Text style={styles.label}>Referral ID</Text>
@@ -192,10 +208,13 @@ export default function SignupScreen() {
             />
           </View>
 
-          {/* Terms Checkbox (Simulated) */}
+          {/* Terms Checkbox */}
           <TouchableOpacity 
             style={styles.checkboxContainer} 
-            onPress={() => setAgreeTerms(!agreeTerms)}
+            onPress={() => {
+              setAgreeTerms(!agreeTerms);
+              if (formError) setFormError(null);
+            }}
             activeOpacity={0.7}
           >
             <View style={[styles.checkbox, agreeTerms && styles.checkboxActive]}>
@@ -203,6 +222,10 @@ export default function SignupScreen() {
             </View>
             <Text style={styles.checkboxLabel}>I agree to the terms and conditions</Text>
           </TouchableOpacity>
+
+          {formError && (
+            <Text style={styles.errorText}>{formError}</Text>
+          )}
 
           {/* Signup Button */}
           <TouchableOpacity 
@@ -348,6 +371,13 @@ const styles = StyleSheet.create({
   checkboxLabel: {
     fontSize: 14,
     color: '#374151',
+  },
+  errorText: {
+    color: '#EF4444',
+    fontSize: 14,
+    marginBottom: 20,
+    marginTop: -10,
+    fontWeight: '500',
   },
   primaryButton: {
     backgroundColor: '#6D28D9', // Purple

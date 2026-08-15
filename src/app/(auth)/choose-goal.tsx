@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, ScrollView, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Image } from 'expo-image';
 import { CustomButton } from '@/components/CustomButton';
+import { api } from '@/services/api';
 
 type Goal = {
   id: string;
@@ -26,6 +27,7 @@ const GOALS: Goal[] = [
 export default function ChooseGoalScreen() {
   const router = useRouter();
   const [selectedGoal, setSelectedGoal] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const renderIconPlaceholder = (goal: Goal) => {
     if (goal.iconSource) {
@@ -97,11 +99,27 @@ export default function ChooseGoalScreen() {
         {/* Actions */}
         <View style={styles.actionsContainer}>
           <CustomButton 
-            title="Continue" 
-            onPress={() => router.replace('/')} 
-            disabled={!selectedGoal}
+            title="Continue"
+            loading={isSubmitting} 
+            onPress={async () => {
+              if (!selectedGoal) return;
+              try {
+                setIsSubmitting(true);
+                const goalItem = GOALS.find(g => g.id === selectedGoal);
+                if (goalItem) {
+                  await api.patch('/api/auth/set-goal/', { exam_name: goalItem.title });
+                }
+                router.replace('/(tabs)');
+              } catch (error: any) {
+                console.error("Error setting goal:", error);
+                Alert.alert('Error', 'Failed to save your goal. Please try again.');
+              } finally {
+                setIsSubmitting(false);
+              }
+            }} 
+            disabled={!selectedGoal || isSubmitting}
           />
-          <TouchableOpacity style={styles.laterButton} onPress={() => router.replace('/')}>
+          <TouchableOpacity style={styles.laterButton} onPress={() => router.replace('/(tabs)')}>
             <Text style={styles.laterText}>I'll choose later</Text>
           </TouchableOpacity>
         </View>

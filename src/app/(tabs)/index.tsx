@@ -1,13 +1,12 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, SafeAreaView, Platform, ImageBackground } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, SafeAreaView, Platform } from 'react-native';
 import { Image } from 'expo-image';
-import { SymbolView } from 'expo-symbols';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useAuth } from '@/context/AuthContext';
 
 export default function HomeScreen() {
   const router = useRouter();
+  const [isDarkMode, setIsDarkMode] = React.useState(true);
   
   // Dummy data
   const userName = "Daniel";
@@ -23,35 +22,48 @@ export default function HomeScreen() {
             <Text style={styles.subGreeting}>Let's achieve greatness today.</Text>
           </View>
           <View style={styles.headerActions}>
-            <TouchableOpacity style={styles.iconButton}>
-              <Image source={require('../../../assets/images/moon-icon.png')} style={styles.headerIcon} contentFit="contain" />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.iconButton}>
-              <Image source={require('../../../assets/images/trophy-icon.png')} style={styles.headerIcon} contentFit="contain" />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.iconButton}>
+            <TouchableOpacity style={styles.iconButton} activeOpacity={0.8}>
               <Image source={require('../../../assets/images/bell-icon.png')} style={styles.headerIcon} contentFit="contain" />
               <View style={styles.notificationDot} />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.iconButton} activeOpacity={0.8}>
+              <Image source={require('../../../assets/images/trophy-icon.png')} style={styles.headerIcon} contentFit="contain" />
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.darkModeToggle, isDarkMode ? styles.darkModeToggleActive : styles.darkModeToggleInactive]} 
+              onPress={() => setIsDarkMode(!isDarkMode)}
+              activeOpacity={0.85}
+            >
+              <View style={[styles.toggleThumb, isDarkMode ? styles.toggleThumbRight : styles.toggleThumbLeft]}>
+                <Image 
+                  source={isDarkMode ? require('../../../assets/images/moon-white-icon.png') : require('../../../assets/images/moon-icon.png')} 
+                  style={{ width: 14, height: 14 }} 
+                  contentFit="contain" 
+                />
+              </View>
             </TouchableOpacity>
           </View>
         </View>
 
         {/* Hero Banner */}
-        <LinearGradient 
-          colors={['#ffffff', '#f3f4f6']} 
-          style={styles.heroBanner}
-        >
+        <View style={styles.heroBanner}>
           <View style={styles.heroContent}>
-            <Text style={styles.heroTitle}>Ace Every Exam. Unlock <Text style={styles.heroHighlight}>Your Future.</Text></Text>
-            <Text style={styles.heroSubtitle}>Smart practice, expert feedback, and real exam experience — all in one place.</Text>
+            <Text style={styles.heroTitle}>
+              Ace Every Exam.{'\n'}Unlock <Text style={styles.heroHighlight}>Your{'\n'}Future.</Text>
+            </Text>
+            <Text style={styles.heroSubtitle}>
+              Smart practice, expert feedback, and real exam experience — all in one place.
+            </Text>
             <TouchableOpacity 
               style={styles.heroButton}
               onPress={() => router.push('/(tabs)/practice')}
+              activeOpacity={0.85}
             >
               <Text style={styles.heroButtonText}>Start Test</Text>
-              <Image source={require('../../../assets/images/arrow-right-icon.png')} style={{ width: 16, height: 16 }} contentFit="contain" />
+              <Image source={require('../../../assets/images/arrow-right-icon.png')} style={{ width: 14, height: 14 }} contentFit="contain" />
             </TouchableOpacity>
           </View>
+
           {/* Hero Illustration */}
           <View style={styles.heroImageContainer}>
             <Image source={require('../../../assets/images/hero-student.png')} style={styles.heroImage} contentFit="contain" />
@@ -71,52 +83,66 @@ export default function HomeScreen() {
               <Text style={styles.learnBadgeText}>Learn</Text>
             </View>
           </View>
-        </LinearGradient>
+        </View>
 
-        {/* Search Bar (Navigates to Explore) */}
+        {/* Search Bar */}
         <TouchableOpacity 
           style={styles.searchBar} 
           activeOpacity={0.9}
           onPress={() => router.push('/(tabs)/explore')}
         >
-          <Image source={require('../../../assets/images/search-icon.png')} style={{ width: 20, height: 20 }} contentFit="contain" />
+          <Image source={require('../../../assets/images/search-icon.png')} style={{ width: 18, height: 18 }} contentFit="contain" />
           <Text style={styles.searchText}>What do you want to practice today?</Text>
-          <Image source={require('../../../assets/images/filter-icon.png')} style={{ width: 20, height: 20, marginLeft: 12 }} contentFit="contain" />
+          <Image source={require('../../../assets/images/filter-icon.png')} style={{ width: 18, height: 18, marginLeft: 8 }} contentFit="contain" />
         </TouchableOpacity>
 
-        {/* Exam Cards (Horizontal Scroll) */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.examScroll}>
-          <LinearGradient colors={['#3B82F6', '#1D4ED8']} style={styles.examCard}>
-            <Image source={require('../../../assets/images/jamb-bg.png')} style={[StyleSheet.absoluteFillObject, { borderRadius: 16 }]} contentFit="cover" />
-            <View style={styles.examIconContainer}>
-              <Image source={require('../../../assets/images/exam-jamb-icon.png')} style={{ width: 24, height: 24 }} contentFit="contain" />
+        {/* Exam Cards - 2 Column Row */}
+        <View style={styles.examCardsRow}>
+          {/* JAMB Card */}
+          <LinearGradient colors={['#2563EB', '#1D4ED8']} style={styles.examCard}>
+            <Image source={require('../../../assets/images/jamb-bg.png')} style={[StyleSheet.absoluteFillObject, { borderRadius: 20, opacity: 0.9 }]} contentFit="cover" />
+            <View style={styles.examCardContent}>
+              <View style={styles.examIconContainer}>
+                <Image source={require('../../../assets/images/exam-jamb-icon.png')} style={{ width: 18, height: 18 }} contentFit="contain" />
+              </View>
+              <Text style={styles.examTitle}>JAMB</Text>
+              <Text style={styles.examSubtitle}>UTME Practice</Text>
+              <Text style={styles.examDesc}>All subjects | Past questions{'\n'}Mock tests | Performance</Text>
+              <TouchableOpacity 
+                style={styles.examButton} 
+                activeOpacity={0.85}
+                onPress={() => router.push({ pathname: '/(tabs)/practice', params: { exam: 'jamb' } })}
+              >
+                <Text style={[styles.examButtonText, { color: '#1D4ED8' }]}>Explore JAMB</Text>
+                <Image source={require('../../../assets/images/arrow-right-blue-icon.png')} style={{ width: 10, height: 10 }} contentFit="contain" />
+              </TouchableOpacity>
             </View>
-            <Text style={styles.examTitle}>JAMB</Text>
-            <Text style={styles.examSubtitle}>UTME Practice</Text>
-            <Text style={styles.examDesc}>All subjects | Past questions{'\n'}Mock tests | Performance</Text>
-            <TouchableOpacity style={styles.examButton}>
-              <Text style={styles.examButtonText}>Explore JAMB</Text>
-              <Image source={require('../../../assets/images/arrow-right-blue-icon.png')} style={{ width: 12, height: 12 }} contentFit="contain" />
-            </TouchableOpacity>
           </LinearGradient>
           
-          <LinearGradient colors={['#8B5CF6', '#5B21B6']} style={styles.examCard}>
-            <Image source={require('../../../assets/images/ielts-bg.png')} style={[StyleSheet.absoluteFillObject, { borderRadius: 16 }]} contentFit="cover" />
-            <View style={styles.examIconContainer}>
-              <Image source={require('../../../assets/images/exam-ielts-icon.png')} style={{ width: 24, height: 24 }} contentFit="contain" />
+          {/* IELTS Card */}
+          <LinearGradient colors={['#7C3AED', '#5B21B6']} style={styles.examCard}>
+            <Image source={require('../../../assets/images/ielts-bg.png')} style={[StyleSheet.absoluteFillObject, { borderRadius: 20, opacity: 0.9 }]} contentFit="cover" />
+            <View style={styles.examCardContent}>
+              <View style={styles.examIconContainer}>
+                <Image source={require('../../../assets/images/exam-ielts-icon.png')} style={{ width: 18, height: 18 }} contentFit="contain" />
+              </View>
+              <Text style={styles.examTitle}>IELTS</Text>
+              <Text style={styles.examSubtitle}>English Test</Text>
+              <Text style={styles.examDesc}>Listening • Reading{'\n'}Writing • Speaking</Text>
+              <TouchableOpacity 
+                style={styles.examButton} 
+                activeOpacity={0.85}
+                onPress={() => router.push({ pathname: '/(tabs)/practice', params: { exam: 'ielts' } })}
+              >
+                <Text style={[styles.examButtonText, { color: '#6D28D9' }]}>Explore IELTS</Text>
+                <Image source={require('../../../assets/images/arrow-right-blue-icon.png')} style={{ width: 10, height: 10, tintColor: '#6D28D9' }} contentFit="contain" />
+              </TouchableOpacity>
             </View>
-            <Text style={styles.examTitle}>IELTS</Text>
-            <Text style={styles.examSubtitle}>English Test</Text>
-            <Text style={styles.examDesc}>Listening • Reading{'\n'}Writing • Speaking</Text>
-            <TouchableOpacity style={styles.examButton}>
-              <Text style={styles.examButtonText}>Explore IELTS</Text>
-              <Image source={require('../../../assets/images/arrow-right-blue-icon.png')} style={{ width: 12, height: 12 }} contentFit="contain" />
-            </TouchableOpacity>
           </LinearGradient>
-        </ScrollView>
+        </View>
 
-        {/* Quick Actions */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickActionsScroll}>
+        {/* Quick Actions - Full width distribution */}
+        <View style={styles.quickActionsContainer}>
           {[
             { id: 1, name: 'Mock Tests', image: require('../../../assets/images/qa-mock-tests.png'), bg: '#D1FAE5' },
             { id: 2, name: 'Study Room', image: require('../../../assets/images/qa-study-room.png'), bg: '#FFEDD5' },
@@ -125,189 +151,461 @@ export default function HomeScreen() {
             { id: 5, name: 'Wallet', image: require('../../../assets/images/qa-wallet.png'), bg: '#EDE9FE' },
             { id: 6, name: 'Refer & Earn', image: require('../../../assets/images/qa-gift-icon.png'), bg: '#FEF3C7' },
           ].map(action => (
-            <TouchableOpacity key={action.id} style={styles.actionItem}>
+            <TouchableOpacity key={action.id} style={styles.actionItem} activeOpacity={0.75}>
               <View style={[styles.actionIconContainer, { backgroundColor: action.bg }]}>
-                <Image source={action.image} style={{ width: 24, height: 24 }} contentFit="contain" />
+                <Image source={action.image} style={{ width: 22, height: 22 }} contentFit="contain" />
               </View>
-              <Text style={styles.actionText}>{action.name}</Text>
+              <Text style={styles.actionText} numberOfLines={1}>{action.name}</Text>
             </TouchableOpacity>
           ))}
-        </ScrollView>
+        </View>
 
         {/* Contest Zone */}
         <View style={styles.contestCard}>
           <View style={styles.contestHeader}>
-            <Image source={require('../../../assets/images/contest-trophy.png')} style={{ width: 80, height: 100, marginLeft: -10 }} contentFit="contain" />
-            <View style={{ flex: 1 }}>
+            <Image source={require('../../../assets/images/contest-trophy.png')} style={styles.contestTrophy} contentFit="contain" />
+            
+            <View style={styles.contestMainInfo}>
               <View style={styles.contestTag}>
-                <Image source={require('../../../assets/images/contest-star-icon.png')} style={{ width: 12, height: 12 }} contentFit="contain" />
+                <Image source={require('../../../assets/images/contest-star-icon.png')} style={{ width: 11, height: 11 }} contentFit="contain" />
                 <Text style={styles.contestTagText}>Contest Zone</Text>
               </View>
               <Text style={styles.contestTitle}>Compete. Rank. Win!</Text>
               <Text style={styles.contestSubtitle}>Join weekly contests and climb{'\n'}the leaderboard.</Text>
-              <TouchableOpacity style={styles.contestButton}>
+              <TouchableOpacity style={styles.contestButton} activeOpacity={0.85}>
                 <Text style={styles.contestButtonText}>View Contests</Text>
-                <Image source={require('../../../assets/images/arrow-right-sm-icon.png')} style={{ width: 12, height: 12, tintColor: '#FFF' }} contentFit="contain" />
+                <Image source={require('../../../assets/images/arrow-right-sm-icon.png')} style={{ width: 10, height: 10, tintColor: '#FFF' }} contentFit="contain" />
               </TouchableOpacity>
             </View>
+
             <View style={styles.contestLeaderboard}>
               <Text style={styles.leaderboardTitle}>This Week's Top 3</Text>
-              {['Blessing A.', 'Daniel O.', 'Victory M.'].map((name, i) => (
-                <View key={i} style={styles.leaderboardRow}>
-                  <View style={[styles.rankBadge, { backgroundColor: i === 0 ? '#F59E0B' : i === 1 ? '#9CA3AF' : '#D97706' }]}>
-                    <Text style={styles.rankText}>{i + 1}</Text>
+              {[
+                { rank: 1, name: 'Blessing A.', score: '12,450', color: '#F59E0B' },
+                { rank: 2, name: 'Daniel O.', score: '9,870', color: '#9CA3AF' },
+                { rank: 3, name: 'Victory M.', score: '8,610', color: '#D97706' },
+              ].map(item => (
+                <View key={item.rank} style={styles.leaderboardRow}>
+                  <View style={[styles.rankBadge, { backgroundColor: item.color }]}>
+                    <Text style={styles.rankText}>{item.rank}</Text>
                   </View>
-                  <Text style={styles.leaderboardName}>{name}</Text>
-                  <Text style={styles.leaderboardScore}>{(12450 - i * 2000).toLocaleString()}</Text>
+                  <Text style={styles.leaderboardName} numberOfLines={1}>{item.name}</Text>
+                  <Text style={styles.leaderboardScore}>{item.score}</Text>
                 </View>
               ))}
             </View>
           </View>
+
           <View style={styles.contestFooter}>
             <View style={styles.contestStat}>
-              <Image source={require('../../../assets/images/contest-time-icon.png')} style={{ width: 14, height: 14 }} contentFit="contain" />
-              <Text style={styles.statLabel}>Time Left</Text>
+              <View style={styles.contestStatHeader}>
+                <Image source={require('../../../assets/images/contest-time-icon.png')} style={{ width: 12, height: 12 }} contentFit="contain" />
+                <Text style={styles.statLabel}>Time Left</Text>
+              </View>
               <Text style={styles.statValue}>3d : 12h : 45m</Text>
             </View>
             
             <View style={styles.contestStat}>
-              <Image source={require('../../../assets/images/contest-participants-icon.png')} style={{ width: 14, height: 14 }} contentFit="contain" />
-              <Text style={styles.statLabel}>Participants</Text>
+              <View style={styles.contestStatHeader}>
+                <Image source={require('../../../assets/images/contest-participants-icon.png')} style={{ width: 12, height: 12 }} contentFit="contain" />
+                <Text style={styles.statLabel}>Participants</Text>
+              </View>
               <Text style={styles.statValue}>2,568</Text>
             </View>
 
             <View style={styles.contestStat}>
-              <Image source={require('../../../assets/images/contest-prize-icon.png')} style={{ width: 14, height: 14 }} contentFit="contain" />
-              <Text style={styles.statLabel}>Prize Pool</Text>
+              <View style={styles.contestStatHeader}>
+                <Image source={require('../../../assets/images/contest-prize-icon.png')} style={{ width: 12, height: 12 }} contentFit="contain" />
+                <Text style={styles.statLabel}>Prize Pool</Text>
+              </View>
               <Text style={styles.statValue}>150,000</Text>
             </View>
           </View>
         </View>
 
-        {/* Bottom Row */}
+        {/* Bottom Row: Your Progress & Daily Streak */}
         <View style={styles.bottomRow}>
+          {/* Your Progress Card */}
           <View style={styles.progressCard}>
-            <Text style={styles.cardTitle}>Your Progress</Text>
-            <Text style={styles.cardSubtitle}>This Week</Text>
+            <View style={styles.cardHeaderRow}>
+              <Text style={styles.cardTitle}>Your Progress</Text>
+              <Text style={styles.cardSubtitle}>This Week</Text>
+            </View>
+            
             <View style={styles.progressChartArea}>
-              <View style={styles.progressCircle}>
-                <Text style={styles.progressPercent}>72%</Text>
+              <View style={styles.donutContainer}>
+                <View style={styles.donutCircle}>
+                  <Text style={styles.progressPercent}>72%</Text>
+                </View>
               </View>
               <View style={styles.progressLegend}>
-                <View style={styles.legendItem}><View style={[styles.dot, { backgroundColor: '#10B981' }]} /><Text style={styles.legendText}>Correct 85</Text></View>
-                <View style={styles.legendItem}><View style={[styles.dot, { backgroundColor: '#EF4444' }]} /><Text style={styles.legendText}>Incorrect 23</Text></View>
-                <View style={styles.legendItem}><View style={[styles.dot, { backgroundColor: '#D1D5DB' }]} /><Text style={styles.legendText}>Unattempted 12</Text></View>
+                <View style={styles.legendItem}>
+                  <View style={[styles.dot, { backgroundColor: '#10B981' }]} />
+                  <Text style={styles.legendText}>Correct 85</Text>
+                </View>
+                <View style={styles.legendItem}>
+                  <View style={[styles.dot, { backgroundColor: '#EF4444' }]} />
+                  <Text style={styles.legendText}>Incorrect 23</Text>
+                </View>
+                <View style={styles.legendItem}>
+                  <View style={[styles.dot, { backgroundColor: '#9CA3AF' }]} />
+                  <Text style={styles.legendText}>Unattempted 12</Text>
+                </View>
               </View>
             </View>
-            <TouchableOpacity><Text style={styles.linkText}>See Detailed Report ></Text></TouchableOpacity>
+            <TouchableOpacity activeOpacity={0.7}>
+              <Text style={styles.linkText}>See Detailed Report ›</Text>
+            </TouchableOpacity>
           </View>
 
+          {/* Daily Streak Card */}
           <View style={styles.streakCard}>
-            <View style={styles.streakHeader}>
-              <Text style={styles.cardTitle}>Daily Streak 🔥</Text>
-            </View>
+            <Text style={styles.cardTitle}>Daily Streak 🔥</Text>
             <Text style={styles.streakNumber}>7 <Text style={styles.streakLabel}>Days in a row!</Text></Text>
+            
             <View style={styles.daysRow}>
               {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day, i) => (
-                <View key={day} style={styles.streakDay}>
-                  <View style={[styles.streakCircle, i < 6 ? styles.streakCircleActive : {}]}>
-                    {i < 6 && <Image source={require('../../../assets/images/streak-check-icon.png')} style={{ width: 12, height: 12 }} contentFit="contain" />}
+                <View key={day} style={styles.dayItem}>
+                  <View style={[styles.dayCircle, i < 6 ? styles.dayActive : styles.dayInactive]}>
+                    {i < 6 && <Image source={require('../../../assets/images/streak-check-icon.png')} style={{ width: 9, height: 9 }} contentFit="contain" />}
                   </View>
-                  <Text style={styles.streakDayText}>{day}</Text>
+                  <Text style={styles.dayText}>{day}</Text>
                 </View>
               ))}
             </View>
-            <Text style={styles.linkText}>Keep it up! You're on fire!</Text>
+            <Text style={styles.streakSubText}>Keep it up! You're on fire!</Text>
           </View>
         </View>
         
-        <View style={{height: 100}} />
+        <View style={{ height: 90 }} />
       </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#F8FAFC' },
-  scrollContent: { padding: 20 },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, marginTop: Platform.OS === 'android' ? 20 : 0 },
-  greeting: { fontSize: 24, fontWeight: 'bold', color: '#111827' },
-  subGreeting: { fontSize: 14, color: '#6B7280', marginTop: 4 },
-  headerActions: { flexDirection: 'row', gap: 12 },
-  iconButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#FFF', justifyContent: 'center', alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
-  headerIcon: { width: 24, height: 24 },
-  notificationDot: { position: 'absolute', top: 10, right: 10, width: 8, height: 8, borderRadius: 4, backgroundColor: '#EF4444', borderWidth: 1, borderColor: '#FFF' },
-  heroBanner: { borderRadius: 20, padding: 20, flexDirection: 'row', marginBottom: 24, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 10, elevation: 3 },
-  heroContent: { flex: 1, paddingRight: 10 },
-  heroTitle: { fontSize: 28, fontWeight: '900', color: '#111827', lineHeight: 34, marginBottom: 8 },
+  safeArea: { flex: 1, backgroundColor: '#F4F6FA' },
+  scrollContent: { paddingHorizontal: 16, paddingTop: 12 },
+  
+  // Header
+  header: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center', 
+    marginBottom: 16, 
+    marginTop: Platform.OS === 'android' ? 12 : 4 
+  },
+  greeting: { fontSize: 20, fontWeight: '800', color: '#111827' },
+  subGreeting: { fontSize: 13, color: '#6B7280', marginTop: 2 },
+  headerActions: { flexDirection: 'row', gap: 10 },
+  iconButton: { 
+    width: 38, 
+    height: 38, 
+    borderRadius: 19, 
+    backgroundColor: '#FFF', 
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    shadowColor: '#000', 
+    shadowOffset: { width: 0, height: 2 }, 
+    shadowOpacity: 0.06, 
+    shadowRadius: 4, 
+    elevation: 2 
+  },
+  headerIcon: { width: 20, height: 20 },
+  notificationDot: { 
+    position: 'absolute', 
+    top: 9, 
+    right: 9, 
+    width: 7, 
+    height: 7, 
+    borderRadius: 3.5, 
+    backgroundColor: '#EF4444', 
+    borderWidth: 1, 
+    borderColor: '#FFF' 
+  },
+  darkModeToggle: {
+    width: 48,
+    height: 38,
+    borderRadius: 19,
+    paddingHorizontal: 3,
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  darkModeToggleActive: {
+    backgroundColor: '#4C1D95',
+    alignItems: 'flex-end',
+  },
+  darkModeToggleInactive: {
+    backgroundColor: '#E5E7EB',
+    alignItems: 'flex-start',
+  },
+  toggleThumb: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: 'transparent',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  toggleThumbRight: {
+    borderColor: 'rgba(255,255,255,0.9)',
+  },
+  toggleThumbLeft: {
+    borderColor: '#9CA3AF',
+    backgroundColor: '#FFF',
+  },
+
+  // Hero Banner
+  heroBanner: { 
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20, 
+    padding: 16, 
+    flexDirection: 'row', 
+    marginBottom: 16, 
+    shadowColor: '#000', 
+    shadowOffset: { width: 0, height: 3 }, 
+    shadowOpacity: 0.05, 
+    shadowRadius: 8, 
+    elevation: 2,
+    position: 'relative',
+    overflow: 'visible'
+  },
+  heroContent: { flex: 1, paddingRight: 6, zIndex: 2 },
+  heroTitle: { fontSize: 21, fontWeight: '900', color: '#111827', lineHeight: 26, marginBottom: 8 },
   heroHighlight: { color: '#6D28D9' },
-  heroSubtitle: { fontSize: 13, color: '#4B5563', lineHeight: 20, marginBottom: 16 },
-  heroButton: { backgroundColor: '#4C1D95', alignSelf: 'flex-start', paddingHorizontal: 20, paddingVertical: 12, borderRadius: 24, flexDirection: 'row', alignItems: 'center', gap: 8 },
-  heroButtonText: { color: '#FFF', fontWeight: '600', fontSize: 14 },
-  heroImageContainer: { width: 140, height: 160, justifyContent: 'flex-end', alignItems: 'center' },
-  heroImage: { width: '100%', height: '100%', position: 'absolute', bottom: -20, right: -10 },
-  badge: { position: 'absolute', flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 3, gap: 4 },
-  badgeIcon: { width: 12, height: 12 },
-  improveBadge: { top: 10, left: -20 },
-  improveBadgeText: { fontSize: 10, fontWeight: 'bold', color: '#10B981' },
-  achieveBadge: { top: 60, right: -25 },
-  achieveBadgeText: { fontSize: 10, fontWeight: 'bold', color: '#4C1D95' },
-  learnBadge: { bottom: 0, left: 10 },
-  learnBadgeText: { fontSize: 10, fontWeight: 'bold', color: '#F59E0B' },
-  searchBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF', borderRadius: 16, padding: 16, marginBottom: 24, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 },
-  searchText: { flex: 1, marginLeft: 12, fontSize: 15, color: '#9CA3AF' },
-  filterIcon: { marginLeft: 12 },
-  examScroll: { paddingBottom: 10, gap: 16, paddingRight: 20 },
-  examCard: { width: 280, borderRadius: 24, padding: 24, marginRight: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.15, shadowRadius: 12, elevation: 5 },
-  examIconContainer: { width: 48, height: 48, borderRadius: 24, backgroundColor: 'rgba(255,255,255,0.2)', justifyContent: 'center', alignItems: 'center', marginBottom: 16 },
-  examTitle: { color: '#FFF', fontSize: 24, fontWeight: 'bold' },
-  examSubtitle: { color: '#E0E7FF', fontSize: 14, marginBottom: 16 },
-  examDesc: { color: '#E0E7FF', fontSize: 12, lineHeight: 18, marginBottom: 20, opacity: 0.9 },
-  examButton: { backgroundColor: '#FFF', alignSelf: 'flex-start', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20, flexDirection: 'row', alignItems: 'center', gap: 6 },
-  examButtonText: { fontSize: 12, fontWeight: 'bold' },
-  quickActionsScroll: { marginTop: 8, marginBottom: 24, paddingBottom: 10 },
-  actionItem: { alignItems: 'center', marginRight: 20, width: 70 },
-  actionIconContainer: { width: 60, height: 60, borderRadius: 16, justifyContent: 'center', alignItems: 'center', marginBottom: 8 },
-  actionText: { fontSize: 11, color: '#4B5563', textAlign: 'center', fontWeight: '500' },
-  contestCard: { backgroundColor: '#1E1B4B', borderRadius: 24, padding: 20, marginBottom: 24 },
-  contestHeader: { flexDirection: 'row', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.1)', paddingBottom: 20, marginBottom: 20 },
-  contestTag: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 8 },
-  contestTagText: { color: '#A78BFA', fontSize: 12, fontWeight: '600' },
-  contestTitle: { color: '#FFF', fontSize: 20, fontWeight: 'bold', marginBottom: 4 },
-  contestSubtitle: { color: '#9CA3AF', fontSize: 12, lineHeight: 18, marginBottom: 16 },
-  contestButton: { backgroundColor: '#8B5CF6', alignSelf: 'flex-start', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 16, flexDirection: 'row', alignItems: 'center', gap: 4 },
-  contestButtonText: { color: '#FFF', fontSize: 12, fontWeight: '600' },
-  contestLeaderboard: { flex: 1, marginLeft: 16 },
-  leaderboardTitle: { color: '#FFF', fontSize: 12, fontWeight: '600', marginBottom: 12 },
-  leaderboardRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
-  rankBadge: { width: 18, height: 18, borderRadius: 9, justifyContent: 'center', alignItems: 'center', marginRight: 8 },
-  rankText: { color: '#FFF', fontSize: 10, fontWeight: 'bold' },
-  leaderboardName: { color: '#D1D5DB', fontSize: 12, flex: 1 },
-  leaderboardScore: { color: '#FFF', fontSize: 12, fontWeight: 'bold' },
-  contestFooter: { flexDirection: 'row', justifyContent: 'space-between' },
+  heroSubtitle: { fontSize: 11, color: '#6B7280', lineHeight: 16, marginBottom: 14 },
+  heroButton: { 
+    backgroundColor: '#4C1D95', 
+    alignSelf: 'flex-start', 
+    paddingHorizontal: 16, 
+    paddingVertical: 9, 
+    borderRadius: 20, 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    gap: 6 
+  },
+  heroButtonText: { color: '#FFF', fontWeight: '700', fontSize: 12 },
+  heroImageContainer: { width: 125, height: 140, justifyContent: 'flex-end', alignItems: 'center', position: 'relative' },
+  heroImage: { width: '100%', height: '100%', position: 'absolute', bottom: -10, right: -4 },
+  badge: { 
+    position: 'absolute', 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    backgroundColor: '#FFF', 
+    paddingHorizontal: 6, 
+    paddingVertical: 3, 
+    borderRadius: 10, 
+    shadowColor: '#000', 
+    shadowOffset: { width: 0, height: 2 }, 
+    shadowOpacity: 0.1, 
+    shadowRadius: 4, 
+    elevation: 3, 
+    gap: 3 
+  },
+  badgeIcon: { width: 10, height: 10 },
+  improveBadge: { top: 6, left: -14 },
+  improveBadgeText: { fontSize: 9, fontWeight: 'bold', color: '#10B981' },
+  achieveBadge: { top: 48, right: -12 },
+  achieveBadgeText: { fontSize: 9, fontWeight: 'bold', color: '#4C1D95' },
+  learnBadge: { bottom: 6, left: 10 },
+  learnBadgeText: { fontSize: 9, fontWeight: 'bold', color: '#F59E0B' },
+
+  // Search Bar
+  searchBar: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    backgroundColor: '#FFF', 
+    borderRadius: 14, 
+    paddingHorizontal: 14, 
+    paddingVertical: 12, 
+    marginBottom: 16, 
+    shadowColor: '#000', 
+    shadowOffset: { width: 0, height: 1 }, 
+    shadowOpacity: 0.04, 
+    shadowRadius: 4, 
+    elevation: 1 
+  },
+  searchText: { flex: 1, marginLeft: 10, fontSize: 13, color: '#9CA3AF' },
+
+  // Exam Cards
+  examCardsRow: { flexDirection: 'row', gap: 12, marginBottom: 16 },
+  examCard: { 
+    flex: 1, 
+    borderRadius: 18, 
+    padding: 14, 
+    shadowColor: '#000', 
+    shadowOffset: { width: 0, height: 4 }, 
+    shadowOpacity: 0.1, 
+    shadowRadius: 6, 
+    elevation: 3,
+    minHeight: 185,
+    justifyContent: 'space-between'
+  },
+  examCardContent: { zIndex: 2, flex: 1, justifyContent: 'space-between' },
+  examIconContainer: { 
+    width: 34, 
+    height: 34, 
+    borderRadius: 17, 
+    backgroundColor: 'rgba(255,255,255,0.2)', 
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    marginBottom: 10 
+  },
+  examTitle: { color: '#FFF', fontSize: 18, fontWeight: '800' },
+  examSubtitle: { color: '#E0E7FF', fontSize: 11, fontWeight: '600', marginBottom: 8 },
+  examDesc: { color: '#E0E7FF', fontSize: 9.5, lineHeight: 14, marginBottom: 12, opacity: 0.9 },
+  examButton: { 
+    backgroundColor: '#FFF', 
+    alignSelf: 'flex-start', 
+    paddingHorizontal: 12, 
+    paddingVertical: 7, 
+    borderRadius: 16, 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    gap: 4 
+  },
+  examButtonText: { fontSize: 10.5, fontWeight: '700' },
+
+  // Quick Actions
+  quickActionsContainer: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center', 
+    backgroundColor: '#FFF',
+    borderRadius: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  actionItem: { alignItems: 'center', flex: 1 },
+  actionIconContainer: { 
+    width: 44, 
+    height: 44, 
+    borderRadius: 12, 
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    marginBottom: 6 
+  },
+  actionText: { fontSize: 9.5, color: '#374151', textAlign: 'center', fontWeight: '600' },
+
+  // Contest Zone Card
+  contestCard: { 
+    backgroundColor: '#151336', 
+    borderRadius: 20, 
+    padding: 14, 
+    marginBottom: 16 
+  },
+  contestHeader: { 
+    flexDirection: 'row', 
+    alignItems: 'center',
+    borderBottomWidth: 1, 
+    borderBottomColor: 'rgba(255,255,255,0.1)', 
+    paddingBottom: 14, 
+    marginBottom: 12 
+  },
+  contestTrophy: { width: 62, height: 75, marginRight: 6 },
+  contestMainInfo: { flex: 1.1, paddingRight: 6 },
+  contestTag: { flexDirection: 'row', alignItems: 'center', gap: 3, marginBottom: 4 },
+  contestTagText: { color: '#A78BFA', fontSize: 10.5, fontWeight: '700' },
+  contestTitle: { color: '#FFF', fontSize: 14, fontWeight: '800', marginBottom: 2 },
+  contestSubtitle: { color: '#9CA3AF', fontSize: 9.5, lineHeight: 13, marginBottom: 10 },
+  contestButton: { 
+    backgroundColor: '#6D28D9', 
+    alignSelf: 'flex-start', 
+    paddingHorizontal: 12, 
+    paddingVertical: 6, 
+    borderRadius: 14, 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    gap: 4 
+  },
+  contestButtonText: { color: '#FFF', fontSize: 10, fontWeight: '700' },
+  contestLeaderboard: { flex: 1, borderLeftWidth: 1, borderLeftColor: 'rgba(255,255,255,0.1)', paddingLeft: 8 },
+  leaderboardTitle: { color: '#FFF', fontSize: 10.5, fontWeight: '700', marginBottom: 8 },
+  leaderboardRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
+  rankBadge: { width: 15, height: 15, borderRadius: 7.5, justifyContent: 'center', alignItems: 'center', marginRight: 5 },
+  rankText: { color: '#FFF', fontSize: 8.5, fontWeight: 'bold' },
+  leaderboardName: { color: '#D1D5DB', fontSize: 10, flex: 1 },
+  leaderboardScore: { color: '#FFF', fontSize: 10, fontWeight: '700' },
+  
+  // Contest Footer
+  contestFooter: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 4 },
   contestStat: { alignItems: 'flex-start' },
-  statLabel: { color: '#9CA3AF', fontSize: 10, marginTop: 4, marginBottom: 2 },
-  statValue: { color: '#FFF', fontSize: 12, fontWeight: 'bold' },
-  bottomRow: { flexDirection: 'row', gap: 16 },
-  progressCard: { flex: 1, backgroundColor: '#FFF', borderRadius: 20, padding: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 },
-  streakCard: { flex: 1, backgroundColor: '#FFF', borderRadius: 20, padding: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 },
-  cardTitle: { fontSize: 14, fontWeight: 'bold', color: '#111827' },
-  cardSubtitle: { fontSize: 12, color: '#6B7280', marginBottom: 16 },
-  progressChartArea: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
-  progressCircle: { width: 60, height: 60, borderRadius: 30, borderWidth: 8, borderColor: '#4C1D95', justifyContent: 'center', alignItems: 'center', marginRight: 12, borderRightColor: '#E5E7EB' },
-  progressPercent: { fontSize: 14, fontWeight: 'bold', color: '#111827' },
+  contestStatHeader: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 2 },
+  statLabel: { color: '#9CA3AF', fontSize: 9.5, fontWeight: '500' },
+  statValue: { color: '#FFF', fontSize: 11, fontWeight: '800' },
+
+  // Bottom Row
+  bottomRow: { flexDirection: 'row', gap: 12 },
+  progressCard: { 
+    flex: 1, 
+    backgroundColor: '#FFF', 
+    borderRadius: 18, 
+    padding: 12, 
+    shadowColor: '#000', 
+    shadowOffset: { width: 0, height: 2 }, 
+    shadowOpacity: 0.04, 
+    shadowRadius: 6, 
+    elevation: 2,
+    justifyContent: 'space-between'
+  },
+  streakCard: { 
+    flex: 1, 
+    backgroundColor: '#FFF', 
+    borderRadius: 18, 
+    padding: 12, 
+    shadowColor: '#000', 
+    shadowOffset: { width: 0, height: 2 }, 
+    shadowOpacity: 0.04, 
+    shadowRadius: 6, 
+    elevation: 2,
+    justifyContent: 'space-between'
+  },
+  cardHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 },
+  cardTitle: { fontSize: 13, fontWeight: '800', color: '#111827' },
+  cardSubtitle: { fontSize: 10, color: '#9CA3AF' },
+  
+  // Progress Donut
+  progressChartArea: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
+  donutContainer: { marginRight: 8 },
+  donutCircle: { 
+    width: 48, 
+    height: 48, 
+    borderRadius: 24, 
+    borderWidth: 5.5, 
+    borderColor: '#2563EB', 
+    borderRightColor: '#E5E7EB', 
+    borderBottomColor: '#2563EB',
+    justifyContent: 'center', 
+    alignItems: 'center' 
+  },
+  progressPercent: { fontSize: 11, fontWeight: '800', color: '#111827' },
   progressLegend: { flex: 1 },
-  legendItem: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
-  dot: { width: 6, height: 6, borderRadius: 3, marginRight: 6 },
-  legendText: { fontSize: 10, color: '#4B5563' },
-  linkText: { color: '#6D28D9', fontSize: 12, fontWeight: '600', marginTop: 'auto' },
-  streakHeader: { marginBottom: 12 },
-  streakNumber: { fontSize: 28, fontWeight: 'bold', color: '#111827', marginBottom: 16 },
-  streakLabel: { fontSize: 12, color: '#6B7280', fontWeight: 'normal' },
-  daysRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 16 },
+  legendItem: { flexDirection: 'row', alignItems: 'center', marginBottom: 3 },
+  dot: { width: 5, height: 5, borderRadius: 2.5, marginRight: 5 },
+  legendText: { fontSize: 9, color: '#4B5563', fontWeight: '500' },
+  linkText: { color: '#6D28D9', fontSize: 10, fontWeight: '700' },
+
+  // Streak
+  streakNumber: { fontSize: 24, fontWeight: '900', color: '#111827', marginVertical: 4 },
+  streakLabel: { fontSize: 10, color: '#6B7280', fontWeight: 'normal' },
+  daysRow: { flexDirection: 'row', justifyContent: 'space-between', marginVertical: 8 },
   dayItem: { alignItems: 'center' },
-  dayCircle: { width: 16, height: 16, borderRadius: 8, justifyContent: 'center', alignItems: 'center', marginBottom: 4 },
+  dayCircle: { width: 15, height: 15, borderRadius: 7.5, justifyContent: 'center', alignItems: 'center', marginBottom: 3 },
   dayActive: { backgroundColor: '#10B981' },
-  dayInactive: { backgroundColor: '#F3F4F6', borderWidth: 1, borderColor: '#D1D5DB' },
-  dayText: { fontSize: 8, color: '#6B7280' }
+  dayInactive: { backgroundColor: '#FFF', borderWidth: 1, borderColor: '#D1D5DB' },
+  dayText: { fontSize: 7.5, color: '#6B7280', fontWeight: '500' },
+  streakSubText: { color: '#6D28D9', fontSize: 10, fontWeight: '700' }
 });
+

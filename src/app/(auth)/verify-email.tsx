@@ -126,7 +126,8 @@ export default function VerifyEmailScreen() {
               
               try {
                 setIsLoading(true);
-                const response = await api.post('/auth/verify-otp/', {
+                console.log("Sending Verify OTP Payload:", { email, otp_code: enteredCode });
+                const response = await api.post('/api/auth/verify-otp/', {
                   email: email,
                   otp_code: enteredCode
                 });
@@ -135,7 +136,15 @@ export default function VerifyEmailScreen() {
                 router.push('/(auth)/choose-goal');
               } catch (error: any) {
                 setHasError(true);
-                const errorMsg = error.response?.data?.message || error.response?.data?.error || 'Verification failed';
+                const data = error.response?.data;
+                console.error("Verify OTP Error:", data);
+                let errorMsg = 'Verification failed';
+                if (data) {
+                   if (typeof data === 'string') errorMsg = data;
+                   else if (data.error) errorMsg = data.message || data.error;
+                   else if (data.non_field_errors) errorMsg = data.non_field_errors[0];
+                   else errorMsg = JSON.stringify(data);
+                }
                 Alert.alert('Error', errorMsg);
               } finally {
                 setIsLoading(false);
@@ -151,7 +160,14 @@ export default function VerifyEmailScreen() {
 
           <View style={styles.resendContainer}>
             <Text style={styles.resendText}>Didn't receive a mail? </Text>
-            <TouchableOpacity onPress={() => console.log('Resend pressed')}>
+            <TouchableOpacity onPress={async () => {
+              try {
+                await api.post('/api/auth/resend-otp/', { email: email });
+                Alert.alert('Success', 'A new OTP has been sent to your email.');
+              } catch (error: any) {
+                Alert.alert('Error', error.response?.data?.message || 'Failed to resend OTP.');
+              }
+            }}>
               <Text style={styles.resendLink}>Resend</Text>
             </TouchableOpacity>
           </View>

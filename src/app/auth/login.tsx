@@ -1,14 +1,12 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, KeyboardAvoidingView, Platform, ScrollView, ActivityIndicator } from 'react-native';
-import { useRouter } from 'expo-router';
-import { Image } from 'expo-image';
-import { SymbolView } from 'expo-symbols';
-import { CustomInput } from '@/components/CustomInput';
 import { CustomButton } from '@/components/CustomButton';
 import { CustomCheckbox } from '@/components/CustomCheckbox';
-import { api } from '@/services/api';
+import { CustomInput } from '@/components/CustomInput';
 import { useAuth } from '@/context/AuthContext';
-import { Alert } from 'react-native';
+import { api } from '@/services/api';
+import { Image } from 'expo-image';
+import { useRouter } from 'expo-router';
+import { useState } from 'react';
+import { Alert, KeyboardAvoidingView, Platform, SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -17,6 +15,7 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -67,21 +66,41 @@ export default function LoginScreen() {
               </TouchableOpacity>
             </View>
 
+            {formError && (
+              <Text style={styles.errorText}>{formError}</Text>
+            )}
+
             <CustomButton 
               title="Log in" 
               loading={loading}
               onPress={async () => {
                 try {
+                  setFormError(null);
                   setLoading(true);
-                  const response = await api.post('/auth/login/', {
+                  const response = await api.post('/api/auth/login/', {
                     username: email,
                     password: password
                   });
                   await login(response.data.token);
-                  router.replace('/');
+                  router.replace('/(tabs)');
                 } catch (error: any) {
-                  const errorMsg = error.response?.data?.message || error.response?.data?.error || 'Login failed';
-                  Alert.alert('Error', errorMsg);
+                  const data = error.response?.data;
+                  let errorMsg = error.message || 'Login failed';
+                  if (data) {
+                    if (typeof data === 'string') {
+                        errorMsg = data;
+                    } else if (data.non_field_errors && Array.isArray(data.non_field_errors)) {
+                      const err = data.non_field_errors[0];
+                      errorMsg = typeof err === 'string' ? err : (err.message || err.error || JSON.stringify(err));
+                    } else if (data.message) {
+                      errorMsg = data.message;
+                    } else if (data.error) {
+                      errorMsg = typeof data.error === 'string' ? data.error : (data.error.message || JSON.stringify(data.error));
+                    } else {
+                      errorMsg = JSON.stringify(data);
+                    }
+                  }
+                  setFormError(errorMsg);
                 } finally {
                   setLoading(false);
                 }
@@ -91,7 +110,7 @@ export default function LoginScreen() {
 
             <View style={styles.signupContainer}>
               <Text style={styles.signupText}>Don't have an account? </Text>
-              <TouchableOpacity>
+              <TouchableOpacity onPress={() => router.push('/(auth)/signup')}>
                 <Text style={styles.signupLink}>Sign up</Text>
               </TouchableOpacity>
             </View>
@@ -181,6 +200,14 @@ const styles = StyleSheet.create({
   },
   loginButton: {
     marginBottom: 24,
+  },
+  errorText: {
+    color: '#EF4444',
+    fontSize: 14,
+    marginBottom: 20,
+    marginTop: -10,
+    fontWeight: '500',
+    textAlign: 'center',
   },
   signupContainer: {
     flexDirection: 'row',
