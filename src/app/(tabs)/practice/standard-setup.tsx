@@ -1,6 +1,7 @@
 import React from 'react';
-import { View, Text, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, Image, Platform } from 'react-native';
+import { View, Text, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, Platform } from 'react-native';
 import { SymbolView } from 'expo-symbols';
+import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 
@@ -14,9 +15,9 @@ export default function StandardSetupScreen() {
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-            <SymbolView name="chevron.left" size={20} tintColor="#111827" />
+            <Image source={require('../../../../assets/images/back-icon.svg')} style={styles.backIcon} />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Standard Mode</Text>
+          <Text style={styles.headerTitle}>Practice Setup</Text>
           <View style={styles.streakBadge}>
             <Text style={styles.streakEmoji}>🔥</Text>
             <Text style={styles.streakText}>120</Text>
@@ -149,10 +150,11 @@ export default function StandardSetupScreen() {
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#FFF' },
   container: { padding: 20, paddingTop: Platform.OS === 'android' ? 20 : 0 },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
-  backButton: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: '#E5E7EB', justifyContent: 'center', alignItems: 'center' },
-  headerTitle: { fontSize: 18, fontWeight: 'bold', color: '#111827' },
-  streakBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F3E8FF', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16 },
+  header: { flexDirection: 'row', alignItems: 'center', marginBottom: 24 },
+  backButton: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: '#E5E7EB', justifyContent: 'center', alignItems: 'center', marginRight: 16 },
+  backIcon: { width: 20, height: 20 },
+  headerTitle: { fontSize: 20, fontWeight: 'bold', color: '#111827' },
+  streakBadge: { marginLeft: 'auto', flexDirection: 'row', alignItems: 'center', backgroundColor: '#F3E8FF', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16 },
   streakEmoji: { fontSize: 14, marginRight: 4 },
   streakText: { color: '#6D28D9', fontWeight: 'bold', fontSize: 14 },
   heroCard: { borderRadius: 24, padding: 20, marginBottom: 32 },

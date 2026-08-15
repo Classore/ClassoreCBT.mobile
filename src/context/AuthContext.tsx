@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import * as SecureStore from 'expo-secure-store';
+import { Platform } from 'react-native';
 
 type AuthContextType = {
   token: string | null;
@@ -18,12 +19,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Check for stored token on mount
     const bootstrapAsync = async () => {
       try {
-        const storedToken = await SecureStore.getItemAsync('auth_token');
+        let storedToken = null;
+        if (Platform.OS === 'web') {
+          storedToken = localStorage.getItem('auth_token');
+        } else {
+          storedToken = await SecureStore.getItemAsync('auth_token');
+        }
+        
         if (storedToken) {
           setToken(storedToken);
         }
       } catch (e) {
-        console.error('Failed to load token');
+        console.error('Failed to load token', e);
       }
       setIsLoading(false);
     };
@@ -33,19 +40,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = async (newToken: string) => {
     try {
-      await SecureStore.setItemAsync('auth_token', newToken);
+      if (Platform.OS === 'web') {
+        localStorage.setItem('auth_token', newToken);
+      } else {
+        await SecureStore.setItemAsync('auth_token', newToken);
+      }
       setToken(newToken);
     } catch (e) {
-      console.error('Failed to save token');
+      console.error('Failed to save token', e);
     }
   };
 
   const logout = async () => {
     try {
-      await SecureStore.deleteItemAsync('auth_token');
+      if (Platform.OS === 'web') {
+        localStorage.removeItem('auth_token');
+      } else {
+        await SecureStore.deleteItemAsync('auth_token');
+      }
       setToken(null);
     } catch (e) {
-      console.error('Failed to delete token');
+      console.error('Failed to delete token', e);
     }
   };
 

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, KeyboardAvoidingView, Platform, ScrollView, Alert } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import { Image } from 'expo-image';
 import { SymbolView } from 'expo-symbols';
 import { CustomInput } from '@/components/CustomInput';
 import { CustomButton } from '@/components/CustomButton';
@@ -24,7 +25,7 @@ export default function ResetPasswordScreen() {
           {/* Header */}
           <View style={styles.header}>
             <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-              <SymbolView name="chevron.left" size={24} tintColor="#000" />
+              <Image source={require('../../../assets/images/back-icon.svg')} style={styles.backIcon} />
             </TouchableOpacity>
           </View>
 
@@ -122,6 +123,10 @@ const styles = StyleSheet.create({
     height: 40,
     justifyContent: 'center',
     marginLeft: -8,
+  },
+  backIcon: {
+    width: 24,
+    height: 24,
   },
   title: {
     fontSize: 28,

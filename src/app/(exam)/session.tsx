@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, Modal, Platform } from 'react-native';
 import { SymbolView } from 'expo-symbols';
 import { useRouter } from 'expo-router';
+import { Image } from 'expo-image';
 
 // Custom Hook for Timer
 function useCountdown(initialSeconds: number) {
@@ -231,7 +232,9 @@ export default function ExamSessionScreen() {
               </View>
             </ScrollView>
             <View style={styles.paletteFooter}>
-              <TouchableOpacity><SymbolView name="chevron.left" size={20} tintColor="#111827" /></TouchableOpacity>
+              <TouchableOpacity>
+                <Image source={require('../../../assets/images/back-icon.svg')} style={styles.backIcon} />
+              </TouchableOpacity>
               <TouchableOpacity><SymbolView name="chevron.right" size={20} tintColor="#111827" /></TouchableOpacity>
             </View>
           </View>
@@ -311,6 +314,7 @@ const styles = StyleSheet.create({
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center', padding: 20 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
   modalTitle: { fontSize: 18, fontWeight: 'bold', color: '#111827' },
+  backIcon: { width: 20, height: 20 },
   calculatorCard: { backgroundColor: '#FFF', borderRadius: 24, padding: 20, width: '90%' },
   calcDisplay: { backgroundColor: '#F9FAFB', borderRadius: 12, padding: 20, alignItems: 'flex-end', marginBottom: 20 },
   calcDisplayText: { fontSize: 32, fontWeight: 'bold', color: '#111827' },

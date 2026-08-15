@@ -1,6 +1,7 @@
 import { Tabs } from 'expo-router';
 import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
 import { SymbolView } from 'expo-symbols';
+import { Image } from 'expo-image';
 
 // Custom tab bar button for the center action
 const CustomTabBarButton = ({ children, onPress }: any) => (
@@ -10,7 +11,7 @@ const CustomTabBarButton = ({ children, onPress }: any) => (
     activeOpacity={0.8}
   >
     <View style={styles.customButton}>
-      <SymbolView name="plus" size={30} tintColor="#FFF" />
+      <Image source={require('../../../assets/images/plus-icon.png')} style={{ width: 24, height: 24 }} contentFit="contain" />
     </View>
   </TouchableOpacity>
 );
@@ -32,7 +33,7 @@ export default function TabsLayout() {
         options={{
           title: 'Home',
           tabBarIcon: ({ color }) => (
-            <SymbolView name="house.fill" size={24} tintColor={color} />
+            <Image source={require('../../../assets/images/home-icon.png')} style={{ width: 24, height: 24, tintColor: color }} contentFit="contain" />
           ),
         }}
       />
@@ -42,7 +43,7 @@ export default function TabsLayout() {
         options={{
           title: 'Practice',
           tabBarIcon: ({ color }) => (
-            <SymbolView name="doc.plaintext" size={24} tintColor={color} />
+            <Image source={require('../../../assets/images/practice-icon.png')} style={{ width: 24, height: 24, tintColor: color }} contentFit="contain" />
           ),
         }}
       />
@@ -62,7 +63,7 @@ export default function TabsLayout() {
         options={{
           title: 'Reports',
           tabBarIcon: ({ color }) => (
-            <SymbolView name="chart.pie" size={24} tintColor={color} />
+            <Image source={require('../../../assets/images/reports-icon.png')} style={{ width: 24, height: 24, tintColor: color }} contentFit="contain" />
           ),
         }}
       />
@@ -72,7 +73,7 @@ export default function TabsLayout() {
         options={{
           title: 'Profile',
           tabBarIcon: ({ color }) => (
-            <SymbolView name="person" size={24} tintColor={color} />
+            <Image source={require('../../../assets/images/profile-icon.png')} style={{ width: 24, height: 24, tintColor: color }} contentFit="contain" />
           ),
         }}
       />
@@ -90,14 +91,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
     borderTopWidth: 1,
     borderTopColor: '#F3F4F6',
-    height: Platform.OS === 'ios' ? 85 : 70,
-    paddingBottom: Platform.OS === 'ios' ? 25 : 10,
-    paddingTop: 10,
+    height: Platform.OS === 'ios' ? 85 : 65,
+    paddingBottom: Platform.OS === 'ios' ? 25 : 8,
+    paddingTop: 8,
   },
   tabBarLabel: {
     fontSize: 10,
     fontWeight: '500',
-    marginTop: 4,
   },
   customButtonContainer: {
     top: -20,

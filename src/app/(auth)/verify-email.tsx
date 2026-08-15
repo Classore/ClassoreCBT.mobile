@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
   Alert
 } from 'react-native';
+import { Image } from 'expo-image';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { api } from '@/services/api';
 import { useAuth } from '@/context/AuthContext';
@@ -78,7 +79,7 @@ export default function VerifyEmailScreen() {
           {/* Header */}
           <View style={styles.header}>
             <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-              <Text style={styles.backButtonText}>{'<'}</Text>
+              <Image source={require('../../../assets/images/back-icon.svg')} style={styles.backIcon} />
             </TouchableOpacity>
             <Text style={styles.headerTitle}>Sign up</Text>
             <View style={styles.placeholder} />
@@ -187,10 +188,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  backButtonText: {
-    fontSize: 18,
-    color: '#000',
-    fontWeight: '500',
+  backIcon: {
+    width: 16,
+    height: 16,
   },
   headerTitle: {
     fontSize: 16,

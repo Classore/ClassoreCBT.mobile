@@ -3,6 +3,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { useColorScheme } from 'react-native';
 import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router';
 import { AuthProvider } from '@/context/AuthContext';
+import { DevMenu } from '@/components/DevMenu';
 
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
@@ -20,6 +21,7 @@ export default function RootLayout() {
           <Stack.Screen name="auth" />
           <Stack.Screen name="(exam)" />
         </Stack>
+        <DevMenu />
       </ThemeProvider>
     </AuthProvider>
   );

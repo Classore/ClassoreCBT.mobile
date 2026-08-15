@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, SafeAreaView, Platform, Image } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, SafeAreaView, Platform, ImageBackground } from 'react-native';
+import { Image } from 'expo-image';
 import { SymbolView } from 'expo-symbols';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -23,10 +24,13 @@ export default function HomeScreen() {
           </View>
           <View style={styles.headerActions}>
             <TouchableOpacity style={styles.iconButton}>
-              <SymbolView name="trophy.fill" size={20} tintColor="#F59E0B" />
+              <Image source={require('../../../assets/images/moon-icon.png')} style={styles.headerIcon} contentFit="contain" />
             </TouchableOpacity>
             <TouchableOpacity style={styles.iconButton}>
-              <SymbolView name="bell" size={20} tintColor="#4B5563" />
+              <Image source={require('../../../assets/images/trophy-icon.png')} style={styles.headerIcon} contentFit="contain" />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.iconButton}>
+              <Image source={require('../../../assets/images/bell-icon.png')} style={styles.headerIcon} contentFit="contain" />
               <View style={styles.notificationDot} />
             </TouchableOpacity>
           </View>
@@ -45,12 +49,27 @@ export default function HomeScreen() {
               onPress={() => router.push('/(tabs)/practice')}
             >
               <Text style={styles.heroButtonText}>Start Test</Text>
-              <SymbolView name="arrow.right" size={16} tintColor="#FFF" />
+              <Image source={require('../../../assets/images/arrow-right-icon.png')} style={{ width: 16, height: 16 }} contentFit="contain" />
             </TouchableOpacity>
           </View>
-          {/* Illustration placeholder */}
-          <View style={styles.heroImagePlaceholder}>
-            <SymbolView name="book.closed.fill" size={60} tintColor="#8B5CF6" />
+          {/* Hero Illustration */}
+          <View style={styles.heroImageContainer}>
+            <Image source={require('../../../assets/images/hero-student.png')} style={styles.heroImage} contentFit="contain" />
+            
+            <View style={[styles.badge, styles.improveBadge]}>
+              <Image source={require('../../../assets/images/improve-badge.png')} style={styles.badgeIcon} contentFit="contain" />
+              <Text style={styles.improveBadgeText}>Improve</Text>
+            </View>
+            
+            <View style={[styles.badge, styles.achieveBadge]}>
+              <Image source={require('../../../assets/images/achieve-badge.png')} style={styles.badgeIcon} contentFit="contain" />
+              <Text style={styles.achieveBadgeText}>Achieve</Text>
+            </View>
+            
+            <View style={[styles.badge, styles.learnBadge]}>
+              <Image source={require('../../../assets/images/learn-badge.png')} style={styles.badgeIcon} contentFit="contain" />
+              <Text style={styles.learnBadgeText}>Learn</Text>
+            </View>
           </View>
         </LinearGradient>
 
@@ -60,36 +79,38 @@ export default function HomeScreen() {
           activeOpacity={0.9}
           onPress={() => router.push('/(tabs)/explore')}
         >
-          <SymbolView name="magnifyingglass" size={20} tintColor="#9CA3AF" />
+          <Image source={require('../../../assets/images/search-icon.png')} style={{ width: 20, height: 20 }} contentFit="contain" />
           <Text style={styles.searchText}>What do you want to practice today?</Text>
-          <SymbolView name="line.3.horizontal.decrease" size={20} tintColor="#9CA3AF" style={styles.filterIcon} />
+          <Image source={require('../../../assets/images/filter-icon.png')} style={{ width: 20, height: 20, marginLeft: 12 }} contentFit="contain" />
         </TouchableOpacity>
 
         {/* Exam Cards (Horizontal Scroll) */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.examScroll}>
           <LinearGradient colors={['#3B82F6', '#1D4ED8']} style={styles.examCard}>
+            <Image source={require('../../../assets/images/jamb-bg.png')} style={[StyleSheet.absoluteFillObject, { borderRadius: 16 }]} contentFit="cover" />
             <View style={styles.examIconContainer}>
-              <SymbolView name="graduationcap.fill" size={24} tintColor="#FFF" />
+              <Image source={require('../../../assets/images/exam-jamb-icon.png')} style={{ width: 24, height: 24 }} contentFit="contain" />
             </View>
             <Text style={styles.examTitle}>JAMB</Text>
             <Text style={styles.examSubtitle}>UTME Practice</Text>
             <Text style={styles.examDesc}>All subjects | Past questions{'\n'}Mock tests | Performance</Text>
             <TouchableOpacity style={styles.examButton}>
               <Text style={styles.examButtonText}>Explore JAMB</Text>
-              <SymbolView name="arrow.right" size={12} tintColor="#1D4ED8" />
+              <Image source={require('../../../assets/images/arrow-right-blue-icon.png')} style={{ width: 12, height: 12 }} contentFit="contain" />
             </TouchableOpacity>
           </LinearGradient>
           
           <LinearGradient colors={['#8B5CF6', '#5B21B6']} style={styles.examCard}>
+            <Image source={require('../../../assets/images/ielts-bg.png')} style={[StyleSheet.absoluteFillObject, { borderRadius: 16 }]} contentFit="cover" />
             <View style={styles.examIconContainer}>
-              <SymbolView name="headphones" size={24} tintColor="#FFF" />
+              <Image source={require('../../../assets/images/exam-ielts-icon.png')} style={{ width: 24, height: 24 }} contentFit="contain" />
             </View>
             <Text style={styles.examTitle}>IELTS</Text>
             <Text style={styles.examSubtitle}>English Test</Text>
             <Text style={styles.examDesc}>Listening • Reading{'\n'}Writing • Speaking</Text>
             <TouchableOpacity style={styles.examButton}>
               <Text style={styles.examButtonText}>Explore IELTS</Text>
-              <SymbolView name="arrow.right" size={12} tintColor="#5B21B6" />
+              <Image source={require('../../../assets/images/arrow-right-blue-icon.png')} style={{ width: 12, height: 12 }} contentFit="contain" />
             </TouchableOpacity>
           </LinearGradient>
         </ScrollView>
@@ -97,16 +118,16 @@ export default function HomeScreen() {
         {/* Quick Actions */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickActionsScroll}>
           {[
-            { id: 1, name: 'Mock Tests', icon: 'doc.text.fill', color: '#10B981', bg: '#D1FAE5' },
-            { id: 2, name: 'Study Room', icon: 'square.stack.3d.up.fill', color: '#F97316', bg: '#FFEDD5' },
-            { id: 3, name: 'Weak Areas', icon: 'target', color: '#3B82F6', bg: '#DBEAFE' },
-            { id: 4, name: 'Achievements', icon: 'rosette', color: '#E11D48', bg: '#FFE4E6' },
-            { id: 5, name: 'Wallet', icon: 'creditcard.fill', color: '#8B5CF6', bg: '#EDE9FE' },
-            { id: 6, name: 'Refer & Earn', icon: 'gift.fill', color: '#F59E0B', bg: '#FEF3C7' },
+            { id: 1, name: 'Mock Tests', image: require('../../../assets/images/qa-mock-tests.png'), bg: '#D1FAE5' },
+            { id: 2, name: 'Study Room', image: require('../../../assets/images/qa-study-room.png'), bg: '#FFEDD5' },
+            { id: 3, name: 'Weak Areas', image: require('../../../assets/images/qa-target.png'), bg: '#DBEAFE' },
+            { id: 4, name: 'Achievements', image: require('../../../assets/images/qa-achievements.png'), bg: '#FFE4E6' },
+            { id: 5, name: 'Wallet', image: require('../../../assets/images/qa-wallet.png'), bg: '#EDE9FE' },
+            { id: 6, name: 'Refer & Earn', image: require('../../../assets/images/qa-gift-icon.png'), bg: '#FEF3C7' },
           ].map(action => (
             <TouchableOpacity key={action.id} style={styles.actionItem}>
               <View style={[styles.actionIconContainer, { backgroundColor: action.bg }]}>
-                <SymbolView name={action.icon as any} size={24} tintColor={action.color} />
+                <Image source={action.image} style={{ width: 24, height: 24 }} contentFit="contain" />
               </View>
               <Text style={styles.actionText}>{action.name}</Text>
             </TouchableOpacity>
@@ -116,16 +137,17 @@ export default function HomeScreen() {
         {/* Contest Zone */}
         <View style={styles.contestCard}>
           <View style={styles.contestHeader}>
-            <View>
+            <Image source={require('../../../assets/images/contest-trophy.png')} style={{ width: 80, height: 100, marginLeft: -10 }} contentFit="contain" />
+            <View style={{ flex: 1 }}>
               <View style={styles.contestTag}>
-                <SymbolView name="star.fill" size={10} tintColor="#8B5CF6" />
+                <Image source={require('../../../assets/images/contest-star-icon.png')} style={{ width: 12, height: 12 }} contentFit="contain" />
                 <Text style={styles.contestTagText}>Contest Zone</Text>
               </View>
               <Text style={styles.contestTitle}>Compete. Rank. Win!</Text>
               <Text style={styles.contestSubtitle}>Join weekly contests and climb{'\n'}the leaderboard.</Text>
               <TouchableOpacity style={styles.contestButton}>
                 <Text style={styles.contestButtonText}>View Contests</Text>
-                <SymbolView name="arrow.right" size={12} tintColor="#FFF" />
+                <Image source={require('../../../assets/images/arrow-right-sm-icon.png')} style={{ width: 12, height: 12, tintColor: '#FFF' }} contentFit="contain" />
               </TouchableOpacity>
             </View>
             <View style={styles.contestLeaderboard}>
@@ -143,17 +165,19 @@ export default function HomeScreen() {
           </View>
           <View style={styles.contestFooter}>
             <View style={styles.contestStat}>
-              <SymbolView name="clock" size={14} tintColor="#9CA3AF" />
+              <Image source={require('../../../assets/images/contest-time-icon.png')} style={{ width: 14, height: 14 }} contentFit="contain" />
               <Text style={styles.statLabel}>Time Left</Text>
               <Text style={styles.statValue}>3d : 12h : 45m</Text>
             </View>
+            
             <View style={styles.contestStat}>
-              <SymbolView name="person.2" size={14} tintColor="#9CA3AF" />
+              <Image source={require('../../../assets/images/contest-participants-icon.png')} style={{ width: 14, height: 14 }} contentFit="contain" />
               <Text style={styles.statLabel}>Participants</Text>
               <Text style={styles.statValue}>2,568</Text>
             </View>
+
             <View style={styles.contestStat}>
-              <SymbolView name="gift" size={14} tintColor="#9CA3AF" />
+              <Image source={require('../../../assets/images/contest-prize-icon.png')} style={{ width: 14, height: 14 }} contentFit="contain" />
               <Text style={styles.statLabel}>Prize Pool</Text>
               <Text style={styles.statValue}>150,000</Text>
             </View>
@@ -185,11 +209,11 @@ export default function HomeScreen() {
             <Text style={styles.streakNumber}>7 <Text style={styles.streakLabel}>Days in a row!</Text></Text>
             <View style={styles.daysRow}>
               {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day, i) => (
-                <View key={day} style={styles.dayItem}>
-                  <View style={[styles.dayCircle, i < 6 ? styles.dayActive : styles.dayInactive]}>
-                    {i < 6 && <SymbolView name="checkmark" size={12} tintColor="#FFF" />}
+                <View key={day} style={styles.streakDay}>
+                  <View style={[styles.streakCircle, i < 6 ? styles.streakCircleActive : {}]}>
+                    {i < 6 && <Image source={require('../../../assets/images/streak-check-icon.png')} style={{ width: 12, height: 12 }} contentFit="contain" />}
                   </View>
-                  <Text style={styles.dayText}>{day}</Text>
+                  <Text style={styles.streakDayText}>{day}</Text>
                 </View>
               ))}
             </View>
@@ -211,6 +235,7 @@ const styles = StyleSheet.create({
   subGreeting: { fontSize: 14, color: '#6B7280', marginTop: 4 },
   headerActions: { flexDirection: 'row', gap: 12 },
   iconButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#FFF', justifyContent: 'center', alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
+  headerIcon: { width: 24, height: 24 },
   notificationDot: { position: 'absolute', top: 10, right: 10, width: 8, height: 8, borderRadius: 4, backgroundColor: '#EF4444', borderWidth: 1, borderColor: '#FFF' },
   heroBanner: { borderRadius: 20, padding: 20, flexDirection: 'row', marginBottom: 24, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 10, elevation: 3 },
   heroContent: { flex: 1, paddingRight: 10 },
@@ -219,7 +244,16 @@ const styles = StyleSheet.create({
   heroSubtitle: { fontSize: 13, color: '#4B5563', lineHeight: 20, marginBottom: 16 },
   heroButton: { backgroundColor: '#4C1D95', alignSelf: 'flex-start', paddingHorizontal: 20, paddingVertical: 12, borderRadius: 24, flexDirection: 'row', alignItems: 'center', gap: 8 },
   heroButtonText: { color: '#FFF', fontWeight: '600', fontSize: 14 },
-  heroImagePlaceholder: { width: 100, justifyContent: 'center', alignItems: 'center' },
+  heroImageContainer: { width: 140, height: 160, justifyContent: 'flex-end', alignItems: 'center' },
+  heroImage: { width: '100%', height: '100%', position: 'absolute', bottom: -20, right: -10 },
+  badge: { position: 'absolute', flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 3, gap: 4 },
+  badgeIcon: { width: 12, height: 12 },
+  improveBadge: { top: 10, left: -20 },
+  improveBadgeText: { fontSize: 10, fontWeight: 'bold', color: '#10B981' },
+  achieveBadge: { top: 60, right: -25 },
+  achieveBadgeText: { fontSize: 10, fontWeight: 'bold', color: '#4C1D95' },
+  learnBadge: { bottom: 0, left: 10 },
+  learnBadgeText: { fontSize: 10, fontWeight: 'bold', color: '#F59E0B' },
   searchBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF', borderRadius: 16, padding: 16, marginBottom: 24, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 },
   searchText: { flex: 1, marginLeft: 12, fontSize: 15, color: '#9CA3AF' },
   filterIcon: { marginLeft: 12 },

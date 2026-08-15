@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, SafeAreaView } from 'react-native';
 import { useRouter } from 'expo-router';
+import { Image } from 'expo-image';
 import { SymbolView } from 'expo-symbols';
 import { CustomButton } from '@/components/CustomButton';
 
@@ -17,7 +18,7 @@ export default function SuccessScreen() {
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
         <View style={styles.iconContainer}>
-          <SymbolView name="checkmark" size={40} tintColor="#6C47C6" weight="bold" />
+          <Image source={require('../../../assets/images/success-check-icon.png')} style={styles.checkIcon} contentFit="contain" />
         </View>
 
         <Text style={styles.title}>Successful</Text>
@@ -60,6 +61,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 32,
+  },
+  checkIcon: {
+    width: 40,
+    height: 40,
   },
   title: {
     fontSize: 28,

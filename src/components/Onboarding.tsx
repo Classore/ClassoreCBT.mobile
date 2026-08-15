@@ -49,7 +49,7 @@ export function Onboarding() {
   };
 
   const navigateToHome = () => {
-    router.replace('/home');
+    router.replace('/(tabs)');
   };
 
   const navigateToAuth = () => {

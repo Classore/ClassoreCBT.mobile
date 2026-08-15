@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
-import { SymbolView } from 'expo-symbols';
+import { Image } from 'expo-image';
 import { CustomButton } from '@/components/CustomButton';
 
 type Goal = {
@@ -9,28 +9,37 @@ type Goal = {
   title: string;
   subtitle?: string;
   type: 'grid' | 'wide';
+  iconSource?: any;
 };
 
 const GOALS: Goal[] = [
-  { id: 'jamb', title: 'JAMB', type: 'grid' },
-  { id: 'waec', title: 'WAEC', type: 'grid' },
-  { id: 'neco', title: 'NECO', type: 'grid' },
-  { id: 'ielts', title: 'IELTS', type: 'grid' },
-  { id: 'sat', title: 'SAT', type: 'grid' },
-  { id: 'toefl', title: 'TOEFL', type: 'grid' },
-  { id: 'school', title: 'School Exams', subtitle: 'Post UTME, School Entrance & Others', type: 'wide' },
-  { id: 'professional', title: 'Professional Exams', subtitle: 'GRE, GMAT, ACCA, CFA & Others', type: 'wide' },
+  { id: 'jamb', title: 'JAMB', type: 'grid', iconSource: require('../../../assets/images/jamb-logo.png') },
+  { id: 'waec', title: 'WAEC', type: 'grid', iconSource: require('../../../assets/images/waec-logo.png') },
+  { id: 'neco', title: 'NECO', type: 'grid', iconSource: require('../../../assets/images/neco-logo.png') },
+  { id: 'ielts', title: 'IELTS', type: 'grid', iconSource: require('../../../assets/images/ielts-logo.png') },
+  { id: 'sat', title: 'SAT', type: 'grid', iconSource: require('../../../assets/images/sat-logo.png') },
+  { id: 'toefl', title: 'TOEFL', type: 'grid', iconSource: require('../../../assets/images/toefl-logo.png') },
+  { id: 'school', title: 'School Exams', subtitle: 'Post UTME, School Entrance & Others', type: 'wide', iconSource: require('../../../assets/images/school-logo.png') },
+  { id: 'professional', title: 'Professional Exams', subtitle: 'GRE, GMAT, ACCA, CFA & Others', type: 'wide', iconSource: require('../../../assets/images/professional-logo.png') },
 ];
 
 export default function ChooseGoalScreen() {
   const router = useRouter();
   const [selectedGoal, setSelectedGoal] = useState<string | null>(null);
 
-  const renderIconPlaceholder = (id: string) => {
+  const renderIconPlaceholder = (goal: Goal) => {
+    if (goal.iconSource) {
+      return (
+        <View style={[styles.iconPlaceholder, { backgroundColor: 'transparent' }]}>
+          <Image source={goal.iconSource} style={styles.goalImage} contentFit="contain" />
+        </View>
+      );
+    }
+    
     // A temporary placeholder for the missing icon images
     return (
       <View style={styles.iconPlaceholder}>
-        <Text style={styles.iconText}>{id.substring(0, 1).toUpperCase()}</Text>
+        <Text style={styles.iconText}>{goal.id.substring(0, 1).toUpperCase()}</Text>
       </View>
     );
   };
@@ -42,7 +51,7 @@ export default function ChooseGoalScreen() {
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-            <SymbolView name="chevron.left" size={24} tintColor="#000" />
+            <Image source={require('../../../assets/images/back-icon.svg')} style={styles.backIcon} />
           </TouchableOpacity>
         </View>
 
@@ -70,11 +79,11 @@ export default function ChooseGoalScreen() {
               >
                 {isSelected && (
                   <View style={styles.checkBadge}>
-                    <SymbolView name="checkmark" size={12} tintColor="#fff" weight="bold" />
+                    <Image source={require('../../../assets/images/checkmark-icon.svg')} style={styles.checkIcon} />
                   </View>
                 )}
                 
-                {renderIconPlaceholder(goal.id)}
+                {renderIconPlaceholder(goal)}
                 
                 <Text style={styles.cardTitle}>{goal.title}</Text>
                 {goal.subtitle && (
@@ -123,6 +132,10 @@ const styles = StyleSheet.create({
     height: 40,
     justifyContent: 'center',
     marginLeft: -8,
+  },
+  backIcon: {
+    width: 24,
+    height: 24,
   },
   title: {
     fontSize: 28,
@@ -182,6 +195,10 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#FFF',
   },
+  checkIcon: {
+    width: 12,
+    height: 9,
+  },
   iconPlaceholder: {
     width: 50,
     height: 50,
@@ -190,6 +207,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 12,
+  },
+  goalImage: {
+    width: 44,
+    height: 44,
   },
   iconText: {
     fontSize: 24,

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { View, TextInput, Text, StyleSheet, TouchableOpacity, TextInputProps } from 'react-native';
 import { SymbolView } from 'expo-symbols';
+import { Image } from 'expo-image';
 
 interface CustomInputProps extends TextInputProps {
   label: string;
@@ -31,10 +32,10 @@ export function CustomInput({ label, isPassword, style, ...props }: CustomInputP
             style={styles.eyeIcon} 
             onPress={() => setSecureTextEntry(!secureTextEntry)}
           >
-            <SymbolView 
-              name={secureTextEntry ? 'eye.slash' : 'eye'} 
-              size={20} 
-              tintColor="#B0B0B0" 
+            <Image 
+              source={require('../../assets/images/eye-icon.png')} 
+              style={[styles.eyeImage, { opacity: secureTextEntry ? 0.5 : 1 }]} 
+              contentFit="contain" 
             />
           </TouchableOpacity>
         )}
@@ -75,5 +76,9 @@ const styles = StyleSheet.create({
   eyeIcon: {
     padding: 10,
     marginRight: 6,
+  },
+  eyeImage: {
+    width: 20,
+    height: 20,
   },
 });

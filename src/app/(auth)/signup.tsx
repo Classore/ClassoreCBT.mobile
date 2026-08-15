@@ -12,6 +12,7 @@ import {
   ActivityIndicator,
   Alert
 } from 'react-native';
+import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { GoogleSignin, isSuccessResponse, isErrorWithCode, statusCodes } from '@react-native-google-signin/google-signin';
 
@@ -123,7 +124,7 @@ export default function SignupScreen() {
           {/* Header */}
           <View style={styles.header}>
             <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-              <Text style={styles.backButtonText}>{'<'}</Text>
+              <Image source={require('../../../assets/images/back-icon.svg')} style={styles.backIcon} />
             </TouchableOpacity>
             <Text style={styles.headerTitle}>Sign up</Text>
             <View style={styles.placeholder} />
@@ -218,7 +219,7 @@ export default function SignupScreen() {
 
           <View style={styles.loginLinkContainer}>
             <Text style={styles.loginText}>Already have an account? </Text>
-            <TouchableOpacity onPress={() => console.log('Log in pressed')}>
+            <TouchableOpacity onPress={() => router.push('/auth/login')}>
               <Text style={styles.loginLink}>Log in</Text>
             </TouchableOpacity>
           </View>
@@ -235,8 +236,8 @@ export default function SignupScreen() {
               <ActivityIndicator color="#111827" />
             ) : (
               <>
-                <Text style={styles.googleIcon}>G</Text>
-                <Text style={styles.googleButtonText}>Sign up with Google</Text>
+                <Image source={require('../../../assets/images/google-icon.png')} style={styles.googleIcon} contentFit="contain" />
+                <Text style={styles.googleButtonText}>Continue with Google</Text>
               </>
             )}
           </TouchableOpacity>
@@ -274,10 +275,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  backButtonText: {
-    fontSize: 18,
-    color: '#000',
-    fontWeight: '500',
+  backIcon: {
+    width: 16,
+    height: 16,
   },
   headerTitle: {
     fontSize: 16,
@@ -390,10 +390,9 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
   },
   googleIcon: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#DB4437',
-    marginRight: 12,
+    width: 20,
+    height: 20,
+    marginRight: 10,
   },
   googleButtonText: {
     fontSize: 16,

@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, Platform } from 'react-native';
 import { SymbolView } from 'expo-symbols';
 import { useRouter } from 'expo-router';
+import { Image } from 'expo-image';
 import { CustomButton } from '@/components/CustomButton';
 
 export default function TestInstructionsScreen() {
@@ -14,7 +15,7 @@ export default function TestInstructionsScreen() {
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-            <SymbolView name="chevron.left" size={20} tintColor="#111827" />
+            <Image source={require('../../../assets/images/back-icon.svg')} style={styles.backIcon} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Test Instructions</Text>
           <View style={styles.streakBadge}>
@@ -84,7 +85,8 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#FFF' },
   container: { padding: 20, paddingTop: Platform.OS === 'android' ? 20 : 0 },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 40 },
-  backButton: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: '#E5E7EB', justifyContent: 'center', alignItems: 'center' },
+  backButton: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: '#E5E7EB', justifyContent: 'center', alignItems: 'center', backgroundColor: '#F3F4F6' },
+  backIcon: { width: 20, height: 20 },
   headerTitle: { fontSize: 18, fontWeight: 'bold', color: '#111827' },
   streakBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F3E8FF', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16 },
   streakEmoji: { fontSize: 14, marginRight: 4 },

@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { SymbolView } from 'expo-symbols';
+import { Image } from 'expo-image';
 import { CustomButton } from '@/components/CustomButton';
 
 export default function PasswordResetConfirmScreen() {
@@ -14,7 +14,7 @@ export default function PasswordResetConfirmScreen() {
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-            <SymbolView name="chevron.left" size={24} tintColor="#000" />
+            <Image source={require('../../../assets/images/back-icon.svg')} style={styles.backIcon} />
           </TouchableOpacity>
         </View>
 
@@ -57,6 +57,10 @@ const styles = StyleSheet.create({
     height: 40,
     justifyContent: 'center',
     marginLeft: -8,
+  },
+  backIcon: {
+    width: 24,
+    height: 24,
   },
   title: {
     fontSize: 28,

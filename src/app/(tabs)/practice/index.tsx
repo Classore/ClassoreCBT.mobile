@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, Image, Platform } from 'react-native';
+import { View, Text, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, Platform } from 'react-native';
+import { Image } from 'expo-image';
 import { SymbolView } from 'expo-symbols';
 import { useRouter } from 'expo-router';
 import { CustomButton } from '@/components/CustomButton';
@@ -30,8 +31,9 @@ export default function ExamSetupScreen() {
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-            <SymbolView name="chevron.left" size={20} tintColor="#111827" />
+            <Image source={require('../../../../assets/images/back-icon.svg')} style={styles.backIcon} />
           </TouchableOpacity>
+          <Text style={styles.headerTitle}>Practice Mode</Text>
           <View style={styles.headerRight}>
             <View style={styles.streakBadge}>
               <Text style={styles.streakEmoji}>🔥</Text>
@@ -241,6 +243,8 @@ const styles = StyleSheet.create({
   container: { padding: 20, paddingTop: Platform.OS === 'android' ? 20 : 0 },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
   backButton: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: '#E5E7EB', justifyContent: 'center', alignItems: 'center' },
+  backIcon: { width: 20, height: 20 },
+  headerTitle: { fontSize: 20 },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   streakBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F3E8FF', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16 },
   streakEmoji: { fontSize: 14, marginRight: 4 },
@@ -252,7 +256,7 @@ const styles = StyleSheet.create({
   pageTitle: { fontSize: 32, fontWeight: '900', color: '#111827', lineHeight: 38 },
   highlightText: { color: '#6D28D9' },
   pageSubtitle: { fontSize: 14, color: '#6B7280', marginTop: 12, lineHeight: 20 },
-  illustrationPlaceholder: { width: 120, height: 120, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F9FAFB', borderRadius: 20 },
+  illustrationPlaceholder: { width: 120, height: 120, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F3F4F6', borderRadius: 20 },
   stepSection: { marginBottom: 32 },
   stepHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
   stepNumberBadge: { width: 24, height: 24, borderRadius: 12, backgroundColor: '#6D28D9', justifyContent: 'center', alignItems: 'center', marginRight: 12 },

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, KeyboardAvoidingView, Platform, ScrollView, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
+import { Image } from 'expo-image';
 import { SymbolView } from 'expo-symbols';
 import { CustomInput } from '@/components/CustomInput';
 import { CustomButton } from '@/components/CustomButton';
@@ -26,10 +27,10 @@ export default function LoginScreen() {
         <ScrollView contentContainerStyle={styles.scrollContent}>
           {/* Header */}
           <View style={styles.header}>
-            <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-              <SymbolView name="chevron.left" size={20} tintColor="#000" />
+            <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+              <Image source={require('../../../assets/images/back-icon.svg')} style={styles.backIcon} />
             </TouchableOpacity>
-            <Text style={styles.headerTitle}>Log in</Text>
+            <Text style={styles.headerTitle}>Login</Text>
             <View style={styles.headerRight} />
           </View>
 
@@ -108,7 +109,7 @@ export default function LoginScreen() {
             title="Continue with Google" 
             variant="secondary"
             onPress={() => {}} 
-            icon={<Text style={{fontSize: 16, fontWeight: 'bold'}}>G</Text>} // Placeholder for Google Icon
+            icon={<Image source={require('../../../assets/images/google-icon.png')} style={{ width: 20, height: 20, marginRight: 10 }} contentFit="contain" />} 
             style={styles.googleButton}
           />
         </ScrollView>
@@ -144,6 +145,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#F5F5F5',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  backIcon: {
+    width: 20,
+    height: 20,
   },
   headerTitle: {
     fontSize: 18,
