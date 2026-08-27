@@ -1,3 +1,4 @@
+import { AppText } from '@/components/AppText';
 import React, { useState } from 'react';
 import { View, TextInput, Text, StyleSheet, TouchableOpacity, TextInputProps } from 'react-native';
 import { SymbolView } from 'expo-symbols';
@@ -14,7 +15,7 @@ export function CustomInput({ label, isPassword, style, ...props }: CustomInputP
 
   return (
     <View style={[styles.container, style]}>
-      <Text style={styles.label}>{label}</Text>
+      <AppText style={styles.label}>{label}</AppText>
       <View style={[
         styles.inputContainer,
         isFocused && styles.inputContainerFocused
@@ -82,3 +83,4 @@ const styles = StyleSheet.create({
     height: 20,
   },
 });
+

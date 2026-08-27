@@ -1,3 +1,4 @@
+import { AppText } from '@/components/AppText';
 import React, { useState, useRef } from 'react';
 import {
   View,
@@ -78,18 +79,18 @@ export default function VerifyEmailScreen() {
         <View style={styles.content}>
           {/* Header */}
           <View style={styles.header}>
-            <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+            <TouchableOpacity onPress={() => router.canGoBack() ? router.back() : router.replace('/')} style={styles.backButton}>
               <Image source={require('../../../assets/images/back-icon.svg')} style={styles.backIcon} />
             </TouchableOpacity>
-            <Text style={styles.headerTitle}>Sign up</Text>
+            <AppText style={styles.headerTitle}>Sign up</AppText>
             <View style={styles.placeholder} />
           </View>
 
-          <Text style={styles.pageTitle}>Verify your email address</Text>
-          <Text style={styles.subtitle}>
+          <AppText style={styles.pageTitle}>Verify your email address</AppText>
+          <AppText style={styles.subtitle}>
             A 6 digit code has been sent to{'\n'}
-            <Text style={styles.emailBold}>{maskEmail(email)}</Text>
-          </Text>
+            <AppText style={styles.emailBold}>{maskEmail(email)}</AppText>
+          </AppText>
 
           {/* OTP Inputs */}
           <View style={styles.otpContainer}>
@@ -113,7 +114,7 @@ export default function VerifyEmailScreen() {
           </View>
           
           {hasError && (
-            <Text style={styles.errorText}>Incorrect code, try again</Text>
+            <AppText style={styles.errorText}>Incorrect code, try again</AppText>
           )}
 
           {/* Verify Button */}
@@ -154,12 +155,12 @@ export default function VerifyEmailScreen() {
             {isLoading ? (
               <ActivityIndicator color="#FFF" />
             ) : (
-              <Text style={styles.primaryButtonText}>Verify</Text>
+              <AppText style={styles.primaryButtonText}>Verify</AppText>
             )}
           </TouchableOpacity>
 
           <View style={styles.resendContainer}>
-            <Text style={styles.resendText}>Didn't receive a mail? </Text>
+            <AppText style={styles.resendText}>Didn't receive a mail? </AppText>
             <TouchableOpacity onPress={async () => {
               try {
                 await api.post('/api/auth/resend-otp/', { email: email });
@@ -168,7 +169,7 @@ export default function VerifyEmailScreen() {
                 Alert.alert('Error', error.response?.data?.message || 'Failed to resend OTP.');
               }
             }}>
-              <Text style={styles.resendLink}>Resend</Text>
+              <AppText style={styles.resendLink}>Resend</AppText>
             </TouchableOpacity>
           </View>
         </View>
@@ -289,3 +290,4 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
 });
+

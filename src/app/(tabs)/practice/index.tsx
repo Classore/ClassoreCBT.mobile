@@ -1,15 +1,19 @@
+import { AppText } from '@/components/AppText';
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, Platform } from 'react-native';
-import { Image } from 'expo-image';
-import { SymbolView } from 'expo-symbols';
+import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, ScrollView, Dimensions, Platform } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { CustomButton } from '@/components/CustomButton';
+import { Image } from 'expo-image';
+import { Feather } from '@expo/vector-icons';
+
+const { width } = Dimensions.get('window');
+const cardWidth = width * 0.36;
 
 export default function ExamSetupScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ exam?: string }>();
-  const [selectedExam, setSelectedExam] = useState<string>(params.exam ? (Array.isArray(params.exam) ? params.exam[0] : params.exam).toLowerCase() : 'jamb');
-  const [selectedMode, setSelectedMode] = useState('practice');
+  
+  const [selectedExam, setSelectedExam] = useState<string>('jamb');
+  const [selectedMode, setSelectedMode] = useState<'practice' | 'standard'>('practice');
 
   useEffect(() => {
     if (params.exam) {
@@ -23,8 +27,8 @@ export default function ExamSetupScreen() {
       id: 'jamb', 
       name: 'JAMB UTME', 
       fullName: 'Joint Admissions and Matriculation Board', 
-      users: '12.5K', 
-      icon: 'graduationcap',
+      users: '12.5K',
+      userIcon: require('../../../../assets/images/user-icon-purple.png'), 
       iconSource: require('../../../../assets/images/jamb-logo.png'),
       popular: true 
     },
@@ -33,7 +37,7 @@ export default function ExamSetupScreen() {
       name: 'IELTS', 
       fullName: 'International English Language Testing System', 
       users: '10.2K', 
-      icon: 'headphones',
+      userIcon: require('../../../../assets/images/user-icon-green.png'),
       iconSource: require('../../../../assets/images/ielts-logo.png'),
       popular: true 
     },
@@ -42,7 +46,7 @@ export default function ExamSetupScreen() {
       name: 'TOEFL', 
       fullName: 'Test of English as a Foreign Language', 
       users: '6.4K', 
-      icon: 'globe',
+      userIcon: require('../../../../assets/images/user-icon-green.png'),
       iconSource: require('../../../../assets/images/toefl-logo.png'),
       popular: false 
     },
@@ -51,7 +55,7 @@ export default function ExamSetupScreen() {
       name: 'WAEC', 
       fullName: 'West African Examinations Council', 
       users: '8.7K', 
-      icon: 'doc.plaintext',
+      userIcon: require('../../../../assets/images/user-icon-green.png'),
       iconSource: require('../../../../assets/images/waec-logo.png'),
       popular: false 
     },
@@ -60,7 +64,7 @@ export default function ExamSetupScreen() {
       name: 'NECO', 
       fullName: 'National Examinations Council', 
       users: '5.3K', 
-      icon: 'doc.text',
+      userIcon: require('../../../../assets/images/user-icon-green.png'),
       iconSource: require('../../../../assets/images/neco-logo.png'),
       popular: false 
     }
@@ -73,301 +77,752 @@ export default function ExamSetupScreen() {
         params: { exam: selectedExam }
       });
     } else {
-      router.push({
-        pathname: '/(tabs)/practice/standard-setup',
-        params: { exam: selectedExam }
-      });
+      if (selectedExam === 'ielts') {
+        router.push('/(exam)/ielts-setup');
+      } else {
+        router.push({
+          pathname: '/(tabs)/practice/standard-setup',
+          params: { exam: selectedExam }
+        });
+      }
     }
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
-        
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-            <Image source={require('../../../../assets/images/back-icon.svg')} style={styles.backIcon} />
+    <SafeAreaView style={styles.container}>
+      {/* Header Bar */}
+      <View style={styles.topHeader}>
+        <TouchableOpacity style={styles.backButton} onPress={() => router.canGoBack() ? router.back() : router.replace('/')}>
+          <Feather name="chevron-left" size={24} color="#000" />
+        </TouchableOpacity>
+        <View style={styles.headerRight}>
+          <View style={styles.fireBadge}>
+            <AppText style={styles.fireEmoji}>🔥</AppText>
+            <AppText style={styles.fireText}>120</AppText>
+          </View>
+          <TouchableOpacity style={styles.notifButton}>
+            <Feather name="bell" size={20} color="#000" />
+            <View style={styles.notifDot} />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Practice Mode</Text>
-          <View style={styles.headerRight}>
-            <View style={styles.streakBadge}>
-              <Text style={styles.streakEmoji}>🔥</Text>
-              <Text style={styles.streakText}>120</Text>
+        </View>
+      </View>
+
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        
+        {/* Main Header */}
+        <View style={styles.mainHeader}>
+          <View style={styles.headerTextContainer}>
+            <AppText style={styles.headerTitle}>Let's get you</AppText>
+            <AppText style={styles.headerTitle}>
+              exam-<AppText style={styles.purpleText}>ready 🚀</AppText>
+            </AppText>
+            <AppText style={styles.headerSubtitle}>
+              Choose the exam and the mode that fits your goal today.
+            </AppText>
+          </View>
+          <Image 
+            source={require('../../../../assets/images/exam-ready-3d.png')} 
+            style={styles.headerImage} 
+            contentFit="contain" 
+          />
+        </View>
+
+        {/* Section 1: Select Exam */}
+        <View style={styles.sectionHeader}>
+          <View style={styles.sectionTitleRow}>
+            <View style={styles.circleNumber}>
+              <AppText style={styles.circleNumberText}>1</AppText>
             </View>
-            <TouchableOpacity style={styles.bellButton}>
-              <SymbolView name="bell" size={20} tintColor="#111827" />
-              <View style={styles.bellDot} />
-            </TouchableOpacity>
+            <AppText style={styles.sectionTitle}>Select Exam</AppText>
           </View>
+          <TouchableOpacity style={styles.viewAllBtn}>
+            <AppText style={styles.viewAllText}>View All Exams</AppText>
+            <Image source={require('../../../../assets/images/view-all-icon.png')} style={styles.viewAllIcon} />
+          </TouchableOpacity>
         </View>
 
-        {/* Title Area */}
-        <View style={styles.titleArea}>
-          <View style={styles.titleTextContainer}>
-            <Text style={styles.pageTitle}>Let's get you{'\n'}exam-<Text style={styles.highlightText}>ready</Text> 🚀</Text>
-            <Text style={styles.pageSubtitle}>Choose the exam and the{'\n'}mode that fits your goal{'\n'}today.</Text>
-          </View>
-          {/* Placeholder for 3D Checklist Illustration */}
-          <View style={styles.illustrationPlaceholder}>
-            <SymbolView name="checklist" size={60} tintColor="#8B5CF6" />
-          </View>
-        </View>
-
-        {/* Step 1: Select Exam */}
-        <View style={styles.stepSection}>
-          <View style={styles.stepHeader}>
-            <View style={styles.stepNumberBadge}><Text style={styles.stepNumberText}>1</Text></View>
-            <Text style={styles.stepTitle}>Select Exam</Text>
-            <TouchableOpacity style={styles.viewAllButton}>
-              <Text style={styles.viewAllText}>View All Exams</Text>
-              <SymbolView name="square.grid.2x2.fill" size={14} tintColor="#6D28D9" />
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.examScroll}>
-            {exams.map((exam) => (
-              <TouchableOpacity 
-                key={exam.id} 
-                style={[styles.examCard, selectedExam === exam.id && styles.examCardSelected]}
-                onPress={() => setSelectedExam(exam.id)}
+        {/* Exams Scrollable List */}
+        <ScrollView 
+          horizontal 
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.examsScrollContent}
+        >
+          {exams.map((exam) => {
+            const isSelected = selectedExam === exam.id;
+            return (
+              <TouchableOpacity
+                key={exam.id}
+                style={[
+                  styles.examCard,
+                  isSelected && styles.examCardSelected
+                ]}
                 activeOpacity={0.8}
+                onPress={() => setSelectedExam(exam.id)}
               >
-                {selectedExam === exam.id && <View style={styles.examCardSelectedDot} />}
-                <View style={[styles.examIconContainer, selectedExam === exam.id ? styles.examIconSelected : styles.examIconUnselected]}>
+                {/* Purple corner decoration for selected card */}
+                {isSelected && <View style={styles.selectedCorner} />}
+                
+                <View style={[styles.examIconContainer, isSelected ? styles.examIconSelected : styles.examIconUnselected]}>
                   {exam.iconSource ? (
-                    <Image source={exam.iconSource} style={{ width: 22, height: 22 }} contentFit="contain" />
+                    <Image source={exam.iconSource} style={styles.examIconImage} contentFit="contain" />
                   ) : (
-                    <SymbolView name={exam.icon as any} size={20} tintColor={selectedExam === exam.id ? '#6D28D9' : '#10B981'} />
+                    <AppText style={styles.examIconText}>{exam.id.charAt(0).toUpperCase()}</AppText>
                   )}
                 </View>
-                <Text style={styles.examName}>{exam.name}</Text>
-                <Text style={styles.examFullName} numberOfLines={3}>{exam.fullName}</Text>
+                
+                <AppText style={styles.examName}>{exam.name}</AppText>
+                <AppText style={styles.examFullName} numberOfLines={3}>{exam.fullName}</AppText>
                 
                 <View style={styles.examFooter}>
-                  <View style={styles.usersPill}>
-                    <SymbolView name="person" size={12} tintColor="#6B7280" />
-                    <Text style={styles.usersText}>{exam.users}</Text>
+                  <View style={styles.userCountContainer}>
+                    {exam.userIcon && (
+                      <Image source={exam.userIcon} style={styles.userIcon} contentFit="contain" />
+                    )}
+                    <AppText style={styles.userCountText}>{exam.users}</AppText>
                   </View>
                   {exam.popular && (
-                    <View style={styles.popularPill}>
-                      <Text style={styles.popularText}>Popular</Text>
+                    <View style={styles.popularBadge}>
+                      <AppText style={styles.popularText}>Popular</AppText>
                     </View>
                   )}
                 </View>
               </TouchableOpacity>
-            ))}
-          </ScrollView>
-          <View style={styles.paginationDots}>
-            {exams.map((exam) => (
-              <View 
-                key={exam.id} 
-                style={[styles.dot, selectedExam === exam.id && styles.dotActive]} 
-              />
-            ))}
-          </View>
+            );
+          })}
+        </ScrollView>
+        <View style={styles.paginationDots}>
+          {exams.map((exam) => (
+            <View 
+              key={exam.id} 
+              style={[styles.dot, selectedExam === exam.id && styles.dotActive]} 
+            />
+          ))}
         </View>
 
-        {/* Step 2: Choose Test Mode */}
-        <View style={styles.stepSection}>
-          <View style={styles.stepHeader}>
-            <View style={styles.stepNumberBadge}><Text style={styles.stepNumberText}>2</Text></View>
-            <Text style={styles.stepTitle}>Choose Test Mode</Text>
-          </View>
-          <Text style={styles.stepSubtitle}>Pick the mode that matches your goal.</Text>
-
-          {/* Practice Mode Card */}
-          <TouchableOpacity 
-            style={[styles.modeCard, selectedMode === 'practice' && styles.modeCardSelected]}
-            onPress={() => setSelectedMode('practice')}
-            activeOpacity={0.9}
-          >
-            <View style={styles.modeHeaderRow}>
-              <View style={styles.modeIconTitle}>
-                <View style={[styles.modeIconBg, { backgroundColor: '#F3E8FF' }]}>
-                  <SymbolView name="target" size={20} tintColor="#6D28D9" />
-                </View>
-                <Text style={styles.modeTitle}>Practice Mode</Text>
-              </View>
-              <View style={styles.modeRightGroup}>
-                <View style={styles.badgePurple}><Text style={styles.badgeTextPurple}>Best for learning</Text></View>
-                <View style={[styles.radioOuter, selectedMode === 'practice' && styles.radioOuterSelected]}>
-                  {selectedMode === 'practice' && <View style={styles.radioInner} />}
-                </View>
-              </View>
+        {/* Section 2: Choose Test Mode */}
+        <View style={[styles.sectionHeader, { marginTop: 24 }]}>
+          <View style={styles.sectionTitleRow}>
+            <View style={styles.circleNumber}>
+              <AppText style={styles.circleNumberText}>2</AppText>
             </View>
-            <Text style={styles.modeTags}>Learn  •  Improve  •  Master</Text>
-            <Text style={styles.modeDesc}>Customize your test. Choose subjects, topics, difficulty and get instant explanations.</Text>
-            
-            <View style={styles.featuresGrid}>
-              <View style={styles.featureItem}>
-                <SymbolView name="checkmark.circle" size={16} tintColor="#6D28D9" />
-                <Text style={styles.featureText}>Instant answers & explanations</Text>
-              </View>
-              <View style={styles.featureItem}>
-                <SymbolView name="checkmark.circle" size={16} tintColor="#6D28D9" />
-                <Text style={styles.featureText}>Timed or untimed</Text>
-              </View>
-              <View style={styles.featureItem}>
-                <SymbolView name="checkmark.circle" size={16} tintColor="#6D28D9" />
-                <Text style={styles.featureText}>Track your progress</Text>
-              </View>
-              <View style={styles.featureItem}>
-                <SymbolView name="checkmark.circle" size={16} tintColor="#6D28D9" />
-                <Text style={styles.featureText}>AI-powered explanations</Text>
-              </View>
-            </View>
-          </TouchableOpacity>
-
-          {/* Standard Mode Card */}
-          <TouchableOpacity 
-            style={[styles.modeCard, selectedMode === 'standard' && styles.modeCardSelected]}
-            onPress={() => setSelectedMode('standard')}
-            activeOpacity={0.9}
-          >
-            <View style={styles.modeHeaderRow}>
-              <View style={styles.modeIconTitle}>
-                <View style={[styles.modeIconBg, { backgroundColor: '#DBEAFE' }]}>
-                  <SymbolView name="shield.lefthalf.filled" size={20} tintColor="#3B82F6" />
-                </View>
-                <Text style={styles.modeTitle}>Standard Mode</Text>
-              </View>
-              <View style={styles.modeRightGroup}>
-                <View style={styles.badgeBlue}><Text style={styles.badgeTextBlue}>Best for exam readiness</Text></View>
-                <View style={[styles.radioOuter, selectedMode === 'standard' && styles.radioOuterSelected]}>
-                  {selectedMode === 'standard' && <View style={styles.radioInner} />}
-                </View>
-              </View>
-            </View>
-            <Text style={styles.modeTagsBlue}>Simulate  •  Experience  •  Excel</Text>
-            <Text style={styles.modeDesc}>Take a real exam simulation with official rules and timing.</Text>
-            
-            <View style={styles.featuresGrid}>
-              <View style={styles.featureItem}>
-                <SymbolView name="checkmark.circle" size={16} tintColor="#3B82F6" />
-                <Text style={styles.featureText}>Official exam structure</Text>
-              </View>
-              <View style={styles.featureItem}>
-                <SymbolView name="checkmark.circle" size={16} tintColor="#3B82F6" />
-                <Text style={styles.featureText}>Real exam timing</Text>
-              </View>
-              <View style={styles.featureItem}>
-                <SymbolView name="checkmark.circle" size={16} tintColor="#3B82F6" />
-                <Text style={styles.featureText}>No instant answers</Text>
-              </View>
-              <View style={styles.featureItem}>
-                <SymbolView name="checkmark.circle" size={16} tintColor="#3B82F6" />
-                <Text style={styles.featureText}>Final score at the end</Text>
-              </View>
-            </View>
-          </TouchableOpacity>
-
-        </View>
-
-        {/* Tips Section */}
-        <View style={styles.tipsSection}>
-          <Text style={styles.tipsTitle}>Before you continue</Text>
-          <View style={styles.tipsGrid}>
-            <View style={styles.tipItem}>
-              <SymbolView name="wifi" size={16} tintColor="#3B82F6" />
-              <Text style={styles.tipText}>Ensure stable internet connection</Text>
-            </View>
-            <View style={styles.tipItem}>
-              <SymbolView name="battery.100" size={16} tintColor="#10B981" />
-              <Text style={styles.tipText}>Make sure your device is charged</Text>
-            </View>
-            <View style={styles.tipItem}>
-              <SymbolView name="bell.slash" size={16} tintColor="#F59E0B" />
-              <Text style={styles.tipText}>Find a quiet place with no distractions</Text>
-            </View>
-            <View style={styles.tipItem}>
-              <SymbolView name="arrow.up.left.and.arrow.down.right" size={16} tintColor="#8B5CF6" />
-              <Text style={styles.tipText}>You may be required to go fullscreen in Standard Mode</Text>
+            <View>
+              <AppText style={styles.sectionTitle}>Choose Test Mode</AppText>
+              <AppText style={styles.sectionSubtitle}>Pick the mode that matches your goal.</AppText>
             </View>
           </View>
         </View>
 
-        <CustomButton 
-          title="Continue" 
-          onPress={handleContinue} 
-          style={styles.continueButton} 
-          iconRight="arrow.right"
-        />
+        {/* Practice Mode Card */}
+        <TouchableOpacity 
+          style={[styles.modeCard, selectedMode === 'practice' && styles.modeCardActive]}
+          activeOpacity={0.9}
+          onPress={() => setSelectedMode('practice')}
+        >
+          <View style={styles.modeHeaderRow}>
+            <View style={styles.modeIconTitle}>
+              <View style={[styles.modeIconBg, { backgroundColor: '#F3E8FF' }]}>
+                <Feather name="target" size={18} color="#7E57C2" />
+              </View>
+              <AppText style={styles.modeTitle}>Practice Mode</AppText>
+            </View>
+            <View style={styles.modeRightGroup}>
+              <View style={styles.practiceBadge}>
+                <AppText style={styles.practiceBadgeText}>Best for learning</AppText>
+              </View>
+              <View style={[styles.radioOuter, selectedMode === 'practice' && styles.radioOuterActive]}>
+                {selectedMode === 'practice' && <View style={styles.radioInner} />}
+              </View>
+            </View>
+          </View>
+          
+          <AppText style={styles.practiceHighlights}>Learn  •  Improve  •  Master</AppText>
+          <AppText style={styles.modeDesc}>
+            Customize your test. Choose subjects, topics, difficulty and get instant explanations.
+          </AppText>
+          
+          <View style={styles.featuresGrid}>
+            <View style={styles.featureItem}>
+              <Feather name="check-circle" size={16} color="#7E57C2" />
+              <AppText style={styles.featureText}>Instant answers &{"\n"}explanations</AppText>
+            </View>
+            <View style={styles.featureItem}>
+              <Feather name="check-circle" size={16} color="#7E57C2" />
+              <AppText style={styles.featureText}>Timed or untimed</AppText>
+            </View>
+            <View style={styles.featureItem}>
+              <Feather name="check-circle" size={16} color="#7E57C2" />
+              <AppText style={styles.featureText}>Track your progress</AppText>
+            </View>
+            <View style={styles.featureItem}>
+              <Feather name="check-circle" size={16} color="#7E57C2" />
+              <AppText style={styles.featureText}>AI-powered{"\n"}explanations</AppText>
+            </View>
+          </View>
+        </TouchableOpacity>
 
-        <View style={{height: 100}} />
+        {/* Standard Mode Card */}
+        <TouchableOpacity 
+          style={[styles.modeCard, selectedMode === 'standard' && styles.modeCardActive]}
+          activeOpacity={0.9}
+          onPress={() => setSelectedMode('standard')}
+        >
+          <View style={styles.modeHeaderRow}>
+            <View style={styles.modeIconTitle}>
+              <View style={[styles.modeIconBg, { backgroundColor: '#DBEAFE' }]}>
+                <Feather name="shield" size={18} color="#3B82F6" />
+              </View>
+              <AppText style={styles.modeTitle}>Standard Mode</AppText>
+            </View>
+            <View style={styles.modeRightGroup}>
+              <View style={styles.standardBadge}>
+                <AppText style={styles.standardBadgeText}>Best for exam readiness</AppText>
+              </View>
+              <View style={[styles.radioOuter, selectedMode === 'standard' && styles.radioOuterActive]}>
+                {selectedMode === 'standard' && <View style={styles.radioInner} />}
+              </View>
+            </View>
+          </View>
+          
+          <AppText style={styles.standardHighlights}>Simulate  •  Experience  •  Excel</AppText>
+          <AppText style={styles.modeDesc}>
+            Take a real exam simulation with official rules and timing.
+          </AppText>
+          
+          <View style={styles.featuresGrid}>
+            <View style={styles.featureItem}>
+              <Feather name="check-circle" size={16} color="#3B82F6" />
+              <AppText style={styles.featureText}>Official exam{"\n"}structure</AppText>
+            </View>
+            <View style={styles.featureItem}>
+              <Feather name="check-circle" size={16} color="#3B82F6" />
+              <AppText style={styles.featureText}>Real exam timing</AppText>
+            </View>
+            <View style={styles.featureItem}>
+              <Feather name="check-circle" size={16} color="#3B82F6" />
+              <AppText style={styles.featureText}>No instant answers</AppText>
+            </View>
+            <View style={styles.featureItem}>
+              <Feather name="check-circle" size={16} color="#3B82F6" />
+              <AppText style={styles.featureText}>Final score at the end</AppText>
+            </View>
+          </View>
+        </TouchableOpacity>
+
+        {/* Before You Continue */}
+        <View style={styles.infoBox}>
+          <AppText style={styles.infoBoxTitle}>Before you continue</AppText>
+          <View style={styles.infoGrid}>
+            <View style={styles.infoItem}>
+              <View style={[styles.infoIconWrapper, { backgroundColor: '#EFF6FF' }]}>
+                <Feather name="wifi" size={16} color="#3B82F6" />
+              </View>
+              <AppText style={styles.infoText}>Ensure stable{"\n"}internet connection</AppText>
+            </View>
+            <View style={styles.infoItem}>
+              <View style={[styles.infoIconWrapper, { backgroundColor: '#ECFDF5' }]}>
+                <Feather name="battery" size={16} color="#10B981" />
+              </View>
+              <AppText style={styles.infoText}>Make sure your{"\n"}device is charged</AppText>
+            </View>
+            <View style={styles.infoItem}>
+              <View style={[styles.infoIconWrapper, { backgroundColor: '#FFFBEB' }]}>
+                <Feather name="bell-off" size={16} color="#F59E0B" />
+              </View>
+              <AppText style={styles.infoText}>Find a quiet place{"\n"}with no distractions</AppText>
+            </View>
+            <View style={styles.infoItem}>
+              <View style={[styles.infoIconWrapper, { backgroundColor: '#F5F3FF' }]}>
+                <Feather name="maximize" size={16} color="#8B5CF6" />
+              </View>
+              <AppText style={styles.infoText}>You may be required{"\n"}to go fullscreen in{"\n"}Standard Mode</AppText>
+            </View>
+          </View>
+        </View>
+        
+        {/* Extra padding for absolute footer + tab bar */}
+        <View style={{ height: Platform.OS === 'ios' ? 170 : 150 }} />
       </ScrollView>
+
+      {/* Footer Action */}
+      <View style={styles.footer}>
+        <TouchableOpacity 
+          style={styles.continueButton}
+          onPress={handleContinue}
+          disabled={!selectedExam}
+          activeOpacity={0.85}
+        >
+          <AppText style={styles.continueText}>Continue</AppText>
+          <Feather name="arrow-right" size={20} color="#FFF" style={{ marginLeft: 8 }} />
+        </TouchableOpacity>
+      </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#FFF' },
-  container: { padding: 20, paddingTop: Platform.OS === 'android' ? 20 : 0 },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
-  backButton: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: '#E5E7EB', justifyContent: 'center', alignItems: 'center' },
-  backIcon: { width: 20, height: 20 },
-  headerTitle: { fontSize: 20 },
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  streakBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F3E8FF', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16 },
-  streakEmoji: { fontSize: 14, marginRight: 4 },
-  streakText: { color: '#6D28D9', fontWeight: 'bold', fontSize: 14 },
-  bellButton: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: '#E5E7EB', justifyContent: 'center', alignItems: 'center' },
-  bellDot: { position: 'absolute', top: 10, right: 10, width: 8, height: 8, borderRadius: 4, backgroundColor: '#EF4444', borderWidth: 1, borderColor: '#FFF' },
-  titleArea: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 },
-  titleTextContainer: { flex: 1 },
-  pageTitle: { fontSize: 32, fontWeight: '900', color: '#111827', lineHeight: 38 },
-  highlightText: { color: '#6D28D9' },
-  pageSubtitle: { fontSize: 14, color: '#6B7280', marginTop: 12, lineHeight: 20 },
-  illustrationPlaceholder: { width: 120, height: 120, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F3F4F6', borderRadius: 20 },
-  stepSection: { marginBottom: 32 },
-  stepHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
-  stepNumberBadge: { width: 24, height: 24, borderRadius: 12, backgroundColor: '#6D28D9', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
-  stepNumberText: { color: '#FFF', fontWeight: 'bold', fontSize: 14 },
-  stepTitle: { fontSize: 18, fontWeight: 'bold', color: '#111827', flex: 1 },
-  viewAllButton: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  viewAllText: { color: '#6D28D9', fontSize: 12, fontWeight: '600' },
-  examScroll: { paddingBottom: 10 },
-  examCard: { width: 140, height: 180, borderRadius: 20, borderWidth: 1, borderColor: '#E5E7EB', padding: 16, marginRight: 16, backgroundColor: '#FFF' },
-  examCardSelected: { borderColor: '#6D28D9', borderWidth: 2, backgroundColor: '#F9F5FF' },
-  examCardSelectedDot: { position: 'absolute', top: 12, right: 12, width: 12, height: 12, borderRadius: 6, backgroundColor: '#6D28D9', borderBottomRightRadius: 0 },
-  examIconContainer: { width: 40, height: 40, borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
-  examIconUnselected: { backgroundColor: '#D1FAE5' },
-  examIconSelected: { backgroundColor: '#EDE9FE' },
-  examName: { fontSize: 16, fontWeight: 'bold', color: '#111827', marginBottom: 4 },
-  examFullName: { fontSize: 10, color: '#6B7280', lineHeight: 14, flex: 1 },
-  examFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 },
-  usersPill: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  usersText: { fontSize: 10, color: '#6B7280', fontWeight: '500' },
-  popularPill: { backgroundColor: '#E0E7FF', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8 },
-  popularText: { color: '#4F46E5', fontSize: 8, fontWeight: 'bold' },
-  paginationDots: { flexDirection: 'row', justifyContent: 'center', marginTop: 12, gap: 6 },
-  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#E5E7EB' },
-  dotActive: { width: 16, backgroundColor: '#6D28D9' },
-  stepSubtitle: { fontSize: 14, color: '#6B7280', marginBottom: 20, marginLeft: 36 },
-  modeCard: { borderRadius: 24, borderWidth: 1, borderColor: '#E5E7EB', padding: 20, marginBottom: 16, backgroundColor: '#FFF' },
-  modeCardSelected: { borderColor: '#6D28D9', backgroundColor: '#FFF' },
-  modeHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  modeIconTitle: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  modeIconBg: { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center' },
-  modeTitle: { fontSize: 18, fontWeight: 'bold', color: '#111827' },
-  modeRightGroup: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  badgePurple: { backgroundColor: '#F3E8FF', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
-  badgeTextPurple: { color: '#6D28D9', fontSize: 10, fontWeight: '600' },
-  badgeBlue: { backgroundColor: '#DBEAFE', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
-  badgeTextBlue: { color: '#3B82F6', fontSize: 10, fontWeight: '600' },
-  radioOuter: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: '#D1D5DB', justifyContent: 'center', alignItems: 'center' },
-  radioOuterSelected: { borderColor: '#6D28D9' },
-  radioInner: { width: 12, height: 12, borderRadius: 6, backgroundColor: '#6D28D9' },
-  modeTags: { fontSize: 12, fontWeight: '600', color: '#6D28D9', marginBottom: 8 },
-  modeTagsBlue: { fontSize: 12, fontWeight: '600', color: '#3B82F6', marginBottom: 8 },
-  modeDesc: { fontSize: 13, color: '#4B5563', lineHeight: 20, marginBottom: 16 },
-  featuresGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  featureItem: { flexDirection: 'row', alignItems: 'center', gap: 6, width: '45%' },
-  featureText: { fontSize: 11, color: '#4B5563' },
-  tipsSection: { backgroundColor: '#FFFBEB', borderRadius: 24, padding: 20, marginBottom: 32 },
-  tipsTitle: { fontSize: 14, fontWeight: 'bold', color: '#111827', marginBottom: 16 },
-  tipsGrid: { flexDirection: 'row', flexWrap: 'wrap', rowGap: 16 },
-  tipItem: { flexDirection: 'row', width: '50%', paddingRight: 10 },
-  tipText: { fontSize: 11, color: '#4B5563', marginLeft: 8, flex: 1, lineHeight: 16 },
-  continueButton: { backgroundColor: '#4C1D95' }
+  container: {
+    flex: 1,
+    backgroundColor: '#FAFAFA',
+  },
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingTop: 12,
+  },
+  topHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: Platform.OS === 'android' ? 40 : 12,
+    marginBottom: 16,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#FFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  fireBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF1F0',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    marginRight: 12,
+  },
+  fireEmoji: {
+    fontSize: 14,
+    marginRight: 4,
+  },
+  fireText: {
+    color: '#4C1D95',
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  notifButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#FFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  notifDot: {
+    position: 'absolute',
+    top: 10,
+    right: 12,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#EF4444',
+    borderWidth: 1.5,
+    borderColor: '#FFF',
+  },
+  mainHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 32,
+  },
+  headerTextContainer: {
+    flex: 1,
+  },
+  headerTitle: {
+    fontSize: 34,
+    fontWeight: '900',
+    color: '#000',
+    lineHeight: 40,
+    letterSpacing: -0.5,
+  },
+  purpleText: {
+    color: '#7E57C2',
+    fontWeight: '900',
+  },
+  headerSubtitle: {
+    fontSize: 15,
+    color: '#6B7280',
+    fontWeight: '500',
+    marginTop: 12,
+    lineHeight: 22,
+    paddingRight: 20,
+  },
+  headerImage: {
+    width: 140,
+    height: 140,
+    marginRight: -12,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 18,
+  },
+  sectionTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  circleNumber: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: '#7E57C2',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+    marginTop: 2,
+  },
+  circleNumberText: {
+    color: '#FFF',
+    fontWeight: '800',
+    fontSize: 13,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: '#111827',
+  },
+  sectionSubtitle: {
+    fontSize: 14,
+    color: '#6B7280',
+    fontWeight: '500',
+    marginTop: 4,
+    marginLeft: 38,
+  },
+  viewAllBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  viewAllText: {
+    color: '#7E57C2',
+    fontWeight: '800',
+    fontSize: 14,
+    marginRight: 6,
+  },
+  viewAllIcon: {
+    width: 16,
+    height: 16,
+  },
+  examsScrollContent: {
+    paddingLeft: 20,
+    paddingRight: 8,
+    paddingBottom: 8,
+  },
+  examCard: {
+    width: cardWidth,
+    backgroundColor: '#FFF',
+    borderRadius: 20,
+    padding: 14,
+    marginRight: 12,
+    borderWidth: 1.5,
+    borderColor: '#F3F4F6',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.03,
+    shadowRadius: 10,
+    elevation: 2,
+    height: 186,
+  },
+  examCardSelected: {
+    borderColor: '#7E57C2',
+  },
+  selectedCorner: {
+    position: 'absolute',
+    top: -1,
+    right: -1,
+    width: 24,
+    height: 24,
+    backgroundColor: '#7E57C2',
+    borderBottomLeftRadius: 20,
+    borderTopRightRadius: 20,
+  },
+  examIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  examIconUnselected: {
+    backgroundColor: '#D1FAE5',
+  },
+  examIconSelected: {
+    backgroundColor: '#EDE9FE',
+  },
+  examIconImage: {
+    width: 22,
+    height: 22,
+  },
+  examIconText: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#7E57C2',
+  },
+  examName: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#1F2937',
+    marginBottom: 4,
+  },
+  examFullName: {
+    fontSize: 11,
+    color: '#6B7280',
+    fontWeight: '500',
+    lineHeight: 14,
+    flex: 1,
+  },
+  examFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 8,
+  },
+  userCountContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  userIcon: {
+    width: 14,
+    height: 14,
+    marginRight: 4,
+  },
+  userCountText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#4B5563',
+  },
+  popularBadge: {
+    backgroundColor: '#F3E8FF',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+  },
+  popularText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#7E57C2',
+  },
+  paginationDots: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 14,
+    marginBottom: 10,
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#E5E7EB',
+    marginHorizontal: 5,
+  },
+  dotActive: {
+    width: 24,
+    backgroundColor: '#7E57C2',
+  },
+  modeCard: {
+    backgroundColor: '#FFF',
+    borderWidth: 1.5,
+    borderColor: '#F3F4F6',
+    borderRadius: 26,
+    padding: 22,
+    marginBottom: 18,
+  },
+  modeCardActive: {
+    borderColor: '#7E57C2',
+  },
+  modeHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
+  modeIconTitle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  modeIconBg: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modeTitle: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#111827',
+  },
+  modeRightGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  radioOuter: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: '#D1D5DB',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  radioOuterActive: {
+    borderColor: '#7E57C2',
+  },
+  radioInner: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#7E57C2',
+  },
+  practiceBadge: {
+    backgroundColor: '#F3E8FF',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  practiceBadgeText: {
+    color: '#7E57C2',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  standardBadge: {
+    backgroundColor: '#DBEAFE',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  standardBadgeText: {
+    color: '#2563EB',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  practiceHighlights: {
+    color: '#7E57C2',
+    fontWeight: '700',
+    fontSize: 13,
+    marginLeft: 48,
+    marginBottom: 8,
+  },
+  standardHighlights: {
+    color: '#2563EB',
+    fontWeight: '700',
+    fontSize: 13,
+    marginLeft: 48,
+    marginBottom: 8,
+  },
+  modeDesc: {
+    color: '#6B7280',
+    fontSize: 13,
+    lineHeight: 20,
+    marginLeft: 48,
+    marginBottom: 16,
+  },
+  featuresGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginLeft: 48,
+  },
+  featureItem: {
+    width: '50%',
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 12,
+    paddingRight: 8,
+  },
+  featureText: {
+    fontSize: 12,
+    color: '#4B5563',
+    marginLeft: 8,
+    lineHeight: 16,
+  },
+  infoBox: {
+    backgroundColor: '#FFFBF2',
+    borderWidth: 1,
+    borderColor: '#FDE6B5',
+    borderRadius: 20,
+    padding: 20,
+    marginTop: 8,
+  },
+  infoBoxTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#111827',
+    marginBottom: 16,
+  },
+  infoGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  infoItem: {
+    width: '48%',
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 16,
+  },
+  infoIconWrapper: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  infoText: {
+    fontSize: 11,
+    color: '#4B5563',
+    lineHeight: 16,
+    flex: 1,
+  },
+  footer: {
+    position: 'absolute',
+    bottom: Platform.OS === 'ios' ? 84 : 64,
+    left: 0,
+    right: 0,
+    backgroundColor: '#FFF',
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -3 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  continueButton: {
+    backgroundColor: '#4C1D95',
+    height: 56,
+    borderRadius: 16,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  continueText: {
+    color: '#FFF',
+    fontSize: 17,
+    fontWeight: '900',
+  }
 });
+

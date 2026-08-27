@@ -1,3 +1,4 @@
+import { AppText } from '@/components/AppText';
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, SafeAreaView, ScrollView, TextInput, TouchableOpacity, Platform } from 'react-native';
 import { Image } from 'expo-image';
@@ -50,7 +51,7 @@ export default function ExploreScreen() {
               />
             </TouchableOpacity>
           ) : (
-            <TouchableOpacity onPress={() => router.back()} activeOpacity={0.7}>
+            <TouchableOpacity onPress={() => router.canGoBack() ? router.back() : router.replace('/')} activeOpacity={0.7}>
               <Image 
                 source={require('../../../assets/images/search-input-close.png')} 
                 style={{ width: 14, height: 14 }} 
@@ -66,9 +67,9 @@ export default function ExploreScreen() {
           {recentSearches.length > 0 && (
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>Recent Searches</Text>
+                <AppText style={styles.sectionTitle}>Recent Searches</AppText>
                 <TouchableOpacity onPress={clearAll} activeOpacity={0.7}>
-                  <Text style={styles.linkText}>Clear All</Text>
+                  <AppText style={styles.linkText}>Clear All</AppText>
                 </TouchableOpacity>
               </View>
               
@@ -79,7 +80,7 @@ export default function ExploreScreen() {
                     style={styles.recentClockIcon} 
                     contentFit="contain" 
                   />
-                  <Text style={styles.recentText}>{item}</Text>
+                  <AppText style={styles.recentText}>{item}</AppText>
                   <TouchableOpacity onPress={() => removeRecent(index)} activeOpacity={0.7}>
                     <Image 
                       source={require('../../../assets/images/search-input-close.png')} 
@@ -95,9 +96,9 @@ export default function ExploreScreen() {
           {/* Popular Exams */}
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Popular Exams</Text>
+              <AppText style={styles.sectionTitle}>Popular Exams</AppText>
               <TouchableOpacity activeOpacity={0.7}>
-                <Text style={styles.linkText}>View all</Text>
+                <AppText style={styles.linkText}>View all</AppText>
               </TouchableOpacity>
             </View>
             
@@ -153,8 +154,8 @@ export default function ExploreScreen() {
                       <SymbolView name={exam.symbol as any} size={18} tintColor="#FFF" />
                     )}
                   </View>
-                  <Text style={[styles.examTitle, { color: exam.color }]}>{exam.name}</Text>
-                  <Text style={styles.examDesc}>{exam.desc}</Text>
+                  <AppText style={[styles.examTitle, { color: exam.color }]}>{exam.name}</AppText>
+                  <AppText style={styles.examDesc}>{exam.desc}</AppText>
                 </TouchableOpacity>
               ))}
             </View>
@@ -162,7 +163,7 @@ export default function ExploreScreen() {
 
           {/* Suggested Subjects */}
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Suggested Subjects</Text>
+            <AppText style={styles.sectionTitle}>Suggested Subjects</AppText>
             
             <View style={styles.subjectsCloud}>
               {[
@@ -193,7 +194,7 @@ export default function ExploreScreen() {
               ].map((subject, i) => (
                 <TouchableOpacity key={i} style={styles.subjectPill} activeOpacity={0.8}>
                   <Image source={subject.image} style={{ width: 15, height: 15 }} contentFit="contain" />
-                  <Text style={styles.subjectText}>{subject.name}</Text>
+                  <AppText style={styles.subjectText}>{subject.name}</AppText>
                 </TouchableOpacity>
               ))}
             </View>
@@ -275,4 +276,5 @@ const styles = StyleSheet.create({
   },
   subjectText: { marginLeft: 6, fontSize: 12.5, color: '#1E293B', fontWeight: '600' }
 });
+
 

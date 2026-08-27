@@ -1,3 +1,4 @@
+import { AppText } from '@/components/AppText';
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, ScrollView, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -41,7 +42,7 @@ export default function ChooseGoalScreen() {
     // A temporary placeholder for the missing icon images
     return (
       <View style={styles.iconPlaceholder}>
-        <Text style={styles.iconText}>{goal.id.substring(0, 1).toUpperCase()}</Text>
+        <AppText style={styles.iconText}>{goal.id.substring(0, 1).toUpperCase()}</AppText>
       </View>
     );
   };
@@ -52,16 +53,16 @@ export default function ChooseGoalScreen() {
         
         {/* Header */}
         <View style={styles.header}>
-          <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+          <TouchableOpacity style={styles.backButton} onPress={() => router.canGoBack() ? router.back() : router.replace('/')}>
             <Image source={require('../../../assets/images/back-icon.svg')} style={styles.backIcon} />
           </TouchableOpacity>
         </View>
 
         {/* Title */}
-        <Text style={styles.title}>Choose Your Goal</Text>
-        <Text style={styles.subtitle}>
+        <AppText style={styles.title}>Choose Your Goal</AppText>
+        <AppText style={styles.subtitle}>
           Select the exams you are preparing for.{'\n'}We'll personalize your experience.
-        </Text>
+        </AppText>
 
         {/* Goals Grid */}
         <View style={styles.gridContainer}>
@@ -87,9 +88,9 @@ export default function ChooseGoalScreen() {
                 
                 {renderIconPlaceholder(goal)}
                 
-                <Text style={styles.cardTitle}>{goal.title}</Text>
+                <AppText style={styles.cardTitle}>{goal.title}</AppText>
                 {goal.subtitle && (
-                  <Text style={styles.cardSubtitle}>{goal.subtitle}</Text>
+                  <AppText style={styles.cardSubtitle}>{goal.subtitle}</AppText>
                 )}
               </TouchableOpacity>
             );
@@ -120,7 +121,7 @@ export default function ChooseGoalScreen() {
             disabled={!selectedGoal || isSubmitting}
           />
           <TouchableOpacity style={styles.laterButton} onPress={() => router.replace('/(tabs)')}>
-            <Text style={styles.laterText}>I'll choose later</Text>
+            <AppText style={styles.laterText}>I'll choose later</AppText>
           </TouchableOpacity>
         </View>
 
@@ -262,3 +263,4 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   }
 });
+

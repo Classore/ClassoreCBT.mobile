@@ -1,8 +1,8 @@
+import { AppText } from '@/components/AppText';
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, Modal, Platform } from 'react-native';
-import { SymbolView } from 'expo-symbols';
+import { View, Text, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, Modal, Platform, Alert } from 'react-native';
+import { Feather, Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { Image } from 'expo-image';
 
 // Custom Hook for Timer
 function useCountdown(initialSeconds: number) {
@@ -23,14 +23,14 @@ function useCountdown(initialSeconds: number) {
     return `${h}:${m}:${s}`;
   };
 
-  return formatTime(seconds);
+  return { timeString: formatTime(seconds), secondsRemaining: seconds };
 }
 
 export default function ExamSessionScreen() {
   const router = useRouter();
   
   // Timer (2 hours = 7200 seconds)
-  const timeString = useCountdown(7200);
+  const { timeString } = useCountdown(7200);
 
   // States
   const [activeSubject, setActiveSubject] = useState('Mathematics');
@@ -41,6 +41,55 @@ export default function ExamSessionScreen() {
   const [showCalculator, setShowCalculator] = useState(false);
   const [showPalette, setShowPalette] = useState(false);
   const [showExit, setShowExit] = useState(false);
+
+  // Calculator States
+  const [calcExpression, setCalcExpression] = useState('');
+  const [calcResult, setCalcResult] = useState('0');
+
+  const handleSubmit = () => {
+    Alert.alert(
+      'Submit Test',
+      'Are you sure you want to submit your test? Your answers will be graded and ranked.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Submit', 
+          style: 'destructive',
+          onPress: () => {
+            router.replace('/(exam)/test-result');
+          }
+        }
+      ]
+    );
+  };
+
+  const handleCalcPress = (btn: string) => {
+    if (btn === 'AC') {
+      setCalcExpression('');
+      setCalcResult('0');
+    } else if (btn === '=') {
+      try {
+        if (!calcExpression) return;
+        // Replace display symbols with math operators
+        const evalStr = calcExpression.replace(/×/g, '*').replace(/÷/g, '/').replace(/%/g, '/100');
+        // Evaluate the math expression safely
+        // eslint-disable-next-line no-new-func
+        const result = new Function('return ' + evalStr)();
+        if (result === Infinity || Number.isNaN(result)) {
+          setCalcResult('Error');
+        } else {
+          // Keep it to 6 decimal places max
+          const formatted = Number.isInteger(result) ? result.toString() : parseFloat(result.toFixed(6)).toString();
+          setCalcResult(formatted);
+          setCalcExpression(formatted);
+        }
+      } catch (e) {
+        setCalcResult('Error');
+      }
+    } else {
+      setCalcExpression(prev => prev + btn);
+    }
+  };
 
   const subjects = ['Mathematics', 'English', 'Physics', 'Chemistry'];
   const options = [
@@ -57,11 +106,11 @@ export default function ExamSessionScreen() {
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity style={styles.menuButton} onPress={() => setShowExit(true)}>
-            <SymbolView name="line.3.horizontal" size={20} tintColor="#111827" />
+            <Feather name="menu" size={20} color="#111827" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>JAMB UTME 2025 Mock</Text>
+          <AppText style={styles.headerTitle}>JAMB UTME 2025 Mock</AppText>
           <View style={styles.timerBadge}>
-            <Text style={styles.timerText}>{timeString}</Text>
+            <AppText style={styles.timerText}>{timeString}</AppText>
           </View>
         </View>
 
@@ -74,9 +123,9 @@ export default function ExamSessionScreen() {
                 style={[styles.subjectPill, activeSubject === subject && styles.subjectPillActive]}
                 onPress={() => setActiveSubject(subject)}
               >
-                <Text style={[styles.subjectText, activeSubject === subject && styles.subjectTextActive]}>
+                <AppText style={[styles.subjectText, activeSubject === subject && styles.subjectTextActive]}>
                   {subject}
-                </Text>
+                </AppText>
               </TouchableOpacity>
             ))}
           </ScrollView>
@@ -85,15 +134,15 @@ export default function ExamSessionScreen() {
         {/* Question Area */}
         <ScrollView style={styles.questionArea} showsVerticalScrollIndicator={false}>
           <View style={styles.questionHeader}>
-            <Text style={styles.questionNumberText}>Question 1 of 400</Text>
+            <AppText style={styles.questionNumberText}>Question 1 of 400</AppText>
             <TouchableOpacity style={styles.bookmarkButton} onPress={() => setIsBookmarked(!isBookmarked)}>
-              <SymbolView name={isBookmarked ? 'bookmark.fill' : 'bookmark'} size={20} tintColor={isBookmarked ? '#F59E0B' : '#6B7280'} />
+              <Ionicons name={isBookmarked ? "bookmark" : "bookmark-outline"} size={20} color={isBookmarked ? '#F59E0B' : '#6B7280'} />
             </TouchableOpacity>
           </View>
 
-          <Text style={styles.questionText}>
+          <AppText style={styles.questionText}>
             Which of the following is the correct formula for calculating the area of a circle?
-          </Text>
+          </AppText>
 
           {/* Options */}
           <View style={styles.optionsList}>
@@ -104,13 +153,13 @@ export default function ExamSessionScreen() {
                 onPress={() => setSelectedOption(opt.id)}
                 activeOpacity={0.8}
               >
-                <Text style={[styles.optionLabel, selectedOption === opt.id && styles.optionLabelSelected]}>
+                <AppText style={[styles.optionLabel, selectedOption === opt.id && styles.optionLabelSelected]}>
                   {opt.id}
-                </Text>
-                <Text style={styles.optionContent}>{opt.text}</Text>
+                </AppText>
+                <AppText style={styles.optionContent}>{opt.text}</AppText>
                 {selectedOption === opt.id && (
                   <View style={styles.checkedCircle}>
-                    <SymbolView name="checkmark" size={12} tintColor="#FFF" />
+                    <Feather name="check" size={12} color="#FFF" />
                   </View>
                 )}
               </TouchableOpacity>
@@ -123,33 +172,33 @@ export default function ExamSessionScreen() {
         {/* Previous / Next Buttons */}
         <View style={styles.navButtonsContainer}>
           <TouchableOpacity style={styles.prevButton}>
-            <Text style={styles.prevButtonText}>Previous</Text>
+            <AppText style={styles.prevButtonText}>Previous</AppText>
           </TouchableOpacity>
           <TouchableOpacity style={styles.nextButton}>
-            <Text style={styles.nextButtonText}>Next</Text>
+            <AppText style={styles.nextButtonText}>Next</AppText>
           </TouchableOpacity>
         </View>
 
         {/* Custom Bottom Tab Bar */}
         <View style={styles.bottomBar}>
           <TouchableOpacity style={styles.bottomBarItem} onPress={() => setShowCalculator(true)}>
-            <SymbolView name="candybarphone" size={24} tintColor="#6B7280" />
-            <Text style={styles.bottomBarText}>Calculator</Text>
+            <Ionicons name="calculator-outline" size={24} color="#6B7280" />
+            <AppText style={styles.bottomBarText}>Calculator</AppText>
           </TouchableOpacity>
           
           <TouchableOpacity style={styles.bottomBarItem} onPress={() => setShowPalette(true)}>
-            <SymbolView name="square.grid.2x2" size={24} tintColor="#6B7280" />
-            <Text style={styles.bottomBarText}>Question Palette</Text>
+            <Feather name="grid" size={24} color="#6B7280" />
+            <AppText style={styles.bottomBarText}>Question Palette</AppText>
+          </TouchableOpacity>
+          
+          <TouchableOpacity style={styles.bottomBarItem} onPress={handleSubmit}>
+            <Feather name="flag" size={24} color="#EF4444" />
+            <AppText style={[styles.bottomBarText, { color: '#EF4444' }]}>Submit Test</AppText>
           </TouchableOpacity>
           
           <TouchableOpacity style={styles.bottomBarItem}>
-            <SymbolView name="flag" size={24} tintColor="#EF4444" />
-            <Text style={[styles.bottomBarText, { color: '#EF4444' }]}>Submit Test</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity style={styles.bottomBarItem}>
-            <SymbolView name="headphones" size={24} tintColor="#6B7280" />
-            <Text style={styles.bottomBarText}>Contact Support</Text>
+            <Feather name="headphones" size={24} color="#6B7280" />
+            <AppText style={styles.bottomBarText}>Contact Support</AppText>
           </TouchableOpacity>
         </View>
 
@@ -160,13 +209,15 @@ export default function ExamSessionScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.calculatorCard}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Calculator</Text>
+              <AppText style={styles.modalTitle}>Calculator</AppText>
               <TouchableOpacity onPress={() => setShowCalculator(false)}>
-                <SymbolView name="xmark" size={20} tintColor="#6B7280" />
+                <Feather name="x" size={20} color="#6B7280" />
               </TouchableOpacity>
             </View>
             <View style={styles.calcDisplay}>
-              <Text style={styles.calcDisplayText}>0</Text>
+              <AppText style={styles.calcDisplayText} numberOfLines={1} adjustsFontSizeToFit>
+                {calcExpression || calcResult}
+              </AppText>
             </View>
             <View style={styles.calcGrid}>
               {['(', ')', '%', 'AC', '7', '8', '9', '÷', '4', '5', '6', '×', '1', '2', '3', '-', '0', '.', '=', '+'].map((btn, i) => (
@@ -176,11 +227,13 @@ export default function ExamSessionScreen() {
                     styles.calcBtn, 
                     btn === 'AC' || btn === '=' ? styles.calcBtnPurple : null
                   ]}
+                  onPress={() => handleCalcPress(btn)}
+                  activeOpacity={0.7}
                 >
-                  <Text style={[
+                  <AppText style={[
                     styles.calcBtnText, 
                     btn === 'AC' || btn === '=' ? styles.calcBtnTextWhite : null
-                  ]}>{btn}</Text>
+                  ]}>{btn}</AppText>
                 </TouchableOpacity>
               ))}
             </View>
@@ -193,16 +246,16 @@ export default function ExamSessionScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.paletteCard}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Question Palette</Text>
+              <AppText style={styles.modalTitle}>Question Palette</AppText>
               <TouchableOpacity onPress={() => setShowPalette(false)}>
-                <SymbolView name="xmark" size={20} tintColor="#6B7280" />
+                <Feather name="x" size={20} color="#6B7280" />
               </TouchableOpacity>
             </View>
             <View style={styles.paletteLegend}>
-              <View style={styles.legendItem}><View style={[styles.legendDot, { backgroundColor: '#6D28D9' }]} /><Text style={styles.legendText}>Answered</Text></View>
-              <View style={styles.legendItem}><View style={[styles.legendDot, { backgroundColor: '#F59E0B' }]} /><Text style={styles.legendText}>Current</Text></View>
-              <View style={styles.legendItem}><View style={[styles.legendDot, { backgroundColor: '#E5E7EB' }]} /><Text style={styles.legendText}>Not Answered</Text></View>
-              <View style={styles.legendItem}><View style={[styles.legendDot, { backgroundColor: '#EF4444' }]} /><Text style={styles.legendText}>Marked</Text></View>
+              <View style={styles.legendItem}><View style={[styles.legendDot, { backgroundColor: '#6D28D9' }]} /><AppText style={styles.legendText}>Answered</AppText></View>
+              <View style={styles.legendItem}><View style={[styles.legendDot, { backgroundColor: '#F59E0B' }]} /><AppText style={styles.legendText}>Current</AppText></View>
+              <View style={styles.legendItem}><View style={[styles.legendDot, { backgroundColor: '#FFF', borderWidth: 1, borderColor: '#D1D5DB' }]} /><AppText style={styles.legendText}>Not Answered</AppText></View>
+              <View style={styles.legendItem}><View style={[styles.legendDot, { backgroundColor: '#EF4444' }]} /><AppText style={styles.legendText}>Marked</AppText></View>
             </View>
             <ScrollView style={styles.paletteScroll}>
               <View style={styles.paletteGrid}>
@@ -225,17 +278,15 @@ export default function ExamSessionScreen() {
 
                   return (
                     <TouchableOpacity key={num} style={[styles.paletteBtn, stateStyle]}>
-                      <Text style={[styles.paletteBtnText, textStyle]}>{num}</Text>
+                      <AppText style={[styles.paletteBtnText, textStyle]}>{num}</AppText>
                     </TouchableOpacity>
                   );
                 })}
               </View>
             </ScrollView>
             <View style={styles.paletteFooter}>
-              <TouchableOpacity>
-                <Image source={require('../../../assets/images/back-icon.svg')} style={styles.backIcon} />
-              </TouchableOpacity>
-              <TouchableOpacity><SymbolView name="chevron.right" size={20} tintColor="#111827" /></TouchableOpacity>
+              <TouchableOpacity><Feather name="chevron-left" size={24} color="#111827" /></TouchableOpacity>
+              <TouchableOpacity><Feather name="chevron-right" size={24} color="#111827" /></TouchableOpacity>
             </View>
           </View>
         </View>
@@ -247,27 +298,27 @@ export default function ExamSessionScreen() {
           <View style={styles.exitCard}>
             <View style={styles.exitHeader}>
               <View style={styles.exitIconBg}>
-                <SymbolView name="rectangle.portrait.and.arrow.right" size={24} tintColor="#EF4444" />
+                <Feather name="log-out" size={24} color="#EF4444" />
               </View>
               <TouchableOpacity onPress={() => setShowExit(false)} style={styles.closeExitBtn}>
-                <SymbolView name="xmark" size={20} tintColor="#6B7280" />
+                <Feather name="x" size={20} color="#6B7280" />
               </TouchableOpacity>
             </View>
-            <Text style={styles.exitTitle}>Exit Test?</Text>
-            <Text style={styles.exitSubtitle}>Are you sure you want to exit the test?</Text>
-            <Text style={styles.exitDesc}>Your progress will not be saved and you will need to start over if you return.</Text>
+            <AppText style={styles.exitTitle}>Exit Test?</AppText>
+            <AppText style={styles.exitSubtitle}>Are you sure you want to exit the test?</AppText>
+            <AppText style={styles.exitDesc}>Your progress will not be saved and you will need to start over if you return.</AppText>
             
             <View style={styles.warningBox}>
-              <SymbolView name="exclamationmark.triangle" size={16} tintColor="#EF4444" />
-              <Text style={styles.warningText}>Time spent will be lost and any unanswered questions will not be counted.</Text>
+              <Feather name="alert-triangle" size={16} color="#EF4444" />
+              <AppText style={styles.warningText}>Time spent will be lost and any unanswered questions will not be counted.</AppText>
             </View>
 
             <View style={styles.exitActions}>
               <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowExit(false)}>
-                <Text style={styles.cancelBtnText}>Cancel</Text>
+                <AppText style={styles.cancelBtnText}>Cancel</AppText>
               </TouchableOpacity>
               <TouchableOpacity style={styles.exitBtn} onPress={() => { setShowExit(false); router.back(); }}>
-                <Text style={styles.exitBtnText}>Exit Test</Text>
+                <AppText style={styles.exitBtnText}>Exit Test</AppText>
               </TouchableOpacity>
             </View>
           </View>
@@ -280,7 +331,7 @@ export default function ExamSessionScreen() {
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#FFF' },
-  container: { flex: 1, paddingTop: Platform.OS === 'android' ? 20 : 0 },
+  container: { flex: 1, paddingTop: Platform.OS === 'android' ? 40 : 20 },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 12 },
   menuButton: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: '#E5E7EB', justifyContent: 'center', alignItems: 'center' },
   headerTitle: { fontSize: 16, fontWeight: 'bold', color: '#111827' },
@@ -314,7 +365,6 @@ const styles = StyleSheet.create({
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center', padding: 20 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
   modalTitle: { fontSize: 18, fontWeight: 'bold', color: '#111827' },
-  backIcon: { width: 20, height: 20 },
   calculatorCard: { backgroundColor: '#FFF', borderRadius: 24, padding: 20, width: '90%' },
   calcDisplay: { backgroundColor: '#F9FAFB', borderRadius: 12, padding: 20, alignItems: 'flex-end', marginBottom: 20 },
   calcDisplayText: { fontSize: 32, fontWeight: 'bold', color: '#111827' },
@@ -354,3 +404,4 @@ const styles = StyleSheet.create({
   exitBtn: { flex: 1, paddingVertical: 16, borderRadius: 16, backgroundColor: '#EF4444', alignItems: 'center' },
   exitBtnText: { fontSize: 16, fontWeight: 'bold', color: '#FFF' }
 });
+

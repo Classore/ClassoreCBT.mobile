@@ -3,7 +3,7 @@ import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 
 // Use 10.0.2.2 for Android Emulator, localhost for iOS/Web
-const BASE_URL = Platform.OS === 'android' ? 'http://10.0.2.2:8000' : 'http://192.168.43.237:8081';
+const BASE_URL = Platform.OS === 'android' ? 'http://10.0.2.2:8000' : 'http://127.0.0.1:8000/';
 
 export const api = axios.create({
   baseURL: BASE_URL,

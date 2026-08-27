@@ -1,3 +1,4 @@
+import { AppText } from '@/components/AppText';
 import { CustomButton } from '@/components/CustomButton';
 import { CustomCheckbox } from '@/components/CustomCheckbox';
 import { CustomInput } from '@/components/CustomInput';
@@ -26,15 +27,15 @@ export default function LoginScreen() {
         <ScrollView contentContainerStyle={styles.scrollContent}>
           {/* Header */}
           <View style={styles.header}>
-            <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+            <TouchableOpacity onPress={() => router.canGoBack() ? router.back() : router.replace('/')} style={styles.backButton}>
               <Image source={require('../../../assets/images/back-icon.svg')} style={styles.backIcon} />
             </TouchableOpacity>
-            <Text style={styles.headerTitle}>Login</Text>
+            <AppText style={styles.headerTitle}>Login</AppText>
             <View style={styles.headerRight} />
           </View>
 
           {/* Title */}
-          <Text style={styles.welcomeText}>Welcome Back, Doe</Text>
+          <AppText style={styles.welcomeText}>Welcome Back, Doe</AppText>
 
           {/* Form */}
           <View style={styles.formContainer}>
@@ -62,12 +63,12 @@ export default function LoginScreen() {
                 onChange={setRememberMe} 
               />
               <TouchableOpacity onPress={() => router.push('/auth/forgot-password')}>
-                <Text style={styles.forgotPassword}>Forgot Password ?</Text>
+                <AppText style={styles.forgotPassword}>Forgot Password ?</AppText>
               </TouchableOpacity>
             </View>
 
             {formError && (
-              <Text style={styles.errorText}>{formError}</Text>
+              <AppText style={styles.errorText}>{formError}</AppText>
             )}
 
             <CustomButton 
@@ -85,15 +86,35 @@ export default function LoginScreen() {
                   router.replace('/(tabs)');
                 } catch (error: any) {
                   const data = error.response?.data;
+                  console.log("Login error response:", data);
+                  
+                  // Comprehensive check for unverified account
+                  const errorStr = JSON.stringify(data || '').toLowerCase();
+                  const isUnverified = errorStr.includes('account_unverified') || 
+                    (error.response?.status === 403 && errorStr.includes('verif')) ||
+                    (typeof data?.message === 'string' && data.message.toLowerCase().includes('not verified')) ||
+                    (typeof data?.error === 'string' && data.error.toLowerCase().includes('account_unverified'));
+
+                  if (isUnverified) {
+                    const targetEmail = data?.email || (typeof data?.email === 'string' ? data.email : email.trim());
+                    
+                    // Direct navigation to the OTP verification screen
+                    router.push({
+                      pathname: '/(auth)/verify-email',
+                      params: { email: targetEmail }
+                    });
+                    return;
+                  }
+
                   let errorMsg = error.message || 'Login failed';
                   if (data) {
                     if (typeof data === 'string') {
-                        errorMsg = data;
+                      errorMsg = data;
                     } else if (data.non_field_errors && Array.isArray(data.non_field_errors)) {
                       const err = data.non_field_errors[0];
                       errorMsg = typeof err === 'string' ? err : (err.message || err.error || JSON.stringify(err));
                     } else if (data.message) {
-                      errorMsg = data.message;
+                      errorMsg = typeof data.message === 'string' ? data.message : JSON.stringify(data.message);
                     } else if (data.error) {
                       errorMsg = typeof data.error === 'string' ? data.error : (data.error.message || JSON.stringify(data.error));
                     } else {
@@ -109,9 +130,9 @@ export default function LoginScreen() {
             />
 
             <View style={styles.signupContainer}>
-              <Text style={styles.signupText}>Don't have an account? </Text>
+              <AppText style={styles.signupText}>Don't have an account? </AppText>
               <TouchableOpacity onPress={() => router.push('/(auth)/signup')}>
-                <Text style={styles.signupLink}>Sign up</Text>
+                <AppText style={styles.signupLink}>Sign up</AppText>
               </TouchableOpacity>
             </View>
           </View>
@@ -119,7 +140,7 @@ export default function LoginScreen() {
           {/* Divider */}
           <View style={styles.dividerContainer}>
             <View style={styles.divider} />
-            <Text style={styles.dividerText}>Or</Text>
+            <AppText style={styles.dividerText}>Or</AppText>
             <View style={styles.divider} />
           </View>
 
@@ -241,3 +262,4 @@ const styles = StyleSheet.create({
     marginTop: 8,
   }
 });
+

@@ -1,3 +1,4 @@
+import { AppText } from '@/components/AppText';
 import React, { useState } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, SafeAreaView, useWindowDimensions, ScrollView } from 'react-native';
 import { Image } from 'expo-image';
@@ -62,12 +63,12 @@ export function Onboarding() {
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.pageIndicator}>
-          <Text style={styles.pageIndicatorBold}>{currentIndex + 1}</Text>/3
-        </Text>
+        <AppText style={styles.pageIndicator}>
+          <AppText style={styles.pageIndicatorBold}>{currentIndex + 1}</AppText>/3
+        </AppText>
         {currentIndex < 2 && (
           <TouchableOpacity onPress={handleSkip}>
-            <Text style={styles.skipText}>Skip</Text>
+            <AppText style={styles.skipText}>Skip</AppText>
           </TouchableOpacity>
         )}
       </View>
@@ -81,8 +82,8 @@ export function Onboarding() {
             contentFit="contain"
           />
         </View>
-        <Text style={styles.title}>{currentSlide.title}</Text>
-        <Text style={styles.subtitle}>{currentSlide.subtitle}</Text>
+        <AppText style={styles.title}>{currentSlide.title}</AppText>
+        <AppText style={styles.subtitle}>{currentSlide.subtitle}</AppText>
       </View>
 
       {/* Footer */}
@@ -93,7 +94,7 @@ export function Onboarding() {
             onPress={handlePrev}
             disabled={currentIndex === 0}
           >
-            <Text style={styles.footerButtonTextPrev}>Prev</Text>
+            <AppText style={styles.footerButtonTextPrev}>Prev</AppText>
           </TouchableOpacity>
 
           <View style={styles.pagination}>
@@ -109,21 +110,21 @@ export function Onboarding() {
           </View>
 
           <TouchableOpacity style={styles.footerButton} onPress={handleNext}>
-            <Text style={styles.footerButtonTextNext}>Next</Text>
+            <AppText style={styles.footerButtonTextNext}>Next</AppText>
           </TouchableOpacity>
         </View>
       ) : (
         <View style={styles.finalFooter}>
           <TouchableOpacity style={styles.primaryButton} onPress={navigateToHome}>
-            <Text style={styles.primaryButtonText}>Continue as Guest</Text>
+            <AppText style={styles.primaryButtonText}>Continue as Guest</AppText>
           </TouchableOpacity>
           <TouchableOpacity style={styles.secondaryButton} onPress={navigateToAuth}>
-            <Text style={styles.secondaryButtonText}>Create an Account</Text>
+            <AppText style={styles.secondaryButtonText}>Create an Account</AppText>
           </TouchableOpacity>
           <View style={styles.loginContainer}>
-            <Text style={styles.loginText}>Already have an account? </Text>
+            <AppText style={styles.loginText}>Already have an account? </AppText>
             <TouchableOpacity onPress={navigateToAuth}>
-              <Text style={styles.loginLink}>Sign in</Text>
+              <AppText style={styles.loginLink}>Sign in</AppText>
             </TouchableOpacity>
           </View>
         </View>
@@ -269,3 +270,4 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 });
+

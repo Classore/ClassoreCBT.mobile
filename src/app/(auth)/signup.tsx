@@ -1,3 +1,4 @@
+import { AppText } from '@/components/AppText';
 import { CustomInput } from '@/components/CustomInput';
 import { api } from '@/services/api';
 import { GoogleSignin, isErrorWithCode, isSuccessResponse, statusCodes } from '@react-native-google-signin/google-signin';
@@ -12,7 +13,6 @@ import {
   SafeAreaView,
   ScrollView,
   StyleSheet,
-  Text,
   TextInput,
   TouchableOpacity,
   View
@@ -80,7 +80,7 @@ export default function SignupScreen() {
         const idToken = response.data.idToken;
         
         // Send to backend
-        const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.43.237:8081';
+        const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:8000/';
         const res = await fetch(`${API_URL}/api/auth/google/`, {
           method: 'POST',
           headers: {
@@ -146,16 +146,16 @@ export default function SignupScreen() {
             >
               <Image source={require('../../../assets/images/back-icon.svg')} style={styles.backIcon} />
             </TouchableOpacity>
-            <Text style={styles.headerTitle}>Sign up</Text>
+            <AppText style={styles.headerTitle}>Sign up</AppText>
             <View style={styles.placeholder} />
           </View>
 
-          <Text style={styles.pageTitle}>Create your account</Text>
+          <AppText style={styles.pageTitle}>Create your account</AppText>
 
           {/* Form */}
           <View style={styles.row}>
             <View style={styles.inputContainerHalf}>
-              <Text style={styles.label}>First Name</Text>
+              <AppText style={styles.label}>First Name</AppText>
               <TextInput
                 style={[styles.input, styles.inputActive]}
                 placeholder="John"
@@ -165,7 +165,7 @@ export default function SignupScreen() {
               />
             </View>
             <View style={styles.inputContainerHalf}>
-              <Text style={styles.label}>Last Name</Text>
+              <AppText style={styles.label}>Last Name</AppText>
               <TextInput
                 style={styles.input}
                 placeholder="Arowoka"
@@ -177,7 +177,7 @@ export default function SignupScreen() {
           </View>
 
           <View style={styles.inputContainer}>
-            <Text style={styles.label}>Email Address</Text>
+            <AppText style={styles.label}>Email Address</AppText>
             <TextInput
               style={styles.input}
               placeholder="name@email.com"
@@ -198,7 +198,7 @@ export default function SignupScreen() {
           />
 
           <View style={styles.inputContainer}>
-            <Text style={styles.label}>Referral ID</Text>
+            <AppText style={styles.label}>Referral ID</AppText>
             <TextInput
               style={styles.input}
               placeholder="John123ref"
@@ -218,13 +218,13 @@ export default function SignupScreen() {
             activeOpacity={0.7}
           >
             <View style={[styles.checkbox, agreeTerms && styles.checkboxActive]}>
-              {agreeTerms && <Text style={styles.checkmark}>✓</Text>}
+              {agreeTerms && <AppText style={styles.checkmark}>✓</AppText>}
             </View>
-            <Text style={styles.checkboxLabel}>I agree to the terms and conditions</Text>
+            <AppText style={styles.checkboxLabel}>I agree to the terms and conditions</AppText>
           </TouchableOpacity>
 
           {formError && (
-            <Text style={styles.errorText}>{formError}</Text>
+            <AppText style={styles.errorText}>{formError}</AppText>
           )}
 
           {/* Signup Button */}
@@ -236,18 +236,18 @@ export default function SignupScreen() {
             {isLoading ? (
               <ActivityIndicator color="#FFF" />
             ) : (
-              <Text style={styles.primaryButtonText}>Sign up</Text>
+              <AppText style={styles.primaryButtonText}>Sign up</AppText>
             )}
           </TouchableOpacity>
 
           <View style={styles.loginLinkContainer}>
-            <Text style={styles.loginText}>Already have an account? </Text>
+            <AppText style={styles.loginText}>Already have an account? </AppText>
             <TouchableOpacity onPress={() => router.push('/auth/login')}>
-              <Text style={styles.loginLink}>Log in</Text>
+              <AppText style={styles.loginLink}>Log in</AppText>
             </TouchableOpacity>
           </View>
 
-          <Text style={styles.orText}>Or</Text>
+          <AppText style={styles.orText}>Or</AppText>
 
           {/* Google Button */}
           <TouchableOpacity 
@@ -260,7 +260,7 @@ export default function SignupScreen() {
             ) : (
               <>
                 <Image source={require('../../../assets/images/google-icon.png')} style={styles.googleIcon} contentFit="contain" />
-                <Text style={styles.googleButtonText}>Continue with Google</Text>
+                <AppText style={styles.googleButtonText}>Continue with Google</AppText>
               </>
             )}
           </TouchableOpacity>
@@ -430,3 +430,4 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   }
 });
+

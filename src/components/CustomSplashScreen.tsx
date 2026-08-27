@@ -1,3 +1,4 @@
+import { AppText } from '@/components/AppText';
 import React, { useEffect, useState } from 'react';
 import { StyleSheet, View, Text } from 'react-native';
 import { Image } from 'expo-image';
@@ -37,8 +38,8 @@ export function CustomSplashScreen({ onComplete }: { onComplete: () => void }) {
           style={styles.logo}
           contentFit="contain"
         />
-        <Text style={styles.brandName}>Classore</Text>
-        <Text style={styles.brandSubtitle}>Test Center</Text>
+        <AppText style={styles.brandName}>Classore</AppText>
+        <AppText style={styles.brandSubtitle}>Test Center</AppText>
       </View>
     </View>
   );
@@ -75,3 +76,4 @@ const styles = StyleSheet.create({
     fontWeight: '400',
   }
 });
+

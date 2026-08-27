@@ -1,3 +1,4 @@
+import { AppText } from '@/components/AppText';
 import { CustomButton } from '@/components/CustomButton';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
@@ -19,13 +20,13 @@ export default function SuccessScreen() {
           <Image source={require('../../../assets/images/success-check-icon.png')} style={styles.checkIcon} contentFit="contain" />
         </View>
 
-        <Text style={styles.title}>Successful</Text>
+        <AppText style={styles.title}>Successful</AppText>
         
-        <Text style={styles.message}>
+        <AppText style={styles.message}>
           Congratulations!{'\n'}
           Your password has{'\n'}
           been changed. Click continue to login
-        </Text>
+        </AppText>
       </View>
 
       <View style={styles.footer}>
@@ -83,3 +84,4 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   }
 });
+

@@ -33,7 +33,7 @@ export default function TabsLayout() {
         options={{
           title: 'Home',
           tabBarIcon: ({ color }) => (
-            <Image source={require('../../../assets/images/home-icon.png')} style={{ width: 24, height: 24, tintColor: color }} contentFit="contain" />
+            <Image source={require('../../../assets/images/home-icon.png')} style={{ width: 24, height: 24 }} tintColor={color} contentFit="contain" />
           ),
         }}
       />
@@ -43,7 +43,7 @@ export default function TabsLayout() {
         options={{
           title: 'Practice',
           tabBarIcon: ({ color }) => (
-            <Image source={require('../../../assets/images/practice-icon.png')} style={{ width: 24, height: 24, tintColor: color }} contentFit="contain" />
+            <Image source={require('../../../assets/images/practice-icon.png')} style={{ width: 24, height: 24 }} tintColor={color} contentFit="contain" />
           ),
         }}
       />
@@ -63,7 +63,7 @@ export default function TabsLayout() {
         options={{
           title: 'Reports',
           tabBarIcon: ({ color }) => (
-            <Image source={require('../../../assets/images/reports-icon.png')} style={{ width: 24, height: 24, tintColor: color }} contentFit="contain" />
+            <Image source={require('../../../assets/images/reports-icon.png')} style={{ width: 24, height: 24 }} tintColor={color} contentFit="contain" />
           ),
         }}
       />
@@ -73,7 +73,7 @@ export default function TabsLayout() {
         options={{
           title: 'Profile',
           tabBarIcon: ({ color }) => (
-            <Image source={require('../../../assets/images/profile-icon.png')} style={{ width: 24, height: 24, tintColor: color }} contentFit="contain" />
+            <Image source={require('../../../assets/images/profile-icon.png')} style={{ width: 24, height: 24 }} tintColor={color} contentFit="contain" />
           ),
         }}
       />

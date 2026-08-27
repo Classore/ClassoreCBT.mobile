@@ -1,3 +1,4 @@
+import { AppText } from '@/components/AppText';
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -13,16 +14,16 @@ export default function PasswordResetConfirmScreen() {
       <View style={styles.content}>
         {/* Header */}
         <View style={styles.header}>
-          <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+          <TouchableOpacity style={styles.backButton} onPress={() => router.canGoBack() ? router.back() : router.replace('/')}>
             <Image source={require('../../../assets/images/back-icon.svg')} style={styles.backIcon} />
           </TouchableOpacity>
         </View>
 
         {/* Title */}
-        <Text style={styles.title}>Password reset</Text>
-        <Text style={styles.subtitle}>
+        <AppText style={styles.title}>Password reset</AppText>
+        <AppText style={styles.subtitle}>
           Your password has been successfully reset. click{'\n'}confirm to set a new password
-        </Text>
+        </AppText>
 
         <CustomButton 
           title="Confirm" 
@@ -79,3 +80,4 @@ const styles = StyleSheet.create({
     marginTop: 8,
   }
 });
+

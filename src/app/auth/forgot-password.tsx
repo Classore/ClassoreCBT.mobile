@@ -1,3 +1,4 @@
+import { AppText } from '@/components/AppText';
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, KeyboardAvoidingView, Platform, ScrollView, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -21,13 +22,13 @@ export default function ForgotPasswordScreen() {
         <ScrollView contentContainerStyle={styles.scrollContent}>
           {/* Header */}
           <View style={styles.header}>
-            <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+            <TouchableOpacity style={styles.backButton} onPress={() => router.canGoBack() ? router.back() : router.replace('/')}>
               <Image source={require('../../../assets/images/back-icon.svg')} style={styles.backIcon} />
             </TouchableOpacity>
           </View>
 
           {/* Title */}
-          <Text style={styles.title}>Forget Password</Text>
+          <AppText style={styles.title}>Forget Password</AppText>
 
           {/* Form */}
           <View style={styles.formContainer}>
@@ -115,3 +116,4 @@ const styles = StyleSheet.create({
     marginTop: 8,
   }
 });
+

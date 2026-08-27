@@ -1,3 +1,4 @@
+import { AppText } from '@/components/AppText';
 import React from 'react';
 import { TouchableOpacity, View, Text, StyleSheet } from 'react-native';
 import { SymbolView } from 'expo-symbols';
@@ -20,7 +21,7 @@ export function CustomCheckbox({ label, checked, onChange }: CustomCheckboxProps
           <SymbolView name="checkmark" size={14} tintColor="#fff" />
         )}
       </View>
-      <Text style={styles.label}>{label}</Text>
+      <AppText style={styles.label}>{label}</AppText>
     </TouchableOpacity>
   );
 }
@@ -50,3 +51,4 @@ const styles = StyleSheet.create({
     color: '#666666',
   },
 });
+

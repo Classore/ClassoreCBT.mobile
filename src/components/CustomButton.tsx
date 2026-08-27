@@ -1,3 +1,4 @@
+import { AppText } from '@/components/AppText';
 import React from 'react';
 import { TouchableOpacity, Text, StyleSheet, ViewStyle, TextStyle, ActivityIndicator, View } from 'react-native';
 
@@ -40,12 +41,12 @@ export function CustomButton({
       ) : (
         <View style={styles.contentContainer}>
           {icon && <View style={styles.iconContainer}>{icon}</View>}
-          <Text style={[
+          <AppText style={[
             styles.text,
             isPrimary ? styles.primaryText : styles.secondaryText
           ]}>
             {title}
-          </Text>
+          </AppText>
         </View>
       )}
     </TouchableOpacity>
@@ -88,3 +89,4 @@ const styles = StyleSheet.create({
     color: '#000000',
   },
 });
+

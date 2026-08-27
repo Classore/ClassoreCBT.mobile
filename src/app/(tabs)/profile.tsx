@@ -1,17 +1,494 @@
-import { View, Text, StyleSheet } from 'react-native';
+import React from 'react';
+import { 
+  View, 
+  Text, 
+  StyleSheet, 
+  SafeAreaView, 
+  ScrollView, 
+  TouchableOpacity, 
+  Platform 
+} from 'react-native';
+import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter } from 'expo-router';
 
 export default function ProfileScreen() {
+  const router = useRouter();
+
   return (
-    <View style={styles.container}>
-      <Text>Profile</Text>
-    </View>
+    <SafeAreaView style={styles.safeArea}>
+      <View style={styles.container}>
+        
+        {/* Top Header */}
+        <View style={styles.header}>
+          <TouchableOpacity 
+            style={styles.headerButton} 
+            onPress={() => router.back()}
+            activeOpacity={0.7}
+          >
+            <Feather name="chevron-left" size={24} color="#111827" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Profile</Text>
+          <TouchableOpacity 
+            style={styles.headerButton} 
+            onPress={() => router.push('/settings')}
+            activeOpacity={0.7}
+          >
+            <Feather name="settings" size={20} color="#111827" />
+          </TouchableOpacity>
+        </View>
+
+        <ScrollView 
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.scrollContent}
+        >
+          {/* Hero User Banner Card */}
+          <TouchableOpacity 
+            activeOpacity={0.9} 
+            onPress={() => router.push('/edit-profile')}
+          >
+            <LinearGradient
+              colors={['#4C1D95', '#6D28D9', '#7C3AED']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.heroCard}
+            >
+              <View style={styles.heroTopRow}>
+                {/* Avatar with Camera Badge */}
+                <View style={styles.avatarWrapper}>
+                  <Image
+                    source={{ uri: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80' }}
+                    style={styles.avatarImage}
+                    contentFit="cover"
+                  />
+                  <View style={styles.cameraBadge}>
+                    <Feather name="camera" size={11} color="#FFFFFF" />
+                  </View>
+                </View>
+
+                {/* User Info */}
+                <View style={styles.userInfo}>
+                  <View style={styles.userNameRow}>
+                    <Text style={styles.userName}>Daniel Adekunle</Text>
+                    <MaterialCommunityIcons name="check-decagram" size={16} color="#FFFFFF" style={{ marginLeft: 6 }} />
+                  </View>
+                  <Text style={styles.userEmail}>daniel.adekunle@example.com</Text>
+                  <Text style={styles.userPhone}>+234 801 234 5678</Text>
+                </View>
+              </View>
+
+              {/* Level & XP */}
+              <View style={styles.levelBadge}>
+                <Text style={styles.levelBadgeText}>Level 4 • Achiever</Text>
+              </View>
+
+              <View style={styles.xpRow}>
+                <Text style={styles.xpText}>🔥 3,240 XP to Level 5</Text>
+              </View>
+
+              <View style={styles.xpProgressBarTrack}>
+                <View style={styles.xpProgressBarFill} />
+              </View>
+            </LinearGradient>
+          </TouchableOpacity>
+
+          {/* 2-Column Summary Cards */}
+          <View style={styles.summaryRow}>
+            {/* Token Balance */}
+            <TouchableOpacity 
+              style={styles.summaryCard} 
+              onPress={() => router.push('/wallet')}
+              activeOpacity={0.8}
+            >
+              <View style={[styles.summaryIconBg, { backgroundColor: '#EDE9FE' }]}>
+                <Feather name="dollar-sign" size={20} color="#7C3AED" />
+              </View>
+              <View style={styles.summaryInfo}>
+                <Text style={styles.summaryLabel}>Token Balance</Text>
+                <View style={styles.summaryValueRow}>
+                  <Text style={styles.summaryValueMain}>2,450</Text>
+                  <Text style={styles.summaryValueSub}> Tokens</Text>
+                </View>
+              </View>
+            </TouchableOpacity>
+
+            {/* Streak */}
+            <TouchableOpacity 
+              style={styles.summaryCard} 
+              onPress={() => router.push('/streak')}
+              activeOpacity={0.8}
+            >
+              <View style={[styles.summaryIconBg, { backgroundColor: '#FFEDD5' }]}>
+                <MaterialCommunityIcons name="fire" size={22} color="#F97316" />
+              </View>
+              <View style={styles.summaryInfo}>
+                <Text style={styles.summaryLabel}>Streak</Text>
+                <Text style={styles.summaryValueMain}>7 Days</Text>
+                <Text style={styles.streakSubText}>Keep it up!</Text>
+              </View>
+            </TouchableOpacity>
+          </View>
+
+          {/* Overview Section */}
+          <Text style={styles.sectionTitle}>Overview</Text>
+          <View style={styles.overviewGrid}>
+            {/* Tests Taken */}
+            <View style={styles.overviewCard}>
+              <View style={[styles.overviewIconBg, { backgroundColor: '#EFF6FF' }]}>
+                <Feather name="file-text" size={18} color="#3B82F6" />
+              </View>
+              <Text style={styles.overviewValue}>128</Text>
+              <Text style={styles.overviewLabel}>Tests Taken</Text>
+            </View>
+
+            {/* Average Score */}
+            <View style={styles.overviewCard}>
+              <View style={[styles.overviewIconBg, { backgroundColor: '#EFF6FF' }]}>
+                <Feather name="activity" size={18} color="#3B82F6" />
+              </View>
+              <Text style={styles.overviewValue}>72%</Text>
+              <Text style={styles.overviewLabel}>Average Score</Text>
+            </View>
+
+            {/* Accuracy */}
+            <View style={styles.overviewCard}>
+              <View style={[styles.overviewIconBg, { backgroundColor: '#ECFDF5' }]}>
+                <Feather name="check-circle" size={18} color="#10B981" />
+              </View>
+              <Text style={styles.overviewValue}>68%</Text>
+              <Text style={styles.overviewLabel}>Accuracy</Text>
+            </View>
+
+            {/* Study Time */}
+            <View style={styles.overviewCard}>
+              <View style={[styles.overviewIconBg, { backgroundColor: '#FFF1F2' }]}>
+                <Feather name="clock" size={18} color="#F43F5E" />
+              </View>
+              <Text style={styles.overviewValue}>34h 20m</Text>
+              <Text style={styles.overviewLabel}>Study Time</Text>
+            </View>
+          </View>
+
+          {/* Menu Options */}
+          <View style={styles.menuContainer}>
+            {/* My Certificates */}
+            <TouchableOpacity style={styles.menuItem} activeOpacity={0.7}>
+              <View style={[styles.menuIconBg, { backgroundColor: '#EDE9FE' }]}>
+                <MaterialCommunityIcons name="ribbon" size={20} color="#7C3AED" />
+              </View>
+              <View style={styles.menuTextContainer}>
+                <Text style={styles.menuTitle}>My Certificates</Text>
+                <Text style={styles.menuSubtitle}>View and download your certificat...</Text>
+              </View>
+              <Feather name="chevron-right" size={18} color="#9CA3AF" />
+            </TouchableOpacity>
+
+            {/* Achievements & Badges */}
+            <TouchableOpacity style={styles.menuItem} activeOpacity={0.7}>
+              <View style={[styles.menuIconBg, { backgroundColor: '#FEF3C7' }]}>
+                <Feather name="star" size={20} color="#F59E0B" />
+              </View>
+              <View style={styles.menuTextContainer}>
+                <Text style={styles.menuTitle}>Achievements & Badges</Text>
+                <Text style={styles.menuSubtitle}>See your badges and milestones</Text>
+              </View>
+              <Feather name="chevron-right" size={18} color="#9CA3AF" />
+            </TouchableOpacity>
+
+            {/* Leaderboard Profile */}
+            <TouchableOpacity 
+              style={styles.menuItem} 
+              activeOpacity={0.7}
+              onPress={() => router.push('/(exam)/leaderboard')}
+            >
+              <View style={[styles.menuIconBg, { backgroundColor: '#E0F2FE' }]}>
+                <Ionicons name="trophy-outline" size={20} color="#0284C7" />
+              </View>
+              <View style={styles.menuTextContainer}>
+                <Text style={styles.menuTitle}>Leaderboard Profile</Text>
+                <Text style={styles.menuSubtitle}>See how you rank</Text>
+              </View>
+              <Feather name="chevron-right" size={18} color="#9CA3AF" />
+            </TouchableOpacity>
+          </View>
+
+          {/* Spacer for Tab Bar */}
+          <View style={{ height: 100 }} />
+        </ScrollView>
+      </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+  },
   container: {
     flex: 1,
+    backgroundColor: '#FAFAFA',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: Platform.OS === 'android' ? 40 : 12,
+    paddingBottom: 12,
+    backgroundColor: '#FFFFFF',
+  },
+  headerButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#111827',
+  },
+  scrollContent: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+  },
+
+  // Hero Card
+  heroCard: {
+    borderRadius: 24,
+    padding: 20,
+    marginBottom: 16,
+    shadowColor: '#4C1D95',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  heroTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  avatarWrapper: {
+    position: 'relative',
+    marginRight: 16,
+  },
+  avatarImage: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
+  cameraBadge: {
+    position: 'absolute',
+    bottom: -2,
+    right: -2,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#7C3AED',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  userInfo: {
+    flex: 1,
+  },
+  userNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  userName: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  userEmail: {
+    fontSize: 12.5,
+    color: '#E9D5FF',
+    marginTop: 2,
+  },
+  userPhone: {
+    fontSize: 12,
+    color: '#DDD6FE',
+    marginTop: 1,
+  },
+  levelBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 12,
+    marginBottom: 12,
+  },
+  levelBadgeText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  xpRow: {
+    marginBottom: 6,
+  },
+  xpText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  xpProgressBarTrack: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    overflow: 'hidden',
+  },
+  xpProgressBarFill: {
+    width: '45%',
+    height: '100%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 3,
+  },
+
+  // 2-Column Summary Cards
+  summaryRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 20,
+  },
+  summaryCard: {
+    flex: 1,
+    flexDirection: 'row',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    padding: 14,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.02,
+    shadowRadius: 6,
+    elevation: 1,
+  },
+  summaryIconBg: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  summaryInfo: {
+    flex: 1,
+  },
+  summaryLabel: {
+    fontSize: 11,
+    color: '#6B7280',
+    fontWeight: '500',
+    marginBottom: 2,
+  },
+  summaryValueRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+  },
+  summaryValueMain: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#111827',
+  },
+  summaryValueSub: {
+    fontSize: 11,
+    color: '#9CA3AF',
+    fontWeight: '500',
+  },
+  streakSubText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#10B981',
+    marginTop: 1,
+  },
+
+  // Overview Grid
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#111827',
+    marginBottom: 12,
+  },
+  overviewGrid: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 20,
+  },
+  overviewCard: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 8,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
+  },
+  overviewIconBg: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  overviewValue: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#111827',
+    marginBottom: 2,
+  },
+  overviewLabel: {
+    fontSize: 9.5,
+    color: '#6B7280',
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+
+  // Menu Options
+  menuContainer: {
+    gap: 10,
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
+  },
+  menuIconBg: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 14,
+  },
+  menuTextContainer: {
+    flex: 1,
+  },
+  menuTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 2,
+  },
+  menuSubtitle: {
+    fontSize: 11.5,
+    color: '#9CA3AF',
   },
 });

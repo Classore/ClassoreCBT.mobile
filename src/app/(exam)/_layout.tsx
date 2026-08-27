@@ -5,6 +5,17 @@ export default function ExamLayout() {
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="instructions" />
       <Stack.Screen name="session" />
+      <Stack.Screen name="leaderboard" />
+      <Stack.Screen name="ielts-setup" />
+      <Stack.Screen name="ielts-instructions" />
+      <Stack.Screen name="ielts-section-instructions" />
+      <Stack.Screen name="ielts-session" />
+      <Stack.Screen name="ielts-speaking-instructions" />
+      <Stack.Screen name="ielts-speaking-session" />
+      <Stack.Screen name="test-result" />
+      <Stack.Screen name="subject-performance" />
+      <Stack.Screen name="topic-performance" />
+      <Stack.Screen name="review-answers" />
     </Stack>
   );
 }
