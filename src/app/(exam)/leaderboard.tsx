@@ -11,7 +11,8 @@ import {
 import { Feather, MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import { examService } from '@/services/exam';
 
 interface LeaderboardUser {
   rank: number;
@@ -24,7 +25,7 @@ interface LeaderboardUser {
   isCurrentUser?: boolean;
 }
 
-const LEADERBOARD_DATA: LeaderboardUser[] = [
+const FALLBACK_DATA: LeaderboardUser[] = [
   { rank: 1, name: 'Blessing A.', avatarText: 'B', avatarBg: '#D97706', verified: true, score: 362 },
   { rank: 2, name: 'Daniel O.', avatarText: 'D', avatarBg: '#2563EB', verified: true, score: 345 },
   { rank: 3, name: 'Victory M.', avatarText: 'V', avatarBg: '#059669', verified: true, score: 338 },
@@ -37,7 +38,16 @@ const LEADERBOARD_DATA: LeaderboardUser[] = [
 
 export default function LeaderboardScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ exam_type_id?: string }>();
+
+  const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'Overall' | 'This Week' | 'This Month' | 'All Time'>('Overall');
+  const [leaderboardUsers, setLeaderboardUsers] = useState<LeaderboardUser[]>(FALLBACK_DATA);
+  const [currentUserStats, setCurrentUserStats] = useState({
+    rank: 42,
+    percentile: 'Top 0.02%',
+    score: 205,
+  });
 
   const tabs: ('Overall' | 'This Week' | 'This Month' | 'All Time')[] = [
     'Overall',
@@ -45,6 +55,46 @@ export default function LeaderboardScreen() {
     'This Month',
     'All Time'
   ];
+
+  useEffect(() => {
+    const fetchLeaderboard = async () => {
+      try {
+        setLoading(true);
+        const data = await examService.getLeaderboard({
+          exam_type_id: params.exam_type_id ? Number(params.exam_type_id) : undefined,
+          period: activeTab,
+        });
+
+        if (data && data.leaderboard && data.leaderboard.length > 0) {
+          const mapped: LeaderboardUser[] = data.leaderboard.map((item: any) => ({
+            rank: item.rank,
+            name: item.name,
+            avatarText: item.avatar_text,
+            avatarBg: item.avatar_bg,
+            avatarUrl: item.avatar_url,
+            verified: item.rank <= 3,
+            score: item.score,
+            isCurrentUser: item.is_current_user,
+          }));
+          setLeaderboardUsers(mapped);
+
+          if (data.current_user_stats) {
+            setCurrentUserStats({
+              rank: data.current_user_stats.rank || 1,
+              percentile: data.current_user_stats.percentile || 'Top 5%',
+              score: data.current_user_stats.score || 0,
+            });
+          }
+        }
+      } catch (err) {
+        console.warn('Leaderboard API failed, using mock data:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchLeaderboard();
+  }, [activeTab, params.exam_type_id]);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -101,8 +151,8 @@ export default function LeaderboardScreen() {
             <View style={styles.statCol}>
               <Text style={styles.statLabel}>Your Rank</Text>
               <View style={styles.statValueRow}>
-                <Text style={styles.statValueMain}>142</Text>
-                <Text style={styles.statValueSub}> / 2,568</Text>
+                <Text style={styles.statValueMain}>{currentUserStats.rank}</Text>
+                <Text style={styles.statValueSub}> / {leaderboardUsers.length}</Text>
               </View>
             </View>
             
@@ -111,7 +161,7 @@ export default function LeaderboardScreen() {
             <View style={styles.statCol}>
               <Text style={styles.statLabel}>Your Score</Text>
               <View style={styles.statValueRow}>
-                <Text style={styles.statValueMain}>278</Text>
+                <Text style={styles.statValueMain}>{currentUserStats.score}</Text>
                 <Text style={styles.statValueSub}> / 400</Text>
               </View>
             </View>
@@ -120,7 +170,7 @@ export default function LeaderboardScreen() {
 
             <View style={styles.statCol}>
               <Text style={styles.statLabel}>Percentile</Text>
-              <Text style={styles.percentileValue}>Top 5%</Text>
+              <Text style={styles.percentileValue}>{currentUserStats.percentile}</Text>
             </View>
           </View>
 
@@ -154,7 +204,7 @@ export default function LeaderboardScreen() {
             </View>
 
             {/* Top 3 & Regular Rows */}
-            {LEADERBOARD_DATA.map((item) => {
+            {leaderboardUsers.map((item) => {
               if (item.rank === 1) {
                 return (
                   <View key={item.rank} style={styles.topCard1}>

@@ -1,0 +1,297 @@
+import { api } from './api';
+import { Platform } from 'react-native';
+
+export interface ExamGenerationRules {
+  selection_strategy: string;
+  total_sections: number;
+  required_sections: string[];
+  standard_question_counts: Record<string, number | { presented: number, required_to_answer: number }>;
+  structured_generation?: Record<string, any>;
+}
+
+export interface ExamType {
+  id: number;
+  name: string;
+  description: string;
+  is_premium_only: boolean;
+  is_published: boolean;
+  generation_rules: ExamGenerationRules;
+}
+
+export interface ExamSection {
+  id: number;
+  exam_type: number;
+  name: string;
+  parent: number | null;
+  default_time_minutes: number;
+  is_published: boolean;
+  sub_sections?: number[];
+}
+
+export interface ExamTierConfig {
+  id: number;
+  exam_type: number;
+  has_free_tier: boolean;
+  freemium_daily_attempts_per_section: number;
+  freemium_max_questions_per_section: number;
+}
+
+export interface ChoiceItem {
+  id: number;
+  text: string;
+  image?: string | null;
+  order?: number;
+}
+
+export interface QuestionData {
+  id: number;
+  text: string;
+  instructions?: string;
+  question_type: 'MCQ' | 'TEXT' | 'AUDIO' | 'MATCHING' | 'GAP_FILL' | 'LABELING';
+  choices?: ChoiceItem[];
+  points?: number;
+  prep_time_seconds?: number;
+  recording_time_seconds?: number;
+  metadata?: Record<string, any>;
+  section_id?: number;
+  section_name?: string;
+}
+
+export interface UserResponseItem {
+  id: number;
+  selected_choice?: number | null;
+  written_response?: string | null;
+  audio_response?: string | null;
+  score_awarded?: number;
+  ai_feedback?: string | null;
+  time_spent_seconds?: number;
+  question: QuestionData;
+}
+
+export interface QuestionGroupItem {
+  group_id: number | string;
+  group_title?: string;
+  group_type?: string;
+  context_text?: string;
+  context_media?: string;
+  responses: UserResponseItem[];
+}
+
+export interface AttemptSection {
+  section_id: number;
+  section_name: string;
+  question_groups: QuestionGroupItem[];
+}
+
+export interface UserAttempt {
+  id: number;
+  exam_type: number;
+  mode: 'Standard' | 'Practice';
+  time_limit_override?: number | null;
+  start_time: string;
+  end_time?: string | null;
+  total_score?: number | null;
+  status: string;
+  sections: AttemptSection[];
+}
+
+export interface ExamStartRequest {
+  exam_type_id: number;
+  mode?: 'Standard' | 'Practice';
+  selected_section_ids?: number[];
+  time_limit_override?: number;
+  practice_config?: Record<string, any>;
+}
+
+export interface AutoSavePayload {
+  responses: {
+    question_id: number;
+    choice_id?: number | null;
+    written_response?: string | null;
+    time_spent_seconds?: number;
+    is_bookmarked?: boolean;
+    metadata?: Record<string, any>;
+  }[];
+}
+
+export interface SubmitExamPayload {
+  responses: {
+    question_id: number;
+    choice_id?: number | null;
+    written_response?: string | null;
+    time_spent_seconds?: number;
+    is_bookmarked?: boolean;
+    metadata?: Record<string, any>;
+  }[];
+}
+
+export const examService = {
+  getExams: async (): Promise<ExamType[]> => {
+    const response = await api.get('/api/admin/exams/?is_published=true');
+    return response.data.results ? response.data.results : response.data;
+  },
+
+  getSections: async (examTypeId: number): Promise<ExamSection[]> => {
+    const response = await api.get(`/api/admin/sections/?exam_type_id=${examTypeId}&is_published=true`);
+    return response.data.results ? response.data.results : response.data;
+  },
+
+  getExamTierConfigs: async (): Promise<ExamTierConfig[]> => {
+    const response = await api.get('/api/admin/exam-tier-configs/');
+    return response.data.results ? response.data.results : response.data;
+  },
+
+  startExam: async (payload: ExamStartRequest): Promise<UserAttempt> => {
+    const response = await api.post('/api/user/exam/start/', payload);
+    return response.data;
+  },
+
+  autoSave: async (attemptId: number, payload: AutoSavePayload): Promise<{ message: string }> => {
+    const response = await api.patch(`/api/user/exam/${attemptId}/auto-save/`, payload);
+    return response.data;
+  },
+
+  uploadAudio: async (attemptId: number, questionId: number, audioUri: string, mimeType = 'audio/wav'): Promise<{ message: string; response_id: number }> => {
+    const formData = new FormData();
+    formData.append('question_id', String(questionId));
+
+    if (Platform.OS === 'web') {
+      const audioBlob = await (await fetch(audioUri)).blob();
+      formData.append('audio_file', audioBlob, 'response.wav');
+    } else {
+      formData.append('audio_file', {
+        uri: audioUri,
+        type: mimeType,
+        name: 'response.wav',
+      } as any);
+    }
+
+    const response = await api.post(`/api/user/exam/${attemptId}/upload-audio/`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  },
+
+  submitBulkAudio: async (
+    attemptId: number, 
+    audioUri: string, 
+    metadata: { questionId: number; start: number; end: number }[],
+    mimeType = 'audio/wav'
+  ): Promise<{ message: string; processed: any[] }> => {
+    const formData = new FormData();
+    formData.append('metadata', JSON.stringify(metadata));
+
+    if (Platform.OS === 'web') {
+      const audioBlob = await (await fetch(audioUri)).blob();
+      formData.append('audio_file', audioBlob, 'bulk_speaking.wav');
+    } else {
+      formData.append('audio_file', {
+        uri: audioUri,
+        type: mimeType,
+        name: 'bulk_speaking.wav',
+      } as any);
+    }
+
+    const response = await api.post(`/api/user/exam/${attemptId}/submit-bulk-audio/`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  },
+
+  submitExam: async (attemptId: number, payload: SubmitExamPayload): Promise<{ message: string; total_score: number }> => {
+    const response = await api.post(`/api/user/exam/${attemptId}/submit/`, payload);
+    return response.data;
+  },
+
+  getLastAttemptDetails: async (examTypeId: number): Promise<any> => {
+    const response = await api.get(`/api/user/exam/last-attempt-details/?exam_type_id=${examTypeId}`);
+    return response.data;
+  },
+
+  getDetailedAnalytics: async (attemptId: number): Promise<any> => {
+    const response = await api.get(`/api/user/exam/${attemptId}/detailed-analytics/`);
+    return response.data;
+  },
+
+  getTopicAnalysis: async (attemptId: number): Promise<any> => {
+    const response = await api.get(`/api/user/exam/${attemptId}/topic-analysis/`);
+    return response.data;
+  },
+
+  resumeExam: async (attemptId: number): Promise<UserAttempt & { timer_info: { total_seconds: number; elapsed_seconds: number; remaining_seconds: number; is_expired: boolean } }> => {
+    const response = await api.get(`/api/user/exam/${attemptId}/resume/`);
+    return response.data;
+  },
+
+  reportIssue: async (
+    attemptId: number, 
+    data: { question_id?: number; issue_type: string; description: string }
+  ): Promise<{ message: string; report_id: number }> => {
+    const response = await api.post(`/api/user/exam/${attemptId}/report-issue/`, {
+      question: data.question_id,
+      issue_type: data.issue_type,
+      description: data.description,
+    });
+    return response.data;
+  },
+
+  getSavedQuestions: async (params?: { exam_type_id?: number; section_id?: number }): Promise<any[]> => {
+    const query = new URLSearchParams();
+    if (params?.exam_type_id) query.append('exam_type_id', String(params.exam_type_id));
+    if (params?.section_id) query.append('section_id', String(params.section_id));
+    const response = await api.get(`/api/user/saved-questions/?${query.toString()}`);
+    return response.data.results ? response.data.results : response.data;
+  },
+
+  saveQuestion: async (questionId: number, notes?: string): Promise<any> => {
+    const response = await api.post('/api/user/saved-questions/', { question: questionId, notes });
+    return response.data;
+  },
+
+  removeSavedQuestion: async (questionId: number): Promise<{ message: string }> => {
+    const response = await api.delete(`/api/user/saved-questions/remove-by-question/${questionId}/`);
+    return response.data;
+  },
+
+  getLeaderboard: async (params?: { exam_type_id?: number; period?: string }): Promise<{ leaderboard: any[]; current_user_stats: any }> => {
+    const query = new URLSearchParams();
+    if (params?.exam_type_id) query.append('exam_type_id', String(params.exam_type_id));
+    if (params?.period) query.append('period', params.period);
+    const response = await api.get(`/api/user/exam/leaderboard/?${query.toString()}`);
+    return response.data;
+  },
+
+  getAttemptReview: async (attemptId: number): Promise<UserAttempt> => {
+    const response = await api.get(`/api/user/exam/${attemptId}/`);
+    return response.data;
+  },
+
+  explainQuestion: async (attemptId: number, questionId: number): Promise<any> => {
+    const response = await api.post(`/api/user/exam/${attemptId}/explain-question/`, { question_id: questionId });
+    return response.data;
+  },
+
+  explainMistakes: async (attemptId: number): Promise<any> => {
+    const response = await api.post(`/api/user/exam/${attemptId}/explain-mistakes/`);
+    return response.data;
+  },
+
+  createRemedialPractice: async (attemptId: number): Promise<{ message: string; target_topics: string[]; attempt: UserAttempt }> => {
+    const response = await api.post(`/api/user/exam/${attemptId}/remedial-practice/`);
+    return response.data;
+  },
+
+  getShareCard: async (attemptId: number): Promise<any> => {
+    const response = await api.get(`/api/user/exam/${attemptId}/share-card/`);
+    return response.data;
+  },
+
+  getExamHistory: async (params?: { exam_type_id?: number; status?: string; mode?: string }): Promise<any> => {
+    const query = new URLSearchParams();
+    if (params?.exam_type_id) query.append('exam_type_id', String(params.exam_type_id));
+    if (params?.status) query.append('status', params.status);
+    if (params?.mode) query.append('mode', params.mode);
+    const response = await api.get(`/api/user/exam/?${query.toString()}`);
+    return response.data.results ? response.data.results : response.data;
+  },
+};

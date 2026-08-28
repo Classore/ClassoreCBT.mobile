@@ -2,12 +2,13 @@ import { AppText } from '@/components/AppText';
 import React from 'react';
 import { View, Text, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, Platform } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Image } from 'expo-image';
 import { CustomButton } from '@/components/CustomButton';
 
 export default function TestInstructionsScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams();
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -71,7 +72,10 @@ export default function TestInstructionsScreen() {
 
         <CustomButton 
           title="Begin Test" 
-          onPress={() => router.push('/(exam)/session')} 
+          onPress={() => router.push({
+            pathname: '/(exam)/session',
+            params: params
+          })} 
           style={styles.beginButton} 
           iconRight="arrow-right"
         />

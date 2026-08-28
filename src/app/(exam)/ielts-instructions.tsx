@@ -136,7 +136,10 @@ export default function IELTSInstructionsScreen() {
           {/* Continue Button */}
           <TouchableOpacity 
             style={styles.continueButton}
-            onPress={() => router.push('/(exam)/ielts-section-instructions')}
+            onPress={() => router.push({
+              pathname: '/(exam)/ielts-section-instructions',
+              params: params
+            })}
             activeOpacity={0.85}
           >
             <Text style={styles.continueButtonText}>Continue</Text>

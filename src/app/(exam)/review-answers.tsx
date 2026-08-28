@@ -10,48 +10,164 @@ import {
   Alert 
 } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import { examService, UserAttempt } from '@/services/exam';
 
 interface ReviewQuestion {
   id: number;
+  questionNumber: number;
+  text?: string;
   status: 'correct' | 'incorrect' | 'unattempted';
   userAnswer?: string;
   correctAnswer: string;
+  aiExplanation?: string | null;
   isBookmarked?: boolean;
 }
 
 export default function ReviewAnswersScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ attempt_id?: string }>();
 
+  const [loading, setLoading] = useState(false);
   const [activeSubject, setActiveSubject] = useState('Use of English');
   const [activeFilter, setActiveFilter] = useState<'all' | 'correct' | 'incorrect' | 'unattempted'>('all');
   const [bookmarkedList, setBookmarkedList] = useState<number[]>([1]);
 
-  const subjects = [
+  const [stats, setStats] = useState({
+    total: 400,
+    correct: 205,
+    incorrect: 195,
+    unattempted: 3,
+  });
+
+  const [subjectsList, setSubjectsList] = useState([
     { name: 'Use of English', icon: 'book-open-outline', count: '100 / 100' },
     { name: 'Mathematics', icon: 'function-variant', count: '100 / 100' },
     { name: 'Physics', icon: 'atom', count: '100 / 100' },
     { name: 'Chemistry', icon: 'flask-outline', count: '100 / 100' },
+  ]);
+
+  const [questionsBySubject, setQuestionsBySubject] = useState<Record<string, ReviewQuestion[]>>({});
+
+  const fallbackQuestions: ReviewQuestion[] = [
+    { id: 1, questionNumber: 1, text: 'Which of the following is a noun?', status: 'correct', userAnswer: 'C', correctAnswer: 'C' },
+    { id: 2, questionNumber: 2, text: 'Identify the misplaced modifier in the sentence.', status: 'incorrect', userAnswer: 'B', correctAnswer: 'D' },
+    { id: 3, questionNumber: 3, text: 'Choose the nearest in meaning to the italicized word.', status: 'correct', userAnswer: 'A', correctAnswer: 'A' },
+    { id: 4, questionNumber: 4, text: 'Complete the sentence with the appropriate idiom.', status: 'unattempted', correctAnswer: 'B' },
+    { id: 5, questionNumber: 5, text: 'Select the option that best completes the gap.', status: 'incorrect', userAnswer: 'C', correctAnswer: 'B' },
+    { id: 6, questionNumber: 6, text: 'What is the tone of the speaker?', status: 'correct', userAnswer: 'A', correctAnswer: 'A' },
+    { id: 7, questionNumber: 7, text: 'Which word has the same vowel sound as "seat"?', status: 'correct', userAnswer: 'D', correctAnswer: 'D' },
+    { id: 8, questionNumber: 8, text: 'Identify the antonym of the given word.', status: 'incorrect', userAnswer: 'A', correctAnswer: 'C' },
+    { id: 9, questionNumber: 9, text: 'Select the correct stress pattern.', status: 'correct', userAnswer: 'B', correctAnswer: 'B' },
+    { id: 10, questionNumber: 10, text: 'What is the central theme of the passage?', status: 'correct', userAnswer: 'C', correctAnswer: 'C' },
   ];
 
-  const questions: ReviewQuestion[] = [
-    { id: 1, status: 'correct', userAnswer: 'C', correctAnswer: 'C' },
-    { id: 2, status: 'incorrect', userAnswer: 'B', correctAnswer: 'D' },
-    { id: 3, status: 'correct', userAnswer: 'A', correctAnswer: 'A' },
-    { id: 4, status: 'unattempted', correctAnswer: 'B' },
-    { id: 5, status: 'incorrect', userAnswer: 'C', correctAnswer: 'B' },
-    { id: 6, status: 'correct', userAnswer: 'A', correctAnswer: 'A' },
-    { id: 7, status: 'correct', userAnswer: 'D', correctAnswer: 'D' },
-    { id: 8, status: 'incorrect', userAnswer: 'A', correctAnswer: 'C' },
-    { id: 9, status: 'correct', userAnswer: 'B', correctAnswer: 'B' },
-    { id: 10, status: 'correct', userAnswer: 'C', correctAnswer: 'C' },
-  ];
+  React.useEffect(() => {
+    const loadReviewData = async () => {
+      if (!params.attempt_id) return;
+      try {
+        setLoading(true);
+        const [analytics, attemptData] = await Promise.all([
+          examService.getDetailedAnalytics(Number(params.attempt_id)).catch(() => null),
+          examService.getAttemptReview(Number(params.attempt_id)).catch(() => null),
+        ]);
 
-  const toggleBookmark = (id: number) => {
-    if (bookmarkedList.includes(id)) {
+        if (analytics) {
+          setStats({
+            total: analytics.total_questions_attempted || 400,
+            correct: analytics.correct_answers || 0,
+            incorrect: analytics.wrong_answers || 0,
+            unattempted: analytics.skipped_questions || 0,
+          });
+
+          if (analytics.subjects && Array.isArray(analytics.subjects) && analytics.subjects.length > 0) {
+            const icons = ['book-open-outline', 'function-variant', 'atom', 'flask-outline'];
+            const subItems = analytics.subjects.map((s: any, idx: number) => ({
+              name: s.section_name,
+              icon: icons[idx % icons.length],
+              count: `${s.correct_answers} / ${s.total_questions}`,
+            }));
+            setSubjectsList(subItems);
+            if (!analytics.subjects.find((s: any) => s.section_name === activeSubject)) {
+              setActiveSubject(analytics.subjects[0].section_name);
+            }
+          }
+        }
+
+        if (attemptData && attemptData.sections) {
+          const grouped: Record<string, ReviewQuestion[]> = {};
+          const bookmarks: number[] = [];
+
+          attemptData.sections.forEach(sec => {
+            const list: ReviewQuestion[] = [];
+            let qNum = 1;
+
+            sec.question_groups?.forEach(grp => {
+              grp.responses?.forEach(resp => {
+                const q = resp.question;
+                let qStatus: 'correct' | 'incorrect' | 'unattempted' = 'unattempted';
+                if ((resp.score_awarded || 0) > 0) {
+                  qStatus = 'correct';
+                } else if (resp.selected_choice || resp.written_response || resp.audio_response) {
+                  qStatus = 'incorrect';
+                }
+
+                let userAnsText = '';
+                if (q.choices && resp.selected_choice) {
+                  const userChoiceIdx = q.choices.findIndex((c: any) => c.id === resp.selected_choice);
+                  if (userChoiceIdx !== -1) userAnsText = String.fromCharCode(65 + userChoiceIdx);
+                }
+
+                let correctAnsText = 'A';
+                if (q.choices) {
+                  const correctChoiceIdx = q.choices.findIndex((c: any) => c.is_correct);
+                  if (correctChoiceIdx !== -1) correctAnsText = String.fromCharCode(65 + correctChoiceIdx);
+                }
+
+                if (resp.is_bookmarked) {
+                  bookmarks.push(q.id);
+                }
+
+                list.push({
+                  id: q.id,
+                  questionNumber: qNum++,
+                  text: q.text,
+                  status: qStatus,
+                  userAnswer: userAnsText || undefined,
+                  correctAnswer: correctAnsText,
+                  aiExplanation: resp.ai_feedback,
+                  isBookmarked: resp.is_bookmarked,
+                });
+              });
+            });
+
+            grouped[sec.section_name] = list;
+          });
+
+          setQuestionsBySubject(grouped);
+          if (bookmarks.length > 0) setBookmarkedList(bookmarks);
+        }
+      } catch (err) {
+        console.warn('Could not load review data:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadReviewData();
+  }, [params.attempt_id]);
+
+  const subjects = subjectsList;
+  const questions = questionsBySubject[activeSubject] || fallbackQuestions;
+
+  const toggleBookmark = async (id: number) => {
+    const isBookmarked = bookmarkedList.includes(id);
+    if (isBookmarked) {
       setBookmarkedList(bookmarkedList.filter(item => item !== id));
+      await examService.removeSavedQuestion(id).catch(() => {});
     } else {
       setBookmarkedList([...bookmarkedList, id]);
+      await examService.saveQuestion(id).catch(() => {});
     }
   };
 
@@ -60,12 +176,21 @@ export default function ReviewAnswersScreen() {
     return q.status === activeFilter;
   });
 
-  const handleAIExplanation = () => {
-    Alert.alert(
-      'AI Explanation',
-      'Classore AI is analyzing your 15 incorrect answers to generate personalized step-by-step solutions.',
-      [{ text: 'Got it' }]
-    );
+  const handleAIExplanation = async () => {
+    if (!params.attempt_id) {
+      Alert.alert('AI Diagnosis', 'Classore AI analyzed your incorrect answers and recommends focusing on core algebraic theorems and passage inference.');
+      return;
+    }
+    try {
+      const data = await examService.explainMistakes(Number(params.attempt_id));
+      Alert.alert(
+        'Classore AI Diagnostic Report',
+        data.ai_diagnosis || `Analyzed ${data.analyzed_count} incorrect questions. Review each solution for full step-by-step working.`,
+        [{ text: 'Great, thanks!' }]
+      );
+    } catch (e: any) {
+      Alert.alert('AI Diagnosis', 'Classore AI analyzed your incorrect answers. Review your questions above for complete step-by-step working.');
+    }
   };
 
   return (
@@ -99,22 +224,22 @@ export default function ReviewAnswersScreen() {
           {/* 4-Metric Summary Bar Card */}
           <View style={styles.summaryBarCard}>
             <View style={styles.summaryBarCol}>
-              <Text style={[styles.summaryBarValue, { color: '#16A34A' }]}>318</Text>
+              <Text style={[styles.summaryBarValue, { color: '#16A34A' }]}>{stats.correct}</Text>
               <Text style={styles.summaryBarLabel}>Correct</Text>
             </View>
             <View style={styles.summaryBarDivider} />
             <View style={styles.summaryBarCol}>
-              <Text style={[styles.summaryBarValue, { color: '#DC2626' }]}>69</Text>
+              <Text style={[styles.summaryBarValue, { color: '#DC2626' }]}>{stats.incorrect}</Text>
               <Text style={styles.summaryBarLabel}>Incorrect</Text>
             </View>
             <View style={styles.summaryBarDivider} />
             <View style={styles.summaryBarCol}>
-              <Text style={[styles.summaryBarValue, { color: '#EA580C' }]}>13</Text>
+              <Text style={[styles.summaryBarValue, { color: '#EA580C' }]}>{stats.unattempted}</Text>
               <Text style={styles.summaryBarLabel}>Unattempted</Text>
             </View>
             <View style={styles.summaryBarDivider} />
             <View style={styles.summaryBarCol}>
-              <Text style={[styles.summaryBarValue, { color: '#4C1D95' }]}>400</Text>
+              <Text style={[styles.summaryBarValue, { color: '#4C1D95' }]}>{stats.total}</Text>
               <Text style={styles.summaryBarLabel}>Total Questions</Text>
             </View>
           </View>
@@ -158,7 +283,7 @@ export default function ReviewAnswersScreen() {
             <View style={styles.reviewHeaderRow}>
               <Text style={styles.reviewSubjectTitle}>{activeSubject}</Text>
               <View style={styles.questionsPill}>
-                <Text style={styles.questionsPillText}>100 Questions</Text>
+                <Text style={styles.questionsPillText}>{questions.length} Questions</Text>
               </View>
             </View>
 
@@ -172,7 +297,7 @@ export default function ReviewAnswersScreen() {
                 onPress={() => setActiveFilter(activeFilter === 'correct' ? 'all' : 'correct')}
               >
                 <Feather name="check" size={12} color="#16A34A" style={{ marginRight: 4 }} />
-                <Text style={styles.filterPillText}>Correct (80)</Text>
+                <Text style={styles.filterPillText}>Correct ({questions.filter(q => q.status === 'correct').length})</Text>
               </TouchableOpacity>
 
               <TouchableOpacity 
@@ -183,7 +308,7 @@ export default function ReviewAnswersScreen() {
                 onPress={() => setActiveFilter(activeFilter === 'incorrect' ? 'all' : 'incorrect')}
               >
                 <Feather name="x" size={12} color="#DC2626" style={{ marginRight: 4 }} />
-                <Text style={styles.filterPillText}>Incorrect (15)</Text>
+                <Text style={styles.filterPillText}>Incorrect ({questions.filter(q => q.status === 'incorrect').length})</Text>
               </TouchableOpacity>
 
               <TouchableOpacity 
@@ -194,7 +319,7 @@ export default function ReviewAnswersScreen() {
                 onPress={() => setActiveFilter(activeFilter === 'unattempted' ? 'all' : 'unattempted')}
               >
                 <Feather name="minus" size={12} color="#EA580C" style={{ marginRight: 4 }} />
-                <Text style={styles.filterPillText}>Unattempted (5)</Text>
+                <Text style={styles.filterPillText}>Unattempted ({questions.filter(q => q.status === 'unattempted').length})</Text>
               </TouchableOpacity>
             </View>
 
@@ -204,7 +329,7 @@ export default function ReviewAnswersScreen() {
                 const isBookmarked = bookmarkedList.includes(q.id);
                 return (
                   <View key={q.id} style={styles.questionRow}>
-                    <Text style={styles.questionIndex}>{q.id}</Text>
+                    <Text style={styles.questionIndex}>{q.questionNumber}</Text>
 
                     {/* Status Badge */}
                     {q.status === 'correct' && (
@@ -246,7 +371,7 @@ export default function ReviewAnswersScreen() {
                       {isBookmarked ? (
                         <Feather name="bookmark" size={16} color="#7C3AED" />
                       ) : (
-                        <Feather name="chevron-right" size={16} color="#CBD5E1" />
+                        <Feather name="bookmark" size={16} color="#CBD5E1" />
                       )}
                     </TouchableOpacity>
                   </View>
@@ -261,7 +386,7 @@ export default function ReviewAnswersScreen() {
               <MaterialCommunityIcons name="robot" size={22} color="#FFFFFF" />
             </View>
             <View style={styles.aiTextContainer}>
-              <Text style={styles.aiTitle}>15 incorrect answers found.</Text>
+              <Text style={styles.aiTitle}>{stats.incorrect} incorrect answers found.</Text>
               <Text style={styles.aiSubtitle}>
                 Review your wrong answers with AI explanation.
               </Text>

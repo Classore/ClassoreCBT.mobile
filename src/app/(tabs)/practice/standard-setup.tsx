@@ -1,13 +1,41 @@
 import { AppText } from '@/components/AppText';
-import React from 'react';
-import { View, Text, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, Platform } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, Platform, ActivityIndicator } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
+import { examService, ExamSection, ExamTierConfig } from '@/services/exam';
 
 export default function StandardSetupScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ exam?: string }>();
+
+  const [subjects, setSubjects] = useState<ExamSection[]>([]);
+  const [tierConfig, setTierConfig] = useState<ExamTierConfig | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const examIdStr = Array.isArray(params.exam) ? params.exam[0] : params.exam;
+        const examId = examIdStr ? parseInt(examIdStr, 10) : 1;
+
+        const [fetchedSections, fetchedTiers] = await Promise.all([
+          examService.getSections(examId),
+          examService.getExamTierConfigs()
+        ]);
+        setSubjects(fetchedSections);
+        const config = fetchedTiers.find(t => t.exam_type === examId);
+        if (config) setTierConfig(config);
+      } catch (error) {
+        console.error('Error fetching standard setup data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, [params.exam]);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -80,19 +108,18 @@ export default function StandardSetupScreen() {
           <View style={styles.subjectsSection}>
             <AppText style={styles.rowLabel}>Subjects</AppText>
             <View style={styles.subjectsGrid}>
-              {[
-                { name: 'English', icon: 'book-open-outline', color: '#3B82F6', bg: '#DBEAFE' },
-                { name: 'Mathematics', icon: 'function-variant', color: '#8B5CF6', bg: '#EDE9FE' },
-                { name: 'Physics', icon: 'atom', color: '#10B981', bg: '#D1FAE5' },
-                { name: 'Biology', icon: 'leaf', color: '#10B981', bg: '#D1FAE5' },
-              ].map(sub => (
-                <View key={sub.name} style={styles.subjectItem}>
-                  <View style={[styles.subjectIconBg, { backgroundColor: sub.bg }]}>
-                    <MaterialCommunityIcons name={sub.icon as any} size={24} color={sub.color} />
+              {loading ? (
+                <AppText style={{ color: '#6B7280' }}>Loading subjects...</AppText>
+              ) : (
+                subjects.slice(0, 4).map(sub => (
+                  <View key={sub.id} style={styles.subjectItem}>
+                    <View style={[styles.subjectIconBg, { backgroundColor: '#DBEAFE' }]}>
+                      <MaterialCommunityIcons name="book-open-outline" size={24} color="#3B82F6" />
+                    </View>
+                    <AppText style={styles.subjectName}>{sub.name}</AppText>
                   </View>
-                  <AppText style={styles.subjectName}>{sub.name}</AppText>
-                </View>
-              ))}
+                ))
+              )}
             </View>
           </View>
           <View style={styles.divider} />
@@ -147,7 +174,18 @@ export default function StandardSetupScreen() {
         {/* Begin Button */}
         <TouchableOpacity 
           style={styles.beginButton}
-          onPress={() => router.push('/(exam)/instructions')}
+          onPress={() => {
+            const examIdStr = Array.isArray(params.exam) ? params.exam[0] : params.exam;
+            const examId = examIdStr ? parseInt(examIdStr, 10) : 41;
+
+            router.push({
+              pathname: '/(exam)/instructions',
+              params: {
+                exam_type_id: examId,
+                mode: 'Standard',
+              }
+            });
+          }}
         >
           <AppText style={styles.beginButtonText}>Begin Test</AppText>
           <Feather name="arrow-right" size={16} color="#FFF" />

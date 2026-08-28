@@ -8,77 +8,60 @@ import { Feather } from '@expo/vector-icons';
 const { width } = Dimensions.get('window');
 const cardWidth = width * 0.36;
 
+import { examService, ExamType } from '@/services/exam';
+
 export default function ExamSetupScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ exam?: string }>();
   
-  const [selectedExam, setSelectedExam] = useState<string>('jamb');
+  const [exams, setExams] = useState<ExamType[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedExam, setSelectedExam] = useState<number | null>(null);
   const [selectedMode, setSelectedMode] = useState<'practice' | 'standard'>('practice');
 
   useEffect(() => {
-    if (params.exam) {
-      const examParam = Array.isArray(params.exam) ? params.exam[0] : params.exam;
-      setSelectedExam(examParam.toLowerCase());
-    }
+    const fetchExams = async () => {
+      try {
+        const fetchedExams = await examService.getExams();
+        setExams(fetchedExams);
+        if (fetchedExams.length > 0) {
+          // If passed a param, try to match by name, else default to first
+          if (params.exam) {
+            const examParam = Array.isArray(params.exam) ? params.exam[0] : params.exam;
+            const match = fetchedExams.find(e => 
+              String(e.id) === String(examParam) || 
+              e.name.toLowerCase().includes(String(examParam).toLowerCase())
+            );
+            setSelectedExam(match ? match.id : fetchedExams[0].id);
+          } else {
+            setSelectedExam(fetchedExams[0].id);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch exams:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchExams();
   }, [params.exam]);
 
-  const exams = [
-    { 
-      id: 'jamb', 
-      name: 'JAMB UTME', 
-      fullName: 'Joint Admissions and Matriculation Board', 
-      users: '12.5K',
-      userIcon: require('../../../../assets/images/user-icon-purple.png'), 
-      iconSource: require('../../../../assets/images/jamb-logo.png'),
-      popular: true 
-    },
-    { 
-      id: 'ielts', 
-      name: 'IELTS', 
-      fullName: 'International English Language Testing System', 
-      users: '10.2K', 
-      userIcon: require('../../../../assets/images/user-icon-green.png'),
-      iconSource: require('../../../../assets/images/ielts-logo.png'),
-      popular: true 
-    },
-    { 
-      id: 'toefl', 
-      name: 'TOEFL', 
-      fullName: 'Test of English as a Foreign Language', 
-      users: '6.4K', 
-      userIcon: require('../../../../assets/images/user-icon-green.png'),
-      iconSource: require('../../../../assets/images/toefl-logo.png'),
-      popular: false 
-    },
-    { 
-      id: 'waec', 
-      name: 'WAEC', 
-      fullName: 'West African Examinations Council', 
-      users: '8.7K', 
-      userIcon: require('../../../../assets/images/user-icon-green.png'),
-      iconSource: require('../../../../assets/images/waec-logo.png'),
-      popular: false 
-    },
-    { 
-      id: 'neco', 
-      name: 'NECO', 
-      fullName: 'National Examinations Council', 
-      users: '5.3K', 
-      userIcon: require('../../../../assets/images/user-icon-green.png'),
-      iconSource: require('../../../../assets/images/neco-logo.png'),
-      popular: false 
-    }
-  ];
-
   const handleContinue = () => {
+    if (!selectedExam) return;
+    const examObj = exams.find(e => e.id === selectedExam);
+    const examNameLower = examObj?.name.toLowerCase() || '';
+    
     if (selectedMode === 'practice') {
       router.push({
         pathname: '/(tabs)/practice/practice-setup',
         params: { exam: selectedExam }
       });
     } else {
-      if (selectedExam === 'ielts') {
-        router.push('/(exam)/ielts-setup');
+      if (examNameLower.includes('ielts')) {
+        router.push({
+          pathname: '/(exam)/ielts-setup',
+          params: { exam: selectedExam }
+        });
       } else {
         router.push({
           pathname: '/(tabs)/practice/standard-setup',
@@ -88,7 +71,15 @@ export default function ExamSetupScreen() {
     }
   };
 
-  return (
+  const getExamIcon = (name: string) => {
+    const lowerName = name.toLowerCase();
+    if (lowerName.includes('jamb')) return require('../../../../assets/images/jamb-logo.png');
+    if (lowerName.includes('ielts')) return require('../../../../assets/images/ielts-logo.png');
+    if (lowerName.includes('toefl')) return require('../../../../assets/images/toefl-logo.png');
+    if (lowerName.includes('waec')) return require('../../../../assets/images/waec-logo.png');
+    if (lowerName.includes('neco')) return require('../../../../assets/images/neco-logo.png');
+    return null;
+  };  return (
     <SafeAreaView style={styles.container}>
       {/* Header Bar */}
       <View style={styles.topHeader}>
@@ -142,62 +133,70 @@ export default function ExamSetupScreen() {
         </View>
 
         {/* Exams Scrollable List */}
-        <ScrollView 
-          horizontal 
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.examsScrollContent}
-        >
-          {exams.map((exam) => {
-            const isSelected = selectedExam === exam.id;
-            return (
-              <TouchableOpacity
-                key={exam.id}
-                style={[
-                  styles.examCard,
-                  isSelected && styles.examCardSelected
-                ]}
-                activeOpacity={0.8}
-                onPress={() => setSelectedExam(exam.id)}
-              >
-                {/* Purple corner decoration for selected card */}
-                {isSelected && <View style={styles.selectedCorner} />}
+        {loading ? (
+          <View style={{ height: 186, justifyContent: 'center', alignItems: 'center' }}>
+             <AppText style={{ color: '#6B7280' }}>Loading exams...</AppText>
+          </View>
+        ) : (
+          <>
+            <ScrollView 
+              horizontal 
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.examsScrollContent}
+            >
+              {exams.map((exam) => {
+                const isSelected = selectedExam === exam.id;
+                const icon = getExamIcon(exam.name);
                 
-                <View style={[styles.examIconContainer, isSelected ? styles.examIconSelected : styles.examIconUnselected]}>
-                  {exam.iconSource ? (
-                    <Image source={exam.iconSource} style={styles.examIconImage} contentFit="contain" />
-                  ) : (
-                    <AppText style={styles.examIconText}>{exam.id.charAt(0).toUpperCase()}</AppText>
-                  )}
-                </View>
-                
-                <AppText style={styles.examName}>{exam.name}</AppText>
-                <AppText style={styles.examFullName} numberOfLines={3}>{exam.fullName}</AppText>
-                
-                <View style={styles.examFooter}>
-                  <View style={styles.userCountContainer}>
-                    {exam.userIcon && (
-                      <Image source={exam.userIcon} style={styles.userIcon} contentFit="contain" />
-                    )}
-                    <AppText style={styles.userCountText}>{exam.users}</AppText>
-                  </View>
-                  {exam.popular && (
-                    <View style={styles.popularBadge}>
-                      <AppText style={styles.popularText}>Popular</AppText>
+                return (
+                  <TouchableOpacity
+                    key={exam.id}
+                    style={[
+                      styles.examCard,
+                      isSelected && styles.examCardSelected
+                    ]}
+                    activeOpacity={0.8}
+                    onPress={() => setSelectedExam(exam.id)}
+                  >
+                    {/* Purple corner decoration for selected card */}
+                    {isSelected && <View style={styles.selectedCorner} />}
+                    
+                    <View style={[styles.examIconContainer, isSelected ? styles.examIconSelected : styles.examIconUnselected]}>
+                      {icon ? (
+                        <Image source={icon} style={styles.examIconImage} contentFit="contain" />
+                      ) : (
+                        <AppText style={styles.examIconText}>{exam.name.charAt(0).toUpperCase()}</AppText>
+                      )}
                     </View>
-                  )}
-                </View>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-        <View style={styles.paginationDots}>
-          {exams.map((exam) => (
-            <View 
-              key={exam.id} 
-              style={[styles.dot, selectedExam === exam.id && styles.dotActive]} 
-            />
-          ))}
-        </View>
+                    
+                    <AppText style={styles.examName}>{exam.name}</AppText>
+                    <AppText style={styles.examFullName} numberOfLines={3}>{exam.description || exam.name}</AppText>
+                    
+                    <View style={styles.examFooter}>
+                      <View style={styles.userCountContainer}>
+                        <Image source={require('../../../../assets/images/user-icon-green.png')} style={styles.userIcon} contentFit="contain" />
+                        <AppText style={styles.userCountText}>---</AppText>
+                      </View>
+                      {exam.is_premium_only && (
+                        <View style={styles.popularBadge}>
+                          <AppText style={styles.popularText}>Premium</AppText>
+                        </View>
+                      )}
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+            <View style={styles.paginationDots}>
+              {exams.map((exam) => (
+                <View 
+                  key={exam.id} 
+                  style={[styles.dot, selectedExam === exam.id && styles.dotActive]} 
+                />
+              ))}
+            </View>
+          </>
+        )}
 
         {/* Section 2: Choose Test Mode */}
         <View style={[styles.sectionHeader, { marginTop: 24 }]}>

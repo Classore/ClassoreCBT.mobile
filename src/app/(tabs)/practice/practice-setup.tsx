@@ -1,26 +1,22 @@
 import { AppText } from '@/components/AppText';
-import React, { useState } from 'react';
-import { View, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, TextInput, Platform, Modal } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, TextInput, Platform, Modal, ActivityIndicator } from 'react-native';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { useRouter } from 'expo-router';
-
-const SUBJECTS = [
-  { id: 'eng', name: 'Use of English', icon: 'book-open-outline', color: '#8B5CF6', bg: '#EDE9FE' },
-  { id: 'math', name: 'Mathematics', icon: 'function-variant', color: '#3B82F6', bg: '#DBEAFE' },
-  { id: 'phy', name: 'Physics', icon: 'atom', color: '#8B5CF6', bg: '#EDE9FE' },
-  { id: 'chem', name: 'Chemistry', icon: 'flask-outline', color: '#F59E0B', bg: '#FEF3C7' },
-  { id: 'bio', name: 'Biology', icon: 'leaf', color: '#10B981', bg: '#D1FAE5' },
-  { id: 'com', name: 'Commerce', icon: 'chart-bar', color: '#9CA3AF', bg: '#F3F4F6' },
-  { id: 'gov', name: 'Government', icon: 'bank-outline', color: '#9CA3AF', bg: '#F3F4F6' },
-  { id: 'lit', name: 'Literature in English', icon: 'book-outline', color: '#9CA3AF', bg: '#F3F4F6' },
-];
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import { examService, ExamSection, ExamTierConfig } from '@/services/exam';
 
 export default function PracticeSetupScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ exam?: string }>();
   
-  // State
-  const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]);
+  // Data State
+  const [subjects, setSubjects] = useState<ExamSection[]>([]);
+  const [tierConfig, setTierConfig] = useState<ExamTierConfig | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  // Form State
+  const [selectedSubjects, setSelectedSubjects] = useState<number[]>([]);
   const [difficulty, setDifficulty] = useState<string>('');
   const [questionCount, setQuestionCount] = useState<number | null>(null);
   const [isTimed, setIsTimed] = useState<boolean>(true);
@@ -32,9 +28,31 @@ export default function PracticeSetupScreen() {
 
   const [searchQuery, setSearchQuery] = useState('');
   
-  const filteredSubjects = SUBJECTS.filter(s => s.name.toLowerCase().includes(searchQuery.toLowerCase()));
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const examIdStr = Array.isArray(params.exam) ? params.exam[0] : params.exam;
+        const examId = examIdStr ? parseInt(examIdStr, 10) : 1; // Default to 1 if missing
 
-  const toggleSubject = (id: string) => {
+        const [fetchedSections, fetchedTiers] = await Promise.all([
+          examService.getSections(examId),
+          examService.getExamTierConfigs()
+        ]);
+        setSubjects(fetchedSections);
+        const config = fetchedTiers.find(t => t.exam_type === examId);
+        if (config) setTierConfig(config);
+      } catch (error) {
+        console.error('Error fetching practice setup data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, [params.exam]);
+
+  const filteredSubjects = subjects.filter(s => s.name.toLowerCase().includes(searchQuery.toLowerCase()));
+
+  const toggleSubject = (id: number) => {
     if (selectedSubjects.includes(id)) {
       setSelectedSubjects(selectedSubjects.filter(s => s !== id));
     } else {
@@ -47,7 +65,7 @@ export default function PracticeSetupScreen() {
   const isComplete = selectedSubjects.length > 0 && difficulty && questionCount;
 
   // Render subject names for the card subtitle
-  const selectedSubjectNames = selectedSubjects.map(id => SUBJECTS.find(s => s.id === id)?.name).join(', ');
+  const selectedSubjectNames = selectedSubjects.map(id => subjects.find(s => s.id === id)?.name).filter(Boolean).join(', ');
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -140,7 +158,20 @@ export default function PracticeSetupScreen() {
           style={[styles.mainContinueButton, !isComplete && styles.mainContinueButtonDisabled]}
           disabled={!isComplete}
           onPress={() => {
-            router.push('/(exam)/instructions');
+            const examIdStr = Array.isArray(params.exam) ? params.exam[0] : params.exam;
+            const examId = examIdStr ? parseInt(examIdStr, 10) : 41;
+
+            router.push({
+              pathname: '/(exam)/instructions',
+              params: {
+                exam_type_id: examId,
+                mode: 'Practice',
+                sections: JSON.stringify(selectedSubjects),
+                difficulty: difficulty,
+                question_count: questionCount,
+                is_timed: isTimed ? 'true' : 'false',
+              }
+            });
           }}
         >
           <AppText style={styles.mainContinueButtonText}>{isComplete ? 'Start Test' : 'Continue'}</AppText>
@@ -174,18 +205,25 @@ export default function PracticeSetupScreen() {
             </View>
 
             <ScrollView style={styles.scrollArea} showsVerticalScrollIndicator={false}>
-              {filteredSubjects.map(subject => {
-                const isSelected = selectedSubjects.includes(subject.id);
-                return (
-                  <TouchableOpacity key={subject.id} style={styles.subjectRow} onPress={() => toggleSubject(subject.id)} activeOpacity={0.7}>
-                    <View style={[styles.iconContainer, { backgroundColor: subject.bg }]}><MaterialCommunityIcons name={subject.icon as any} size={20} color={subject.color} /></View>
-                    <AppText style={styles.subjectName}>{subject.name}</AppText>
-                    <View style={[styles.checkbox, isSelected && styles.checkboxSelected]}>
-                      {isSelected && <Feather name="check" size={14} color="#FFF" />}
-                    </View>
-                  </TouchableOpacity>
-                );
-              })}
+              {loading ? (
+                 <AppText style={{ textAlign: 'center', marginTop: 20, color: '#6B7280' }}>Loading subjects...</AppText>
+              ) : (
+                filteredSubjects.map(subject => {
+                  const isSelected = selectedSubjects.includes(subject.id);
+                  const icon = 'book-open-outline';
+                  const bg = '#EDE9FE';
+                  const color = '#8B5CF6';
+                  return (
+                    <TouchableOpacity key={subject.id} style={styles.subjectRow} onPress={() => toggleSubject(subject.id)} activeOpacity={0.7}>
+                      <View style={[styles.iconContainer, { backgroundColor: bg }]}><MaterialCommunityIcons name={icon as any} size={20} color={color} /></View>
+                      <AppText style={styles.subjectName}>{subject.name}</AppText>
+                      <View style={[styles.checkbox, isSelected && styles.checkboxSelected]}>
+                        {isSelected && <Feather name="check" size={14} color="#FFF" />}
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })
+              )}
               <View style={{height: 40}} />
             </ScrollView>
 

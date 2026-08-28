@@ -1,9 +1,10 @@
 import { AppText } from '@/components/AppText';
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, SafeAreaView, ScrollView, TextInput, TouchableOpacity, Platform } from 'react-native';
 import { Image } from 'expo-image';
 import { SymbolView } from 'expo-symbols';
 import { useRouter } from 'expo-router';
+import { examService, ExamType } from '@/services/exam';
 
 export default function ExploreScreen() {
   const router = useRouter();
@@ -14,6 +15,31 @@ export default function ExploreScreen() {
     'WAEC Biology',
     'NECO Physics',
   ]);
+  const [exams, setExams] = useState<ExamType[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchExams = async () => {
+      try {
+        const fetchedExams = await examService.getExams();
+        setExams(fetchedExams);
+      } catch (error) {
+        console.error('Failed to fetch exams:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchExams();
+  }, []);
+
+  const getExamIcon = (name: string) => {
+    const lowerName = name.toLowerCase();
+    if (lowerName.includes('jamb')) return require('../../../assets/images/search-jamb-cap.png');
+    if (lowerName.includes('waec')) return require('../../../assets/images/search-waec-cross.png');
+    if (lowerName.includes('ielts')) return require('../../../assets/images/search-ielts-headphones.png');
+    if (lowerName.includes('neco')) return require('../../../assets/images/search-neco-clock.png');
+    return null;
+  };
 
   const removeRecent = (index: number) => {
     setRecentSearches(recentSearches.filter((_, i) => i !== index));
@@ -103,61 +129,28 @@ export default function ExploreScreen() {
             </View>
             
             <View style={styles.examsGrid}>
-              {[
-                { 
-                  id: 'jamb',
-                  name: 'JAMB', 
-                  desc: 'UTME\nPractice', 
-                  image: require('../../../assets/images/search-jamb-cap.png'), 
-                  color: '#059669', 
-                  badgeBg: '#10B981',
-                  bg: '#ECFDF5' 
-                },
-                { 
-                  id: 'waec',
-                  name: 'WAEC', 
-                  desc: 'WASSCE', 
-                  image: require('../../../assets/images/search-waec-cross.png'), 
-                  color: '#3B82F6', 
-                  badgeBg: '#3B82F6',
-                  bg: '#EFF6FF' 
-                },
-                { 
-                  id: 'ielts',
-                  name: 'IELTS', 
-                  desc: 'English Test', 
-                  image: require('../../../assets/images/search-ielts-headphones.png'), 
-                  color: '#E11D48', 
-                  badgeBg: '#E11D48',
-                  bg: '#FFF1F2' 
-                },
-                { 
-                  id: 'neco',
-                  name: 'NECO', 
-                  desc: 'SSCE\nPractice', 
-                  image: require('../../../assets/images/search-neco-clock.png'), 
-                  color: '#D97706', 
-                  badgeBg: '#D97706',
-                  bg: '#FFFBEB' 
-                },
-              ].map((exam) => (
-                <TouchableOpacity 
-                  key={exam.id} 
-                  style={[styles.examCard, { backgroundColor: exam.bg }]}
-                  activeOpacity={0.8}
-                  onPress={() => router.push({ pathname: '/(tabs)/practice', params: { exam: exam.id } })}
-                >
-                  <View style={[styles.examIconContainer, { backgroundColor: exam.badgeBg }]}>
-                    {exam.image ? (
-                      <Image source={exam.image} style={{ width: 18, height: 18 }} contentFit="contain" />
-                    ) : (
-                      <SymbolView name={exam.symbol as any} size={18} tintColor="#FFF" />
-                    )}
-                  </View>
-                  <AppText style={[styles.examTitle, { color: exam.color }]}>{exam.name}</AppText>
-                  <AppText style={styles.examDesc}>{exam.desc}</AppText>
-                </TouchableOpacity>
-              ))}
+              {loading ? (
+                <AppText style={{ color: '#6B7280' }}>Loading exams...</AppText>
+              ) : (
+                exams.slice(0, 4).map((exam) => (
+                  <TouchableOpacity 
+                    key={exam.id} 
+                    style={[styles.examCard, { backgroundColor: '#F3F4F6' }]}
+                    activeOpacity={0.8}
+                    onPress={() => router.push({ pathname: '/(tabs)/practice', params: { exam: exam.name } })}
+                  >
+                    <View style={[styles.examIconContainer, { backgroundColor: '#9CA3AF' }]}>
+                      {getExamIcon(exam.name) ? (
+                        <Image source={getExamIcon(exam.name)} style={{ width: 18, height: 18 }} contentFit="contain" />
+                      ) : (
+                        <AppText style={{ color: '#FFF', fontWeight: 'bold' }}>{exam.name.charAt(0)}</AppText>
+                      )}
+                    </View>
+                    <AppText style={[styles.examTitle, { color: '#111827' }]}>{exam.name}</AppText>
+                    <AppText style={styles.examDesc}>{exam.description || 'Practice'}</AppText>
+                  </TouchableOpacity>
+                ))
+              )}
             </View>
           </View>
 

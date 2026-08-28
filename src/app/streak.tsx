@@ -14,11 +14,16 @@ import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 
+import { useAuth } from '@/context/AuthContext';
+
 const { width } = Dimensions.get('window');
 
 export default function StreakScreen() {
   const router = useRouter();
-  const [protectionCards, setProtectionCards] = useState(2);
+  const { user, useStreakProtection } = useAuth();
+  const currentStreak = user?.streak ?? 120;
+  const bestStreak = user?.best_streak ?? 145;
+  const protectionCards = user?.protection_cards_count ?? 2;
 
   const daysRow = [
     { day: 'Mon', date: '13 May', completed: true },
@@ -61,14 +66,18 @@ export default function StreakScreen() {
     }
     Alert.alert(
       'Streak Protection',
-      `You have ${protectionCards} protection cards available. Use one to freeze today's streak?`,
+      `You have ${protectionCards} protection card${protectionCards > 1 ? 's' : ''} available. Use one to freeze today's streak?`,
       [
         { text: 'Cancel', style: 'cancel' },
         { 
           text: 'Use Card', 
-          onPress: () => {
-            setProtectionCards(prev => prev - 1);
-            Alert.alert('Protected!', 'Your streak is protected for the day.');
+          onPress: async () => {
+            try {
+              await useStreakProtection();
+              Alert.alert('Protected!', 'Your streak is protected for the day.');
+            } catch (err: any) {
+              Alert.alert('Error', err.response?.data?.message || 'Failed to activate protection card.');
+            }
           } 
         }
       ]

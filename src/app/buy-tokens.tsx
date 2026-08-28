@@ -8,15 +8,20 @@ import {
   TouchableOpacity, 
   TextInput, 
   Platform,
-  Alert 
+  Alert,
+  Linking,
+  ActivityIndicator
 } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import { paymentService } from '@/services/payment';
+import { useAuth } from '@/context/AuthContext';
 
 export default function BuyTokensScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
+  const { user, refreshUser } = useAuth();
 
   const [selectedPack, setSelectedPack] = useState(
     (params.packName as string) || 'Student Pack'
@@ -24,10 +29,16 @@ export default function BuyTokensScreen() {
   const [selectedPayment, setSelectedPayment] = useState<'paystack' | 'flutterwave' | 'applepay'>('paystack');
   const [customAmount, setCustomAmount] = useState('');
   const [selectedQuickAmount, setSelectedQuickAmount] = useState('₦1,000');
+  const [loading, setLoading] = useState(false);
 
   const quickAmounts = ['₦1,000', '₦2,500', '₦5,000', '₦10,000'];
 
-  const handleProceed = () => {
+  const handleProceed = async () => {
+    if (!params.packId) {
+      Alert.alert('Error', 'Please select a package first.');
+      return;
+    }
+
     Alert.alert(
       'Payment Confirmation',
       `Proceeding to pay with ${selectedPayment.toUpperCase()} for ${selectedPack}?`,
@@ -35,10 +46,33 @@ export default function BuyTokensScreen() {
         { text: 'Cancel', style: 'cancel' },
         { 
           text: 'Pay Now', 
-          onPress: () => {
-            Alert.alert('Success', 'Token purchase completed successfully!', [
-              { text: 'View Wallet', onPress: () => router.replace('/wallet') }
-            ]);
+          onPress: async () => {
+            setLoading(true);
+            try {
+              if (selectedPayment === 'paystack') {
+                const data = await paymentService.initializePaystack(Number(params.packId));
+                if (data.authorization_url) {
+                  await Linking.openURL(data.authorization_url);
+                  // Optionally refresh user balance when returning
+                  setTimeout(() => refreshUser(), 5000);
+                } else {
+                  Alert.alert('Error', 'No authorization URL returned.');
+                }
+              } else if (selectedPayment === 'applepay') {
+                // Mock StoreKit 2 transaction verification
+                const data = await paymentService.verifyAppleIAP('mock_tx_id_12345');
+                Alert.alert('Success', data.message || 'Token purchase completed successfully!', [
+                  { text: 'View Wallet', onPress: () => { refreshUser(); router.replace('/wallet'); } }
+                ]);
+              } else {
+                Alert.alert('Notice', 'Payment method not yet implemented.');
+              }
+            } catch (err) {
+              console.error(err);
+              Alert.alert('Error', 'Failed to initialize payment.');
+            } finally {
+              setLoading(false);
+            }
           } 
         }
       ]

@@ -2,15 +2,16 @@ import { AppText } from '@/components/AppText';
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, SafeAreaView, Platform } from 'react-native';
 import { Image } from 'expo-image';
+import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 
 export default function HomeScreen() {
   const router = useRouter();
+  const { user } = useAuth();
   const [isDarkMode, setIsDarkMode] = React.useState(true);
   
-  // Dummy data
-  const userName = "Daniel";
+  const userName = user?.first_name || user?.username || "Student";
 
   return (
     <SafeAreaView style={styles.safeArea}>

@@ -17,21 +17,49 @@ import { useAuth } from '@/context/AuthContext';
 
 export default function EditProfileScreen() {
   const router = useRouter();
-  const { logout } = useAuth();
+  const { user, logout, updateUserProfile } = useAuth();
 
-  const [fullName, setFullName] = useState('Daniel Adekunle');
-  const [email, setEmail] = useState('daniel.adekunle@example.com');
-  const [phoneNumber, setPhoneNumber] = useState('+234 801 234 5678');
+  const [fullName, setFullName] = useState(
+    user?.first_name && user?.last_name
+      ? `${user.first_name} ${user.last_name}`
+      : (user?.username || 'Daniel Adekunle')
+  );
+  const [email, setEmail] = useState(user?.email || 'daniel.adekunle@example.com');
+  const [phoneNumber, setPhoneNumber] = useState(user?.phone_number || '+234 801 234 5678');
   const [dateOfBirth, setDateOfBirth] = useState('15 May 2002');
   const [gender, setGender] = useState('Male');
-  const [state, setState] = useState('Lagos');
-  const [school, setSchool] = useState('Lagos State University');
+  const [state, setState] = useState(user?.state || 'Lagos');
+  const [school, setSchool] = useState(user?.school || 'Lagos State University');
   const [classLevel, setClassLevel] = useState('200 Level');
 
-  const handleSave = () => {
-    Alert.alert('Success', 'Profile changes saved successfully!', [
-      { text: 'OK', onPress: () => router.back() }
-    ]);
+  const [isSaving, setIsSaving] = useState(false);
+
+  const handleSave = async () => {
+    try {
+      setIsSaving(true);
+      const nameParts = fullName.trim().split(' ');
+      const firstName = nameParts[0] || '';
+      const lastName = nameParts.slice(1).join(' ');
+
+      await updateUserProfile({
+        first_name: firstName,
+        last_name: lastName,
+        phone_number: phoneNumber.trim(),
+        gender: gender,
+        state: state.trim(),
+        school: school.trim(),
+        class_level: classLevel.trim(),
+      });
+
+      Alert.alert('Success', 'Profile changes saved successfully!', [
+        { text: 'OK', onPress: () => router.back() }
+      ]);
+    } catch (error: any) {
+      const errorMsg = error.response?.data?.message || 'Failed to save profile changes. Please try again.';
+      Alert.alert('Error', errorMsg);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleLogout = () => {

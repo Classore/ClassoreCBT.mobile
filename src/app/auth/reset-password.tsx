@@ -79,9 +79,9 @@ export default function ResetPasswordScreen() {
               
               try {
                 setIsLoading(true);
-                await api.post('/auth/reset-password/', {
-                  email,
-                  otp_code: otpCode,
+                await api.post('/api/auth/reset-password/', {
+                  email: email?.trim(),
+                  otp_code: otpCode.trim(),
                   new_password: password
                 });
                 router.push('/auth/success');

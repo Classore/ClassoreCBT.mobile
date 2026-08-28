@@ -9,7 +9,8 @@ import {
   Platform 
 } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import { examService } from '@/services/exam';
 
 interface SubjectItem {
   id: string;
@@ -25,8 +26,11 @@ interface SubjectItem {
 
 export default function SubjectPerformanceScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ attempt_id?: string }>();
 
-  const subjects: SubjectItem[] = [
+  const [loading, setLoading] = React.useState(false);
+  const [overallAccuracy, setOverallAccuracy] = React.useState(54);
+  const [subjectList, setSubjectList] = React.useState<SubjectItem[]>([
     {
       id: 'english',
       name: 'Use of English',
@@ -71,7 +75,54 @@ export default function SubjectPerformanceScreen() {
       iconBg: '#FEE2E2',
       iconColor: '#DC2626',
     },
-  ];
+  ]);
+
+  React.useEffect(() => {
+    const loadPerformance = async () => {
+      if (!params.attempt_id) return;
+      try {
+        setLoading(true);
+        const data = await examService.getDetailedAnalytics(Number(params.attempt_id));
+        if (data) {
+          if (data.overall_accuracy !== undefined) setOverallAccuracy(data.overall_accuracy);
+          if (data.subjects && Array.isArray(data.subjects) && data.subjects.length > 0) {
+            const icons = [
+              { icon: 'book-open-outline', iconBg: '#EDE9FE', iconColor: '#7C3AED' },
+              { icon: 'function-variant', iconBg: '#DCFCE7', iconColor: '#16A34A' },
+              { icon: 'atom', iconBg: '#FEF3C7', iconColor: '#D97706' },
+              { icon: 'flask-outline', iconBg: '#FEE2E2', iconColor: '#DC2626' },
+            ];
+            const mapped: SubjectItem[] = data.subjects.map((s: any, idx: number) => {
+              const pct = s.accuracy_percentage ?? 50;
+              let rating: 'Excellent' | 'Good' | 'Poor' = 'Good';
+              if (pct >= 70) rating = 'Excellent';
+              else if (pct < 45) rating = 'Poor';
+
+              const iconStyle = icons[idx % icons.length];
+              return {
+                id: String(s.section_name),
+                name: s.section_name,
+                score: s.score,
+                total: s.total_questions || 100,
+                percentage: pct,
+                rating: rating,
+                ...iconStyle
+              };
+            });
+            setSubjectList(mapped);
+          }
+        }
+      } catch (e) {
+        console.warn('Could not fetch subject performance analytics:', e);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadPerformance();
+  }, [params.attempt_id]);
+
+  const subjects = subjectList;
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -164,19 +215,34 @@ export default function SubjectPerformanceScreen() {
             </View>
             <View style={styles.accuracyInfo}>
               <Text style={styles.accuracyLabel}>Overall Accuracy</Text>
-              <Text style={styles.accuracyValue}>54%</Text>
-              <Text style={styles.accuracySub}>205 / 400 Correct</Text>
+              <Text style={styles.accuracyValue}>{overallAccuracy}%</Text>
+              <Text style={styles.accuracySub}>Across all subject sections</Text>
             </View>
             <MaterialCommunityIcons name="chart-bar" size={26} color="#94A3B8" />
           </View>
 
+          {/* View Topic Breakdown Button */}
+          <TouchableOpacity 
+            style={[styles.actionButton, { backgroundColor: '#F5F3FF', borderWidth: 1.5, borderColor: '#7C3AED', marginBottom: 12 }]}
+            onPress={() => router.push({
+              pathname: '/(exam)/topic-performance',
+              params: { attempt_id: params.attempt_id }
+            })}
+            activeOpacity={0.85}
+          >
+            <Text style={[styles.actionButtonText, { color: '#7C3AED' }]}>View Topic Breakdown</Text>
+          </TouchableOpacity>
+
           {/* Review Question Button */}
           <TouchableOpacity 
             style={styles.actionButton}
-            onPress={() => router.push('/(exam)/review-answers')}
+            onPress={() => router.push({
+              pathname: '/(exam)/review-answers',
+              params: { attempt_id: params.attempt_id }
+            })}
             activeOpacity={0.85}
           >
-            <Text style={styles.actionButtonText}>Review Question</Text>
+            <Text style={styles.actionButtonText}>Review Questions</Text>
           </TouchableOpacity>
 
           <View style={{ height: 40 }} />

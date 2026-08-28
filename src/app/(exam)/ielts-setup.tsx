@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+import { useLocalSearchParams } from 'expo-router';
+import { examService } from '@/services/exam';
+import React, { useState, useEffect } from 'react';
 import { 
   View, 
   Text, 
@@ -6,7 +8,8 @@ import {
   SafeAreaView, 
   ScrollView, 
   TouchableOpacity, 
-  Platform 
+  Platform,
+  ActivityIndicator
 } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
@@ -21,15 +24,52 @@ interface SectionItem {
   iconFamily: 'feather' | 'material' | 'ionicons';
 }
 
+const DEFAULT_SECTIONS: Record<string, SectionItem> = {
+  Reading: { id: 'Reading', name: 'Reading', subtitle: '40 Questions · 60 min', iconName: 'book-outline', iconFamily: 'ionicons' },
+  Listening: { id: 'Listening', name: 'Listening', subtitle: '40 Questions · ~30 min', iconName: 'headphones', iconFamily: 'feather' },
+  Writing: { id: 'Writing', name: 'Writing', subtitle: '2 Tasks · 60 min', iconName: 'edit-2', iconFamily: 'feather' },
+  Speaking: { id: 'Speaking', name: 'Speaking', subtitle: '3 Parts · 11–14 min', iconName: 'mic', iconFamily: 'feather' },
+};
+
 export default function IELTSSetupScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ exam?: string }>();
 
-  const [sections, setSections] = useState<SectionItem[]>([
-    { id: '1', name: 'Reading', subtitle: '40 Questions · 60 min', iconName: 'book-outline', iconFamily: 'ionicons' },
-    { id: '2', name: 'Listening', subtitle: '40 Questions · ~30 min', iconName: 'headphones', iconFamily: 'feather' },
-    { id: '3', name: 'Writing', subtitle: '2 Tasks · 60 min', iconName: 'edit-2', iconFamily: 'feather' },
-    { id: '4', name: 'Speaking', subtitle: '3 Parts · 11–14 min', iconName: 'mic', iconFamily: 'feather' },
-  ]);
+  const [sections, setSections] = useState<SectionItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const examIdStr = Array.isArray(params.exam) ? params.exam[0] : params.exam;
+        const examId = examIdStr ? parseInt(examIdStr, 10) : 1; // Default to 1
+        const fetchedSections = await examService.getSections(examId);
+
+        const mappedSections = fetchedSections.map(s => {
+          const defaultSec = DEFAULT_SECTIONS[s.name] || {
+            name: s.name,
+            subtitle: `${s.default_time_minutes} min`,
+            iconName: 'book-outline',
+            iconFamily: 'ionicons'
+          };
+          return {
+            id: String(s.id),
+            name: defaultSec.name,
+            subtitle: defaultSec.subtitle,
+            iconName: defaultSec.iconName,
+            iconFamily: defaultSec.iconFamily
+          };
+        });
+        setSections(mappedSections.length ? mappedSections : Object.values(DEFAULT_SECTIONS));
+      } catch (error) {
+        console.error('Failed to fetch IELTS sections:', error);
+        setSections(Object.values(DEFAULT_SECTIONS)); // Fallback
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, [params.exam]);
 
   const moveUp = (index: number) => {
     if (index === 0) return;
@@ -142,22 +182,25 @@ export default function IELTSSetupScreen() {
 
           {/* Section Items List */}
           <View style={styles.sectionsList}>
-            {sections.map((item, index) => {
-              const orderNum = `0${index + 1}`;
-              return (
-                <View key={item.id} style={styles.sectionCard}>
-                  <Text style={styles.orderNumberText}>{orderNum}</Text>
-                  
-                  <View style={styles.sectionIconBg}>
-                    {renderSectionIcon(item)}
-                  </View>
-
-                  <View style={styles.sectionInfo}>
-                    <Text style={styles.sectionName}>{item.name}</Text>
-                    <Text style={styles.sectionSubtitle}>{item.subtitle}</Text>
-                  </View>
-
-                  {/* Reorder Buttons / Drag Handle */}
+            {loading ? (
+              <ActivityIndicator size="large" color="#6D28D9" style={{ marginVertical: 32 }} />
+            ) : (
+              sections.map((item, index) => {
+                const orderNum = `0${index + 1}`;
+                return (
+                  <View key={item.id} style={styles.sectionCard}>
+                    <Text style={styles.orderNumberText}>{orderNum}</Text>
+                    
+                    <View style={styles.sectionIconBg}>
+                      {renderSectionIcon(item)}
+                    </View>
+  
+                    <View style={styles.sectionInfo}>
+                      <Text style={styles.sectionName}>{item.name}</Text>
+                      <Text style={styles.sectionSubtitle}>{item.subtitle}</Text>
+                    </View>
+  
+                    {/* Reorder Buttons / Drag Handle */}
                   <View style={styles.reorderControls}>
                     <TouchableOpacity 
                       onPress={() => moveUp(index)} 
@@ -177,7 +220,8 @@ export default function IELTSSetupScreen() {
                   </View>
                 </View>
               );
-            })}
+              })
+            )}
           </View>
 
           {/* Info Banner */}
@@ -191,7 +235,14 @@ export default function IELTSSetupScreen() {
           {/* Continue Button */}
           <TouchableOpacity 
             style={styles.continueButton}
-            onPress={() => router.push('/(exam)/ielts-instructions')}
+            onPress={() => {
+              const examIdStr = Array.isArray(params.exam) ? params.exam[0] : params.exam;
+              const examId = examIdStr ? parseInt(examIdStr, 10) : 42;
+              router.push({
+                pathname: '/(exam)/ielts-instructions',
+                params: { exam: examId }
+              });
+            }}
             activeOpacity={0.85}
           >
             <Text style={styles.continueButtonText}>Continue</Text>

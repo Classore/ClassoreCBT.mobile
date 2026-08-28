@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   View, 
   Text, 
@@ -6,89 +6,44 @@ import {
   SafeAreaView, 
   ScrollView, 
   TouchableOpacity, 
-  Platform 
+  Platform,
+  ActivityIndicator
 } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-
-interface TokenPackageItem {
-  id: string;
-  name: string;
-  tokens: string;
-  bonus: string;
-  price: string;
-  originalPrice: string;
-  iconBg: string;
-  iconColor: string;
-  isPopular?: boolean;
-  star?: boolean;
-}
-
-const TOKEN_PACKAGES: TokenPackageItem[] = [
-  {
-    id: '1',
-    name: 'Starter Pack',
-    star: true,
-    tokens: '500 Tokens',
-    bonus: 'Bonus: 50 Tokens',
-    price: '₦600',
-    originalPrice: '₦750',
-    iconBg: '#ECFDF5',
-    iconColor: '#10B981',
-  },
-  {
-    id: '2',
-    name: 'Student Pack',
-    isPopular: true,
-    tokens: '1,000 Tokens',
-    bonus: 'Bonus: 100 Tokens',
-    price: '₦1,000',
-    originalPrice: '₦1,250',
-    iconBg: '#F3E8FF',
-    iconColor: '#7C3AED',
-  },
-  {
-    id: '3',
-    name: 'Premium Pack',
-    tokens: '2,500 Tokens',
-    bonus: 'Bonus: 300 Tokens',
-    price: '₦2,500',
-    originalPrice: '₦3,200',
-    iconBg: '#FFFBEB',
-    iconColor: '#F59E0B',
-  },
-  {
-    id: '4',
-    name: 'Mega Pack',
-    tokens: '5,000 Tokens',
-    bonus: 'Bonus: 750 Tokens',
-    price: '₦5,000',
-    originalPrice: '₦6,600',
-    iconBg: '#FEF2F2',
-    iconColor: '#EF4444',
-  },
-  {
-    id: '5',
-    name: 'Ultimate Pack',
-    tokens: '10,000 Tokens',
-    bonus: 'Bonus: 2,000 Tokens',
-    price: '₦10,000',
-    originalPrice: '₦12,500',
-    iconBg: '#EFF6FF',
-    iconColor: '#3B82F6',
-  },
-];
+import { paymentService, TokenPackage } from '@/services/payment';
 
 export default function TokenPackagesScreen() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<'Popular' | 'Best Value'>('Popular');
-  const [selectedPackId, setSelectedPackId] = useState('2');
+  const [selectedPackId, setSelectedPackId] = useState<number | null>(null);
+  const [packages, setPackages] = useState<TokenPackage[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const handleSelectPackage = (pack: TokenPackageItem) => {
+  useEffect(() => {
+    const fetchPackages = async () => {
+      try {
+        const data = await paymentService.getTokenPackages();
+        setPackages(data.filter(p => p.is_active));
+      } catch (error) {
+        console.error('Error fetching token packages:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchPackages();
+  }, []);
+
+  const handleSelectPackage = (pack: TokenPackage) => {
     setSelectedPackId(pack.id);
     router.push({
       pathname: '/buy-tokens',
-      params: { packName: pack.name, tokens: pack.tokens, price: pack.price }
+      params: { 
+        packId: pack.id,
+        packName: pack.name, 
+        tokens: `${pack.base_tokens.toLocaleString()} Tokens`, 
+        price: `${pack.currency}${parseFloat(pack.price).toLocaleString()}` 
+      }
     });
   };
 
@@ -145,44 +100,50 @@ export default function TokenPackagesScreen() {
 
           {/* Packages List */}
           <View style={styles.packagesList}>
-            {TOKEN_PACKAGES.map((pack) => {
-              const isSelected = pack.id === selectedPackId || pack.isPopular;
-              return (
-                <View key={pack.id} style={styles.packageWrapper}>
-                  {pack.isPopular && (
-                    <View style={styles.popularBadge}>
-                      <Text style={styles.popularBadgeText}>Most Popular</Text>
-                    </View>
-                  )}
-                  <TouchableOpacity
-                    style={[
-                      styles.packageCard,
-                      isSelected && styles.packageCardSelected,
-                    ]}
-                    onPress={() => handleSelectPackage(pack)}
-                    activeOpacity={0.8}
-                  >
-                    <View style={[styles.walletIconBg, { backgroundColor: pack.iconBg }]}>
-                      <Ionicons name="wallet-outline" size={22} color={pack.iconColor} />
-                    </View>
-
-                    <View style={styles.packInfo}>
-                      <View style={styles.packNameRow}>
-                        <Text style={styles.packName}>{pack.name}</Text>
-                        {pack.star && <Text style={{ fontSize: 13, marginLeft: 4 }}>⭐</Text>}
+            {loading ? (
+              <ActivityIndicator size="large" color="#4C1D95" style={{ marginVertical: 40 }} />
+            ) : (
+              packages.map((pack) => {
+                const isSelected = pack.id === selectedPackId;
+                const isPopular = pack.name.toLowerCase().includes('student'); // Example logic
+                const hasBonus = pack.bonus_tokens > 0;
+                
+                return (
+                  <View key={pack.id} style={styles.packageWrapper}>
+                    {isPopular && (
+                      <View style={styles.popularBadge}>
+                        <Text style={styles.popularBadgeText}>Most Popular</Text>
                       </View>
-                      <Text style={styles.packTokens}>{pack.tokens}</Text>
-                      <Text style={styles.packBonus}>{pack.bonus}</Text>
-                    </View>
-
-                    <View style={styles.priceCol}>
-                      <Text style={styles.packPrice}>{pack.price}</Text>
-                      <Text style={styles.packOriginalPrice}>{pack.originalPrice}</Text>
-                    </View>
-                  </TouchableOpacity>
-                </View>
-              );
-            })}
+                    )}
+                    <TouchableOpacity
+                      style={[
+                        styles.packageCard,
+                        isSelected && styles.packageCardSelected,
+                      ]}
+                      onPress={() => handleSelectPackage(pack)}
+                      activeOpacity={0.8}
+                    >
+                      <View style={[styles.walletIconBg, { backgroundColor: '#F3E8FF' }]}>
+                        <Ionicons name="wallet-outline" size={22} color="#7C3AED" />
+                      </View>
+  
+                      <View style={styles.packInfo}>
+                        <View style={styles.packNameRow}>
+                          <Text style={styles.packName}>{pack.name}</Text>
+                          {pack.base_tokens <= 500 && <Text style={{ fontSize: 13, marginLeft: 4 }}>⭐</Text>}
+                        </View>
+                        <Text style={styles.packTokens}>{pack.base_tokens.toLocaleString()} Tokens</Text>
+                        {hasBonus && <Text style={styles.packBonus}>Bonus: {pack.bonus_tokens.toLocaleString()} Tokens</Text>}
+                      </View>
+  
+                      <View style={styles.priceCol}>
+                        <Text style={styles.packPrice}>{pack.currency}{parseFloat(pack.price).toLocaleString()}</Text>
+                      </View>
+                    </TouchableOpacity>
+                  </View>
+                );
+              })
+            )}
           </View>
 
           <View style={{ height: 40 }} />

@@ -52,11 +52,10 @@ export default function ForgotPasswordScreen() {
               }
               try {
                 setIsLoading(true);
-                await api.post('/auth/forgot-password/', { email });
-                // Pass email to the confirm screen so it can be passed to reset-password
+                await api.post('/api/auth/forgot-password/', { email: email.trim() });
                 router.push({
                   pathname: '/auth/password-reset-confirm',
-                  params: { email }
+                  params: { email: email.trim() }
                 });
               } catch (error: any) {
                 const errorMsg = error.response?.data?.message || error.response?.data?.error || 'Failed to send reset link';

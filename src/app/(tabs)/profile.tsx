@@ -11,10 +11,18 @@ import {
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'expo-router';
 
 export default function ProfileScreen() {
   const router = useRouter();
+  const { user } = useAuth();
+  
+  const displayName = user?.first_name && user?.last_name 
+    ? `${user.first_name} ${user.last_name}`
+    : (user?.username || 'Classore Student');
+  const displayEmail = user?.email || 'student@example.com';
+  const tokenBalance = user?.token_balance ?? 0;
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -70,11 +78,11 @@ export default function ProfileScreen() {
                 {/* User Info */}
                 <View style={styles.userInfo}>
                   <View style={styles.userNameRow}>
-                    <Text style={styles.userName}>Daniel Adekunle</Text>
+                    <Text style={styles.userName}>{displayName}</Text>
                     <MaterialCommunityIcons name="check-decagram" size={16} color="#FFFFFF" style={{ marginLeft: 6 }} />
                   </View>
-                  <Text style={styles.userEmail}>daniel.adekunle@example.com</Text>
-                  <Text style={styles.userPhone}>+234 801 234 5678</Text>
+                  <Text style={styles.userEmail}>{displayEmail}</Text>
+                  <Text style={styles.userPhone}>{user?.phone_number || '+234 801 234 5678'}</Text>
                 </View>
               </View>
 
@@ -107,7 +115,7 @@ export default function ProfileScreen() {
               <View style={styles.summaryInfo}>
                 <Text style={styles.summaryLabel}>Token Balance</Text>
                 <View style={styles.summaryValueRow}>
-                  <Text style={styles.summaryValueMain}>2,450</Text>
+                  <Text style={styles.summaryValueMain}>{tokenBalance.toLocaleString()}</Text>
                   <Text style={styles.summaryValueSub}> Tokens</Text>
                 </View>
               </View>

@@ -11,7 +11,8 @@ import {
   Alert 
 } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import { examService } from '@/services/exam';
 
 interface Question {
   id: number;
@@ -23,6 +24,8 @@ interface Question {
 
 export default function IELTSSessionScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ attempt_id?: string; exam?: string; exam_type_id?: string }>();
+  const [currentAttemptId, setCurrentAttemptId] = useState<number | null>(params.attempt_id ? Number(params.attempt_id) : null);
 
   // Timer State (59 minutes = 3540 seconds)
   const [timeLeft, setTimeLeft] = useState(3540);
@@ -30,6 +33,26 @@ export default function IELTSSessionScreen() {
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [isPaletteVisible, setIsPaletteVisible] = useState(false);
   const [isBookmarked, setIsBookmarked] = useState(false);
+
+  useEffect(() => {
+    const initIelts = async () => {
+      if (!currentAttemptId) {
+        try {
+          const examId = params.exam ? Number(params.exam) : (params.exam_type_id ? Number(params.exam_type_id) : 42);
+          const newAttempt = await examService.startExam({
+            exam_type_id: examId,
+            mode: 'Standard',
+          });
+          if (newAttempt) {
+            setCurrentAttemptId(newAttempt.id);
+          }
+        } catch (e) {
+          console.warn('Could not initialize live IELTS attempt:', e);
+        }
+      }
+    };
+    initIelts();
+  }, [params.exam, params.exam_type_id]);
 
   // Sample Passage 1 Questions (1 to 14)
   const [questions, setQuestions] = useState<Question[]>([
@@ -97,10 +120,21 @@ export default function IELTSSessionScreen() {
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const handleSelectOption = (optionLabel: string) => {
+  const handleSelectOption = async (optionLabel: string) => {
     const updated = [...questions];
     updated[currentQuestionIndex].selectedOption = optionLabel;
     setQuestions(updated);
+
+    if (currentAttemptId) {
+      const qId = updated[currentQuestionIndex].id;
+      try {
+        await examService.autoSave(currentAttemptId, {
+          responses: [{ question_id: qId, written_response: optionLabel }]
+        });
+      } catch (e) {
+        console.warn('Auto-save failed:', e);
+      }
+    }
   };
 
   const handleNext = () => {
@@ -124,7 +158,10 @@ export default function IELTSSessionScreen() {
         {
           text: 'Proceed to Speaking',
           onPress: () => {
-            router.push('/(exam)/ielts-speaking-instructions');
+            router.push({
+              pathname: '/(exam)/ielts-speaking-instructions',
+              params: { attempt_id: params.attempt_id }
+            });
           },
         },
       ]

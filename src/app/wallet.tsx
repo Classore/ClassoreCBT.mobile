@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   View, 
   Text, 
@@ -11,10 +11,31 @@ import {
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'expo-router';
+import { paymentService, MyBundle } from '@/services/payment';
 
 export default function WalletScreen() {
   const router = useRouter();
+  const { user } = useAuth();
+  const tokenBalance = user?.token_balance ?? 0;
+
+  const [myBundles, setMyBundles] = useState<MyBundle[]>([]);
+  const [loadingBundles, setLoadingBundles] = useState(true);
+
+  useEffect(() => {
+    const fetchBundles = async () => {
+      try {
+        const bundles = await paymentService.getMyBundles();
+        setMyBundles(bundles);
+      } catch (error) {
+        console.error('Error fetching bundles', error);
+      } finally {
+        setLoadingBundles(false);
+      }
+    };
+    fetchBundles();
+  }, []);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -60,9 +81,9 @@ export default function WalletScreen() {
                     style={styles.coinImage} 
                     contentFit="contain" 
                   />
-                  <Text style={styles.balanceNumber}>2,450</Text>
+                  <Text style={styles.balanceNumber}>{tokenBalance.toLocaleString()}</Text>
                 </View>
-                <Text style={styles.nairaEquivalent}>≈ ₦2,450.00</Text>
+                <Text style={styles.nairaEquivalent}>≈ ₦{tokenBalance.toLocaleString()}.00</Text>
               </View>
 
               <View style={styles.heroRight}>
@@ -127,7 +148,7 @@ export default function WalletScreen() {
             </TouchableOpacity>
 
             {/* Withdraw */}
-            <TouchableOpacity style={styles.actionItem} activeOpacity={0.75}>
+            <TouchableOpacity style={styles.actionItem} activeOpacity={0.75} onPress={() => router.push('/wallet/withdraw')}>
               <View style={[styles.actionIconWrapper, { backgroundColor: '#FFEDD5' }]}>
                 <Feather name="upload" size={22} color="#EA580C" />
               </View>
@@ -135,46 +156,26 @@ export default function WalletScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* Token Summary Card */}
+          {/* My Active Bundles Card */}
           <View style={styles.card}>
-            <Text style={styles.cardSectionTitle}>Token Summary</Text>
+            <Text style={styles.cardSectionTitle}>My Active Bundles</Text>
             
             <View style={styles.summaryList}>
-              {/* Total Earned */}
-              <View style={styles.summaryRow}>
-                <View style={[styles.summaryIconCircle, { backgroundColor: '#D1FAE5' }]}>
-                  <Feather name="dollar-sign" size={16} color="#059669" />
-                </View>
-                <Text style={styles.summaryRowLabel}>Total Earned</Text>
-                <Text style={styles.summaryRowValue}>5,600</Text>
-              </View>
-
-              {/* Total Spent */}
-              <View style={styles.summaryRow}>
-                <View style={[styles.summaryIconCircle, { backgroundColor: '#FFE4E6' }]}>
-                  <Feather name="dollar-sign" size={16} color="#E11D48" />
-                </View>
-                <Text style={styles.summaryRowLabel}>Total Spent</Text>
-                <Text style={styles.summaryRowValue}>3,150</Text>
-              </View>
-
-              {/* Bonus Tokens */}
-              <View style={styles.summaryRow}>
-                <View style={[styles.summaryIconCircle, { backgroundColor: '#EDE9FE' }]}>
-                  <MaterialCommunityIcons name="circle-multiple-outline" size={16} color="#7C3AED" />
-                </View>
-                <Text style={styles.summaryRowLabel}>Bonus Tokens</Text>
-                <Text style={styles.summaryRowValue}>350</Text>
-              </View>
-
-              {/* Active Passes */}
-              <View style={[styles.summaryRow, { borderBottomWidth: 0 }]}>
-                <View style={[styles.summaryIconCircle, { backgroundColor: '#E0F2FE' }]}>
-                  <MaterialCommunityIcons name="ticket-outline" size={16} color="#0284C7" />
-                </View>
-                <Text style={styles.summaryRowLabel}>Active Passes</Text>
-                <Text style={styles.summaryRowValue}>2</Text>
-              </View>
+              {loadingBundles ? (
+                <Text style={{ padding: 10, color: '#6B7280' }}>Loading bundles...</Text>
+              ) : myBundles.length === 0 ? (
+                <Text style={{ padding: 10, color: '#6B7280' }}>No active bundles.</Text>
+              ) : (
+                myBundles.map((b, index) => (
+                  <View key={b.id} style={[styles.summaryRow, index === myBundles.length - 1 && { borderBottomWidth: 0 }]}>
+                    <View style={[styles.summaryIconCircle, { backgroundColor: '#E0F2FE' }]}>
+                      <MaterialCommunityIcons name="ticket-outline" size={16} color="#0284C7" />
+                    </View>
+                    <Text style={styles.summaryRowLabel}>{b.bundle.name}</Text>
+                    <Text style={styles.summaryRowValue}>{b.is_active ? 'Active' : 'Expired'}</Text>
+                  </View>
+                ))
+              )}
             </View>
           </View>
 

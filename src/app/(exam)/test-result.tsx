@@ -10,14 +10,60 @@ import {
 } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import Svg, { Circle } from 'react-native-svg';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import { examService } from '@/services/exam';
 
 export default function TestResultScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ attempt_id?: string }>();
 
-  const score = 205;
-  const totalScore = 400;
-  const percentage = Math.round((score / totalScore) * 100);
+  const [loading, setLoading] = React.useState(false);
+  const [score, setScore] = React.useState(205);
+  const [totalScore, setTotalScore] = React.useState(400);
+  const [correctAnswers, setCorrectAnswers] = React.useState(205);
+  const [wrongAnswers, setWrongAnswers] = React.useState(195);
+  const [skippedQuestions, setSkippedQuestions] = React.useState(3);
+  const [timeUsedFormatted, setTimeUsedFormatted] = React.useState('2h 28m');
+  const [performanceTag, setPerformanceTag] = React.useState('Good Performance');
+
+  React.useEffect(() => {
+    const fetchResults = async () => {
+      if (!params.attempt_id) return;
+      try {
+        setLoading(true);
+        const data = await examService.getDetailedAnalytics(Number(params.attempt_id));
+        if (data) {
+          if (data.total_score !== undefined) setScore(Math.round(data.total_score));
+          if (data.max_total_score) setTotalScore(Math.round(data.max_total_score));
+          if (data.correct_answers !== undefined) setCorrectAnswers(data.correct_answers);
+          if (data.wrong_answers !== undefined) setWrongAnswers(data.wrong_answers);
+          if (data.skipped_questions !== undefined) setSkippedQuestions(data.skipped_questions);
+          
+          if (data.total_time_taken) {
+            const h = Math.floor(data.total_time_taken / 3600);
+            const m = Math.floor((data.total_time_taken % 3600) / 60);
+            setTimeUsedFormatted(`${h > 0 ? `${h}h ` : ''}${m}m`);
+          }
+
+          const pct = data.max_total_score ? (data.total_score / data.max_total_score) * 100 : 50;
+          if (pct >= 70) setPerformanceTag('Excellent Performance');
+          else if (pct >= 50) setPerformanceTag('Good Performance');
+          else setPerformanceTag('Needs Improvement');
+        }
+      } catch (err) {
+        console.warn('Failed to load detailed analytics, using defaults:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchResults();
+  }, [params.attempt_id]);
+
+  const percentage = Math.round((score / (totalScore || 1)) * 100);
+  const correctPct = Math.round((correctAnswers / (totalScore || 1)) * 100);
+  const wrongPct = Math.round((wrongAnswers / (totalScore || 1)) * 100);
+  const skippedPct = Math.round((skippedQuestions / (totalScore || 1)) * 100);
 
   // SVG Circular progress
   const size = 190;
@@ -92,9 +138,9 @@ export default function TestResultScreen() {
             <View style={styles.donutInner}>
               <Text style={styles.donutLabel}>Your Score</Text>
               <Text style={styles.donutScore}>{score}</Text>
-              <Text style={styles.donutTotal}>{score}/ {totalScore}</Text>
+              <Text style={styles.donutTotal}>{score} / {totalScore}</Text>
               <View style={styles.performanceBadge}>
-                <Text style={styles.performanceBadgeText}>Good Performance</Text>
+                <Text style={styles.performanceBadgeText}>{performanceTag}</Text>
               </View>
             </View>
           </View>
@@ -109,8 +155,8 @@ export default function TestResultScreen() {
                 </View>
                 <Text style={styles.metricLabel}>Correct Answers</Text>
               </View>
-              <Text style={styles.metricValue}>205</Text>
-              <Text style={[styles.metricSub, { color: '#16A34A' }]}>54%</Text>
+              <Text style={styles.metricValue}>{correctAnswers}</Text>
+              <Text style={[styles.metricSub, { color: '#16A34A' }]}>{correctPct}%</Text>
             </View>
 
             {/* Incorrect Answers */}
@@ -121,8 +167,8 @@ export default function TestResultScreen() {
                 </View>
                 <Text style={styles.metricLabel}>Incorrect Answers</Text>
               </View>
-              <Text style={styles.metricValue}>195</Text>
-              <Text style={[styles.metricSub, { color: '#DC2626' }]}>46%</Text>
+              <Text style={styles.metricValue}>{wrongAnswers}</Text>
+              <Text style={[styles.metricSub, { color: '#DC2626' }]}>{wrongPct}%</Text>
             </View>
 
             {/* Unattempted */}
@@ -133,8 +179,8 @@ export default function TestResultScreen() {
                 </View>
                 <Text style={styles.metricLabel}>Unattempted</Text>
               </View>
-              <Text style={styles.metricValue}>3</Text>
-              <Text style={[styles.metricSub, { color: '#EA580C' }]}>5%</Text>
+              <Text style={styles.metricValue}>{skippedQuestions}</Text>
+              <Text style={[styles.metricSub, { color: '#EA580C' }]}>{skippedPct}%</Text>
             </View>
 
             {/* Time Used */}
@@ -145,7 +191,7 @@ export default function TestResultScreen() {
                 </View>
                 <Text style={styles.metricLabel}>Time Used</Text>
               </View>
-              <Text style={styles.metricValue}>2h 28m</Text>
+              <Text style={styles.metricValue}>{timeUsedFormatted}</Text>
               <Text style={[styles.metricSub, { color: '#94A3B8' }]}>of 3h 0m</Text>
             </View>
           </View>
@@ -170,7 +216,10 @@ export default function TestResultScreen() {
           {/* View Subject Performance Button */}
           <TouchableOpacity 
             style={styles.actionButton}
-            onPress={() => router.push('/(exam)/subject-performance')}
+            onPress={() => router.push({
+              pathname: '/(exam)/subject-performance',
+              params: { attempt_id: params.attempt_id }
+            })}
             activeOpacity={0.85}
           >
             <Text style={styles.actionButtonText}>View Subject Performance</Text>

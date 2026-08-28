@@ -12,10 +12,13 @@ import {
   Animated 
 } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import { examService } from '@/services/exam';
 
 export default function IELTSSpeakingSessionScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ attempt_id?: string }>();
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Active Part: 'part1-get-ready' | 'part1-recording' | 'part2-prepare' | 'part2-recording' | 'part3'
   const [activeTab, setActiveTab] = useState<'Part 1' | 'Part 2' | 'Part 3'>('Part 1');
@@ -151,8 +154,22 @@ export default function IELTSSpeakingSessionScreen() {
         {
           text: 'Submit',
           style: 'destructive',
-          onPress: () => {
-            router.replace('/(exam)/leaderboard');
+          onPress: async () => {
+            try {
+              setIsSubmitting(true);
+              if (params.attempt_id) {
+                await examService.submitExam(Number(params.attempt_id), { responses: [] });
+              }
+              router.replace({
+                pathname: '/(exam)/test-result',
+                params: { attempt_id: params.attempt_id }
+              });
+            } catch (err: any) {
+              console.error('Failed to submit IELTS Speaking:', err);
+              Alert.alert('Submit Error', err.response?.data?.message || 'Could not submit test.');
+            } finally {
+              setIsSubmitting(false);
+            }
           },
         },
       ]

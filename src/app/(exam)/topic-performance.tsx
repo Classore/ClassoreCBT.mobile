@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import { examService } from '@/services/exam';
 
 interface TopicItem {
   name: string;
@@ -22,14 +23,16 @@ interface TopicItem {
 
 export default function TopicPerformanceScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ subject?: string }>();
+  const params = useLocalSearchParams<{ subject?: string; attempt_id?: string }>();
 
+  const [loading, setLoading] = useState(false);
   const [selectedSubject, setSelectedSubject] = useState(params.subject || 'Mathematics');
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [subjectOptions, setSubjectOptions] = useState<string[]>(['Mathematics', 'Use of English', 'Physics', 'Chemistry']);
+  const [sectionsData, setSectionsData] = useState<any[]>([]);
+  const [aiFocusRecommendation, setAiFocusRecommendation] = useState('Based on your analysis, dedicate more review time to algebra word problems and geometry theorems.');
 
-  const subjectOptions = ['Mathematics', 'Use of English', 'Physics', 'Chemistry'];
-
-  const topics: TopicItem[] = [
+  const fallbackTopics: TopicItem[] = [
     { name: 'Algebra', score: 18, total: 20, percentage: 90, color: '#10B981' },
     { name: 'Geometry', score: 16, total: 20, percentage: 80, color: '#10B981' },
     { name: 'Trigonometry', score: 12, total: 15, percentage: 80, color: '#10B981' },
@@ -37,6 +40,52 @@ export default function TopicPerformanceScreen() {
     { name: 'Statistics', score: 8, total: 10, percentage: 80, color: '#10B981' },
     { name: 'Probability', score: 6, total: 10, percentage: 60, color: '#10B981' },
   ];
+
+  useEffect(() => {
+    const fetchTopics = async () => {
+      if (!params.attempt_id) return;
+      try {
+        setLoading(true);
+        const data = await examService.getTopicAnalysis(Number(params.attempt_id));
+        if (data) {
+          if (data.ai_focus_recommendation) {
+            setAiFocusRecommendation(data.ai_focus_recommendation);
+          }
+          if (data.sections && Array.isArray(data.sections) && data.sections.length > 0) {
+            setSectionsData(data.sections);
+            const subNames = data.sections.map((s: any) => s.section_name);
+            setSubjectOptions(subNames);
+            if (!subNames.includes(selectedSubject)) {
+              setSelectedSubject(subNames[0]);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Could not fetch topic analysis:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchTopics();
+  }, [params.attempt_id]);
+
+  const currentSection = sectionsData.find(s => s.section_name === selectedSubject);
+  const topics: TopicItem[] = currentSection && currentSection.topics && currentSection.topics.length > 0
+    ? currentSection.topics.map((t: any) => {
+        const pct = t.accuracy_percentage ?? 50;
+        let color = '#10B981';
+        if (pct < 50) color = '#EF4444';
+        else if (pct < 75) color = '#F97316';
+        return {
+          name: t.topic_name,
+          score: t.correct_answers,
+          total: t.total_questions,
+          percentage: pct,
+          color: color,
+        };
+      })
+    : fallbackTopics;
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -106,21 +155,47 @@ export default function TopicPerformanceScreen() {
               <Ionicons name="radio-button-on" size={22} color="#7C3AED" />
             </View>
             <View style={styles.focusInfo}>
-              <Text style={styles.focusLabel}>Focus on</Text>
-              <Text style={styles.focusTopic}>Mensuration & Calculus</Text>
+              <Text style={styles.focusLabel}>AI Study Recommendation</Text>
+              <Text style={styles.focusTopic}>{selectedSubject}</Text>
               <Text style={styles.focusSub}>
-                Practicing these topics can improve your score by up to 15%
+                {aiFocusRecommendation}
               </Text>
             </View>
           </View>
 
-          {/* Done Button */}
+          {/* Practice Weak Topics Button */}
           <TouchableOpacity 
-            style={styles.doneButton}
-            onPress={() => router.push('/(exam)/review-answers')}
+            style={[styles.doneButton, { backgroundColor: '#7C3AED', marginBottom: 12 }]}
+            onPress={async () => {
+              if (!params.attempt_id) {
+                router.push('/(tabs)/practice');
+                return;
+              }
+              try {
+                const remedial = await examService.createRemedialPractice(Number(params.attempt_id));
+                router.push({
+                  pathname: '/(exam)/session',
+                  params: { attempt_id: remedial.attempt.id, mode: 'Practice' }
+                });
+              } catch (e: any) {
+                router.push('/(tabs)/practice');
+              }
+            }}
             activeOpacity={0.85}
           >
-            <Text style={styles.doneButtonText}>Done</Text>
+            <Text style={styles.doneButtonText}>🎯 Practice Weak Topics</Text>
+          </TouchableOpacity>
+
+          {/* Done Button */}
+          <TouchableOpacity 
+            style={[styles.doneButton, { backgroundColor: '#F3F4F6', borderWidth: 1, borderColor: '#E5E7EB' }]}
+            onPress={() => router.push({
+              pathname: '/(exam)/review-answers',
+              params: { attempt_id: params.attempt_id }
+            })}
+            activeOpacity={0.85}
+          >
+            <Text style={[styles.doneButtonText, { color: '#374151' }]}>Proceed to Review</Text>
           </TouchableOpacity>
 
           <View style={{ height: 40 }} />
