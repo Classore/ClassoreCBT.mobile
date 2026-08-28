@@ -54,7 +54,11 @@ export function Onboarding() {
   };
 
   const navigateToAuth = () => {
-    router.replace('/(auth)/signup');
+    router.push('/(auth)/signup');
+  };
+
+  const navigateToSignIn = () => {
+    router.push('/auth/login');
   };
 
   const currentSlide = slides[currentIndex];
@@ -123,7 +127,7 @@ export function Onboarding() {
           </TouchableOpacity>
           <View style={styles.loginContainer}>
             <AppText style={styles.loginText}>Already have an account? </AppText>
-            <TouchableOpacity onPress={navigateToAuth}>
+            <TouchableOpacity onPress={navigateToSignIn}>
               <AppText style={styles.loginLink}>Sign in</AppText>
             </TouchableOpacity>
           </View>

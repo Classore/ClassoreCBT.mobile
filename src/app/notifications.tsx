@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   View, 
   Text, 
@@ -6,145 +6,93 @@ import {
   SafeAreaView, 
   ScrollView, 
   TouchableOpacity, 
-  Platform 
+  Platform,
+  ActivityIndicator
 } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-
-interface NotificationItem {
-  id: string;
-  type: 'test' | 'achievement' | 'streak' | 'contest' | 'token' | 'ai' | 'system';
-  title: string;
-  message: string;
-  time: string;
-  isUnread: boolean;
-  section: 'Today' | 'Earlier';
-  icon: string;
-  iconBg: string;
-  iconColor: string;
-  iconFamily: 'feather' | 'ionicons' | 'material';
-}
-
-const NOTIFICATIONS_DATA: NotificationItem[] = [
-  {
-    id: '1',
-    type: 'test',
-    title: 'Test Completed',
-    message: "Great job! You've completed JAMB UTME...",
-    time: '10:30 AM',
-    isUnread: true,
-    section: 'Today',
-    icon: 'clipboard',
-    iconBg: '#EDE9FE',
-    iconColor: '#7C3AED',
-    iconFamily: 'feather',
-  },
-  {
-    id: '2',
-    type: 'achievement',
-    title: 'New Achievement',
-    message: 'Congratulations! You earned the "Consistent Learner" badge.',
-    time: '09:15 AM',
-    isUnread: true,
-    section: 'Today',
-    icon: 'medal-outline',
-    iconBg: '#FEF3C7',
-    iconColor: '#D97706',
-    iconFamily: 'material',
-  },
-  {
-    id: '3',
-    type: 'streak',
-    title: 'Streak Reminder',
-    message: 'Keep it up! Your 7-day streak is active. Don...',
-    time: '08:00 AM',
-    isUnread: true,
-    section: 'Today',
-    icon: 'fire',
-    iconBg: '#FFE4E6',
-    iconColor: '#E11D48',
-    iconFamily: 'material',
-  },
-  {
-    id: '4',
-    type: 'contest',
-    title: 'Contest Update',
-    message: 'Math Challenge results are out. Check your ranking now!',
-    time: 'Yesterday',
-    isUnread: false,
-    section: 'Today',
-    icon: 'trophy-outline',
-    iconBg: '#D1FAE5',
-    iconColor: '#059669',
-    iconFamily: 'ionicons',
-  },
-  {
-    id: '5',
-    type: 'token',
-    title: 'Token Purchase Successful',
-    message: 'You have successfully purchased 1,000 tokens.',
-    time: 'Yesterday',
-    isUnread: false,
-    section: 'Today',
-    icon: 'cube-outline',
-    iconBg: '#DBEAFE',
-    iconColor: '#2563EB',
-    iconFamily: 'ionicons',
-  },
-  {
-    id: '6',
-    type: 'ai',
-    title: 'AI Assessment Completed',
-    message: 'Your AI Writing Assessment is ready. View your results now.',
-    time: 'Yesterday',
-    isUnread: false,
-    section: 'Today',
-    icon: 'auto-fix',
-    iconBg: '#EDE9FE',
-    iconColor: '#7C3AED',
-    iconFamily: 'material',
-  },
-  {
-    id: '7',
-    type: 'system',
-    title: 'System Maintenance',
-    message: 'We will be performing scheduled maintenance on Aug 8 2026.',
-    time: 'Aug, 8',
-    isUnread: false,
-    section: 'Earlier',
-    icon: 'settings',
-    iconBg: '#F3F4F6',
-    iconColor: '#6B7280',
-    iconFamily: 'feather',
-  },
-];
+import { notificationService, NotificationItem } from '@/services/notification';
 
 export default function NotificationsScreen() {
   const router = useRouter();
   const [filter, setFilter] = useState<'All' | 'Unread'>('All');
-  const [notifications, setNotifications] = useState(NOTIFICATIONS_DATA);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchNotifications();
+  }, []);
+
+  const fetchNotifications = async () => {
+    setLoading(true);
+    try {
+      const data = await notificationService.getNotifications();
+      setNotifications(data);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const markAllAsRead = async () => {
+    try {
+      await notificationService.markAllAsRead();
+      setNotifications(prev => prev.map(n => ({ ...n, is_unread: false })));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const getStyleForType = (type: string) => {
+    switch (type) {
+      case 'test': return { icon: 'clipboard', iconBg: '#EDE9FE', iconColor: '#7C3AED', family: 'feather' };
+      case 'achievement': return { icon: 'medal-outline', iconBg: '#FEF3C7', iconColor: '#D97706', family: 'material' };
+      case 'streak': return { icon: 'fire', iconBg: '#FFE4E6', iconColor: '#E11D48', family: 'material' };
+      case 'contest': return { icon: 'trophy-outline', iconBg: '#D1FAE5', iconColor: '#059669', family: 'ionicons' };
+      case 'token': return { icon: 'cube-outline', iconBg: '#DBEAFE', iconColor: '#2563EB', family: 'ionicons' };
+      case 'ai': return { icon: 'auto-fix', iconBg: '#EDE9FE', iconColor: '#7C3AED', family: 'material' };
+      default: return { icon: 'settings', iconBg: '#F3F4F6', iconColor: '#6B7280', family: 'feather' };
+    }
+  };
+
+  const renderIcon = (type: string) => {
+    const style = getStyleForType(type);
+    if (style.family === 'material') {
+      return <MaterialCommunityIcons name={style.icon as any} size={20} color={style.iconColor} />;
+    }
+    if (style.family === 'ionicons') {
+      return <Ionicons name={style.icon as any} size={20} color={style.iconColor} />;
+    }
+    return <Feather name={style.icon as any} size={18} color={style.iconColor} />;
+  };
+
+  const formatDateLabel = (dateStr: string) => {
+    const date = new Date(dateStr);
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    
+    if (date.toDateString() === today.toDateString()) {
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+    if (date.toDateString() === yesterday.toDateString()) {
+      return 'Yesterday';
+    }
+    return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  };
+
+  const isToday = (dateStr: string) => {
+    return new Date(dateStr).toDateString() === new Date().toDateString();
+  };
 
   const filteredNotifications = notifications.filter(item => {
-    if (filter === 'Unread') return item.isUnread;
+    if (filter === 'Unread') return item.is_unread;
     return true;
   });
 
-  const todayItems = filteredNotifications.filter(item => item.section === 'Today');
-  const earlierItems = filteredNotifications.filter(item => item.section === 'Earlier');
-
-  const markAllAsRead = () => {
-    setNotifications(prev => prev.map(n => ({ ...n, isUnread: false })));
-  };
-
-  const renderIcon = (item: NotificationItem) => {
-    if (item.iconFamily === 'material') {
-      return <MaterialCommunityIcons name={item.icon as any} size={20} color={item.iconColor} />;
-    }
-    if (item.iconFamily === 'ionicons') {
-      return <Ionicons name={item.icon as any} size={20} color={item.iconColor} />;
-    }
-    return <Feather name={item.icon as any} size={18} color={item.iconColor} />;
-  };
+  const todayItems = filteredNotifications.filter(item => isToday(item.created_at));
+  const earlierItems = filteredNotifications.filter(item => !isToday(item.created_at));
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -192,71 +140,81 @@ export default function NotificationsScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* Today Section */}
-          {todayItems.length > 0 && (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Today</Text>
-              <View style={styles.cardsList}>
-                {todayItems.map((item) => (
-                  <TouchableOpacity key={item.id} style={styles.notificationCard} activeOpacity={0.7}>
-                    <View style={[styles.iconWrapper, { backgroundColor: item.iconBg }]}>
-                      {renderIcon(item)}
-                    </View>
-                    <View style={styles.contentWrapper}>
-                      <View style={styles.topLine}>
-                        <Text style={styles.itemTitle}>{item.title}</Text>
-                        <View style={styles.timeRow}>
-                          <Text style={styles.timeText}>{item.time}</Text>
-                          {item.isUnread && <View style={styles.unreadDot} />}
+          {loading ? (
+            <ActivityIndicator size="large" color="#4C1D95" style={{ marginVertical: 40 }} />
+          ) : filteredNotifications.length === 0 ? (
+            <Text style={{ textAlign: 'center', color: '#64748B', marginVertical: 20 }}>No notifications found.</Text>
+          ) : (
+            <>
+              {/* Today Section */}
+              {todayItems.length > 0 && (
+                <View style={styles.section}>
+                  <Text style={styles.sectionTitle}>Today</Text>
+                  <View style={styles.cardsList}>
+                    {todayItems.map((item) => (
+                      <TouchableOpacity key={item.id} style={styles.notificationCard} activeOpacity={0.7}>
+                        <View style={[styles.iconWrapper, { backgroundColor: getStyleForType(item.notification_type).iconBg }]}>
+                          {renderIcon(item.notification_type)}
                         </View>
-                      </View>
-                      <Text style={styles.itemMessage} numberOfLines={2}>
-                        {item.message}
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-          )}
-
-          {/* Earlier Section */}
-          {earlierItems.length > 0 && (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Earlier</Text>
-              <View style={styles.cardsList}>
-                {earlierItems.map((item) => (
-                  <TouchableOpacity key={item.id} style={styles.notificationCard} activeOpacity={0.7}>
-                    <View style={[styles.iconWrapper, { backgroundColor: item.iconBg }]}>
-                      {renderIcon(item)}
-                    </View>
-                    <View style={styles.contentWrapper}>
-                      <View style={styles.topLine}>
-                        <Text style={styles.itemTitle}>{item.title}</Text>
-                        <View style={styles.timeRow}>
-                          <Text style={styles.timeText}>{item.time}</Text>
-                          {item.isUnread && <View style={styles.unreadDot} />}
+                        <View style={styles.contentWrapper}>
+                          <View style={styles.topLine}>
+                            <Text style={styles.itemTitle}>{item.title}</Text>
+                            <View style={styles.timeRow}>
+                              <Text style={styles.timeText}>{formatDateLabel(item.created_at)}</Text>
+                              {item.is_unread && <View style={styles.unreadDot} />}
+                            </View>
+                          </View>
+                          <Text style={styles.itemMessage} numberOfLines={2}>
+                            {item.message}
+                          </Text>
                         </View>
-                      </View>
-                      <Text style={styles.itemMessage} numberOfLines={2}>
-                        {item.message}
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-          )}
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+              )}
 
-          {/* Mark all as read */}
-          <TouchableOpacity 
-            style={styles.markReadButton} 
-            onPress={markAllAsRead}
-            activeOpacity={0.7}
-          >
-            <Feather name="check" size={16} color="#6D28D9" style={{ marginRight: 6 }} />
-            <Text style={styles.markReadText}>Mark all as read</Text>
-          </TouchableOpacity>
+              {/* Earlier Section */}
+              {earlierItems.length > 0 && (
+                <View style={styles.section}>
+                  <Text style={styles.sectionTitle}>Earlier</Text>
+                  <View style={styles.cardsList}>
+                    {earlierItems.map((item) => (
+                      <TouchableOpacity key={item.id} style={styles.notificationCard} activeOpacity={0.7}>
+                        <View style={[styles.iconWrapper, { backgroundColor: getStyleForType(item.notification_type).iconBg }]}>
+                          {renderIcon(item.notification_type)}
+                        </View>
+                        <View style={styles.contentWrapper}>
+                          <View style={styles.topLine}>
+                            <Text style={styles.itemTitle}>{item.title}</Text>
+                            <View style={styles.timeRow}>
+                              <Text style={styles.timeText}>{formatDateLabel(item.created_at)}</Text>
+                              {item.is_unread && <View style={styles.unreadDot} />}
+                            </View>
+                          </View>
+                          <Text style={styles.itemMessage} numberOfLines={2}>
+                            {item.message}
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+              )}
+
+              {/* Mark all as read */}
+              {notifications.some(n => n.is_unread) && (
+                <TouchableOpacity 
+                  style={styles.markReadButton} 
+                  onPress={markAllAsRead}
+                  activeOpacity={0.7}
+                >
+                  <Feather name="check" size={16} color="#6D28D9" style={{ marginRight: 6 }} />
+                  <Text style={styles.markReadText}>Mark all as read</Text>
+                </TouchableOpacity>
+              )}
+            </>
+          )}
 
           <View style={{ height: 40 }} />
         </ScrollView>

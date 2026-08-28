@@ -68,9 +68,13 @@ function CircularProgress({
   );
 }
 
+import { examService } from '@/services/exam';
+
 export default function ReportsScreen() {
   const [activeTab, setActiveTab] = useState<'Overview' | 'JAMB' | 'IELTS' | 'Mock Tests' | 'Subjects'>('Overview');
   const [timeframe, setTimeframe] = useState('This Week');
+  const [reportData, setReportData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
 
   const tabs: ('Overview' | 'JAMB' | 'IELTS' | 'Mock Tests' | 'Subjects')[] = [
     'Overview',
@@ -79,16 +83,40 @@ export default function ReportsScreen() {
     'Mock Tests',
     'Subjects'
   ];
+  
+  const timeframes = ['This Week', 'This Month', 'All Time'];
 
-  const trendData = [
-    { day: 'Mon', score: 58 },
-    { day: 'Tue', score: 62 },
-    { day: 'Wed', score: 67 },
-    { day: 'Thu', score: 71 },
-    { day: 'Fri', score: 74 },
-    { day: 'Sat', score: 69 },
-    { day: 'Sun', score: 72 },
-  ];
+  React.useEffect(() => {
+    const fetchReport = async () => {
+      setLoading(true);
+      try {
+        const data = await examService.getAggregateReport(activeTab, timeframe);
+        setReportData(data);
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchReport();
+  }, [activeTab, timeframe]);
+
+  const toggleTimeframe = () => {
+    const idx = timeframes.indexOf(timeframe);
+    setTimeframe(timeframes[(idx + 1) % timeframes.length]);
+  };
+
+  if (loading && !reportData) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+          <Text style={{ marginTop: 10, color: '#6B7280' }}>Loading Reports...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  const { overall, trend, sectional, subjects, recent_mocks, topics } = reportData || {};
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -100,7 +128,7 @@ export default function ReportsScreen() {
             <Text style={styles.headerTitle}>Reports</Text>
             <Text style={styles.headerSubtitle}>Track your progress. Improve every day.</Text>
           </View>
-          <TouchableOpacity style={styles.timeframePill} activeOpacity={0.7}>
+          <TouchableOpacity style={styles.timeframePill} activeOpacity={0.7} onPress={toggleTimeframe}>
             <Feather name="calendar" size={13} color="#4B5563" style={{ marginRight: 5 }} />
             <Text style={styles.timeframeText}>{timeframe}</Text>
             <Feather name="chevron-down" size={14} color="#6B7280" style={{ marginLeft: 4 }} />
@@ -134,294 +162,266 @@ export default function ReportsScreen() {
           contentContainerStyle={styles.scrollContent}
         >
           {/* 1. Overall Score Card */}
-          <LinearGradient
-            colors={['#1E1B4B', '#312E81']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.overallCard}
-          >
-            {/* Left Donut */}
-            <View style={styles.overallLeft}>
-              <Text style={styles.overallScoreLabel}>Overall Score</Text>
-              <View style={styles.overallDonutWrapper}>
-                <Svg width={78} height={78} style={{ transform: [{ rotate: '-90deg' }] }}>
-                  <Circle
-                    cx={39}
-                    cy={39}
-                    r={33}
-                    stroke="rgba(255, 255, 255, 0.2)"
-                    strokeWidth={7}
-                    fill="none"
-                  />
-                  <Circle
-                    cx={39}
-                    cy={39}
-                    r={33}
-                    stroke="#FFFFFF"
-                    strokeWidth={7}
-                    strokeDasharray={`${2 * Math.PI * 33} ${2 * Math.PI * 33}`}
-                    strokeDashoffset={2 * Math.PI * 33 * (1 - 0.58)}
-                    strokeLinecap="round"
-                    fill="none"
-                  />
-                </Svg>
-                <View style={styles.donutInnerAbsolute}>
-                  <Text style={styles.donutPercentage}>58%</Text>
-                  <Text style={styles.donutSub}>Good Job!</Text>
-                </View>
-              </View>
-            </View>
-
-            {/* Right Stats Grid */}
-            <View style={styles.overallRight}>
-              <View style={styles.statGridRow}>
-                {/* Total Questions */}
-                <View style={styles.overallStatItem}>
-                  <View style={styles.overallStatIconRow}>
-                    <Feather name="file-text" size={13} color="#C7D2FE" />
+          {overall && (
+            <LinearGradient
+              colors={['#1E1B4B', '#312E81']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.overallCard}
+            >
+              {/* Left Donut */}
+              <View style={styles.overallLeft}>
+                <Text style={styles.overallScoreLabel}>Overall Score</Text>
+                <View style={styles.overallDonutWrapper}>
+                  <Svg width={78} height={78} style={{ transform: [{ rotate: '-90deg' }] }}>
+                    <Circle
+                      cx={39}
+                      cy={39}
+                      r={33}
+                      stroke="rgba(255, 255, 255, 0.2)"
+                      strokeWidth={7}
+                      fill="none"
+                    />
+                    <Circle
+                      cx={39}
+                      cy={39}
+                      r={33}
+                      stroke="#FFFFFF"
+                      strokeWidth={7}
+                      strokeDasharray={`${2 * Math.PI * 33} ${2 * Math.PI * 33}`}
+                      strokeDashoffset={2 * Math.PI * 33 * (1 - (overall.overall_score / 100))}
+                      strokeLinecap="round"
+                      fill="none"
+                    />
+                  </Svg>
+                  <View style={styles.donutInnerAbsolute}>
+                    <Text style={styles.donutPercentage}>{overall.overall_score}%</Text>
+                    <Text style={styles.donutSub}>{overall.overall_score >= 70 ? 'Excellent' : overall.overall_score >= 50 ? 'Good Job!' : 'Keep Going'}</Text>
                   </View>
-                  <Text style={styles.overallStatNumber}>1,256</Text>
-                  <Text style={styles.overallStatTitle}>Questions</Text>
-                  <Text style={styles.overallStatSubtitle}>Total Attempted</Text>
-                </View>
-
-                {/* Correct */}
-                <View style={styles.overallStatItem}>
-                  <View style={styles.overallStatIconRow}>
-                    <Feather name="check-circle" size={13} color="#34D399" />
-                  </View>
-                  <Text style={styles.overallStatNumber}>905</Text>
-                  <Text style={styles.overallStatTitle}>72%</Text>
-                  <Text style={styles.overallStatSubtitle}>Correct</Text>
                 </View>
               </View>
 
-              <View style={[styles.statGridRow, { marginTop: 14 }]}>
-                {/* Incorrect */}
-                <View style={styles.overallStatItem}>
-                  <View style={styles.overallStatIconRow}>
-                    <Feather name="x-circle" size={13} color="#F87171" />
+              {/* Right Stats Grid */}
+              <View style={styles.overallRight}>
+                <View style={styles.statGridRow}>
+                  {/* Total Questions */}
+                  <View style={styles.overallStatItem}>
+                    <View style={styles.overallStatIconRow}>
+                      <Feather name="file-text" size={13} color="#C7D2FE" />
+                    </View>
+                    <Text style={styles.overallStatNumber}>{overall.total_attempted}</Text>
+                    <Text style={styles.overallStatTitle}>Questions</Text>
+                    <Text style={styles.overallStatSubtitle}>Total Attempted</Text>
                   </View>
-                  <Text style={styles.overallStatNumber}>251</Text>
-                  <Text style={styles.overallStatTitle}>20%</Text>
-                  <Text style={styles.overallStatSubtitle}>Incorrect</Text>
+
+                  {/* Correct */}
+                  <View style={styles.overallStatItem}>
+                    <View style={styles.overallStatIconRow}>
+                      <Feather name="check-circle" size={13} color="#34D399" />
+                    </View>
+                    <Text style={styles.overallStatNumber}>{overall.correct_count}</Text>
+                    <Text style={styles.overallStatTitle}>{overall.correct_pct}%</Text>
+                    <Text style={styles.overallStatSubtitle}>Correct</Text>
+                  </View>
                 </View>
 
-                {/* Unattempted */}
-                <View style={styles.overallStatItem}>
-                  <View style={styles.overallStatIconRow}>
-                    <Feather name="minus-circle" size={13} color="#9CA3AF" />
+                <View style={[styles.statGridRow, { marginTop: 14 }]}>
+                  {/* Incorrect */}
+                  <View style={styles.overallStatItem}>
+                    <View style={styles.overallStatIconRow}>
+                      <Feather name="x-circle" size={13} color="#F87171" />
+                    </View>
+                    <Text style={styles.overallStatNumber}>{overall.incorrect_count}</Text>
+                    <Text style={styles.overallStatTitle}>{overall.incorrect_pct}%</Text>
+                    <Text style={styles.overallStatSubtitle}>Incorrect</Text>
                   </View>
-                  <Text style={styles.overallStatNumber}>100</Text>
-                  <Text style={styles.overallStatTitle}>8%</Text>
-                  <Text style={styles.overallStatSubtitle}>Unattempted</Text>
+
+                  {/* Unattempted */}
+                  <View style={styles.overallStatItem}>
+                    <View style={styles.overallStatIconRow}>
+                      <Feather name="minus-circle" size={13} color="#9CA3AF" />
+                    </View>
+                    <Text style={styles.overallStatNumber}>{overall.unattempted_count}</Text>
+                    <Text style={styles.overallStatTitle}>{overall.unattempted_pct}%</Text>
+                    <Text style={styles.overallStatSubtitle}>Unattempted</Text>
+                  </View>
                 </View>
               </View>
-            </View>
-          </LinearGradient>
+            </LinearGradient>
+          )}
 
           {/* 2. Performance Trend Card */}
-          <View style={styles.card}>
-            <View style={styles.cardHeader}>
-              <Text style={styles.cardTitle}>Performance Trend</Text>
-              <TouchableOpacity style={styles.miniDropdown} activeOpacity={0.7}>
-                <Text style={styles.miniDropdownText}>Daily</Text>
-                <Feather name="chevron-down" size={12} color="#6B7280" style={{ marginLeft: 3 }} />
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.chartLegendRow}>
-              <View style={styles.legendIndicator} />
-              <Text style={styles.legendLabel}>Score (%)</Text>
-            </View>
-
-            {/* Performance Chart Grid */}
-            <View style={styles.chartContainer}>
-              {/* Y Axis Grid lines */}
-              <View style={styles.yAxisContainer}>
-                {[100, 75, 50, 25, 0].map((val) => (
-                  <View key={val} style={styles.gridLineRow}>
-                    <Text style={styles.yAxisLabel}>{val}</Text>
-                    <View style={styles.gridLine} />
-                  </View>
-                ))}
+          {trend && trend.length > 0 && (
+            <View style={styles.card}>
+              <View style={styles.cardHeader}>
+                <Text style={styles.cardTitle}>Performance Trend</Text>
+                <TouchableOpacity style={styles.miniDropdown} activeOpacity={0.7}>
+                  <Text style={styles.miniDropdownText}>Daily</Text>
+                  <Feather name="chevron-down" size={12} color="#6B7280" style={{ marginLeft: 3 }} />
+                </TouchableOpacity>
               </View>
 
-              {/* Data points and column bars */}
-              <View style={styles.chartPlotArea}>
-                {trendData.map((item, idx) => {
-                  const bottomPercent = (item.score / 100) * 110;
-                  return (
-                    <View key={item.day} style={styles.chartColumn}>
-                      {/* Score Badge */}
-                      <View style={[styles.dataPointWrapper, { bottom: bottomPercent }]}>
-                        <Text style={styles.dataPointText}>{item.score}%</Text>
-                        <View style={styles.dataPointDot} />
-                      </View>
-                      <Text style={styles.xAxisLabel}>{item.day}</Text>
+              <View style={styles.chartLegendRow}>
+                <View style={styles.legendIndicator} />
+                <Text style={styles.legendLabel}>Score (%)</Text>
+              </View>
+
+              {/* Performance Chart Grid */}
+              <View style={styles.chartContainer}>
+                <View style={styles.yAxisContainer}>
+                  {[100, 75, 50, 25, 0].map((val) => (
+                    <View key={val} style={styles.gridLineRow}>
+                      <Text style={styles.yAxisLabel}>{val}</Text>
+                      <View style={styles.gridLine} />
                     </View>
-                  );
+                  ))}
+                </View>
+
+                <View style={styles.chartPlotArea}>
+                  {trend.map((item: any, idx: number) => {
+                    const bottomPercent = (item.score / 100) * 110;
+                    return (
+                      <View key={item.day} style={styles.chartColumn}>
+                        {item.score > 0 && (
+                          <View style={[styles.dataPointWrapper, { bottom: bottomPercent }]}>
+                            <Text style={styles.dataPointText}>{item.score}%</Text>
+                            <View style={styles.dataPointDot} />
+                          </View>
+                        )}
+                        <Text style={styles.xAxisLabel}>{item.day}</Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              </View>
+            </View>
+          )}
+
+          {/* 3. Sectional Breakdown Card (e.g. for IELTS/TOEFL) */}
+          {sectional && sectional.length > 0 && (activeTab === 'IELTS' || activeTab === 'Overview') && (
+            <View style={styles.card}>
+              <View style={styles.cardHeader}>
+                <Text style={styles.cardTitle}>Sectional Breakdown</Text>
+                <TouchableOpacity activeOpacity={0.7}>
+                  <Text style={styles.cardActionText}>View All ›</Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.sectionalRow}>
+                {sectional.map((sec: any) => {
+                  let icon = '📝';
+                  let color = '#6366F1';
+                  let trackColor = '#EEF2FF';
+                  if (sec.name.toLowerCase().includes('listen')) { icon = '🎧'; color = '#6366F1'; trackColor = '#EEF2FF'; }
+                  else if (sec.name.toLowerCase().includes('read')) { icon = '📖'; color = '#10B981'; trackColor = '#ECFDF5'; }
+                  else if (sec.name.toLowerCase().includes('write')) { icon = '📝'; color = '#F59E0B'; trackColor = '#FFFBEB'; }
+                  else if (sec.name.toLowerCase().includes('speak')) { icon = '🗣️'; color = '#3B82F6'; trackColor = '#EFF6FF'; }
+
+                  return (
+                    <View key={sec.name} style={styles.sectionalItem}>
+                      <View style={styles.sectionalIconTitle}>
+                        <Text style={{ fontSize: 13, marginRight: 4 }}>{icon}</Text>
+                        <Text style={styles.sectionalName}>{sec.name.substring(0, 8)}</Text>
+                      </View>
+                      <CircularProgress percentage={sec.score} size={50} strokeWidth={4} color={color} trackColor={trackColor} />
+                      <Text style={[styles.ratingTag, { color: sec.rating === 'Good' ? '#10B981' : sec.rating === 'Average' ? '#F59E0B' : '#EF4444' }]}>{sec.rating}</Text>
+                    </View>
+                  )
                 })}
               </View>
             </View>
-          </View>
+          )}
 
-          {/* 3. Sectional Breakdown Card */}
-          <View style={styles.card}>
-            <View style={styles.cardHeader}>
-              <Text style={styles.cardTitle}>Sectional Breakdown</Text>
-              <TouchableOpacity activeOpacity={0.7}>
-                <Text style={styles.cardActionText}>View All ›</Text>
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.sectionalRow}>
-              {/* Listening */}
-              <View style={styles.sectionalItem}>
-                <View style={styles.sectionalIconTitle}>
-                  <Text style={{ fontSize: 13, marginRight: 4 }}>🎧</Text>
-                  <Text style={styles.sectionalName}>Listening</Text>
-                </View>
-                <CircularProgress percentage={76} size={50} strokeWidth={4} color="#6366F1" trackColor="#EEF2FF" />
-                <Text style={[styles.ratingTag, { color: '#10B981' }]}>Good</Text>
+          {/* 4. Subject Performance Card (e.g. for JAMB) */}
+          {subjects && subjects.length > 0 && (activeTab === 'JAMB' || activeTab === 'Subjects' || activeTab === 'Overview') && (
+            <View style={styles.card}>
+              <View style={styles.cardHeader}>
+                <Text style={styles.cardTitle}>Subject Performance</Text>
+                <TouchableOpacity activeOpacity={0.7}>
+                  <Text style={styles.cardActionText}>View All ›</Text>
+                </TouchableOpacity>
               </View>
 
-              {/* Reading */}
-              <View style={styles.sectionalItem}>
-                <View style={styles.sectionalIconTitle}>
-                  <Text style={{ fontSize: 13, marginRight: 4 }}>📖</Text>
-                  <Text style={styles.sectionalName}>Reading</Text>
-                </View>
-                <CircularProgress percentage={68} size={50} strokeWidth={4} color="#10B981" trackColor="#ECFDF5" />
-                <Text style={[styles.ratingTag, { color: '#10B981' }]}>Good</Text>
-              </View>
-
-              {/* Writing */}
-              <View style={styles.sectionalItem}>
-                <View style={styles.sectionalIconTitle}>
-                  <Text style={{ fontSize: 13, marginRight: 4 }}>📝</Text>
-                  <Text style={styles.sectionalName}>Writing</Text>
-                </View>
-                <CircularProgress percentage={62} size={50} strokeWidth={4} color="#F59E0B" trackColor="#FFFBEB" />
-                <Text style={[styles.ratingTag, { color: '#F59E0B' }]}>Average</Text>
-              </View>
-
-              {/* Speaking */}
-              <View style={styles.sectionalItem}>
-                <View style={styles.sectionalIconTitle}>
-                  <Text style={{ fontSize: 13, marginRight: 4 }}>🗣️</Text>
-                  <Text style={styles.sectionalName}>Speaking</Text>
-                </View>
-                <CircularProgress percentage={76} size={50} strokeWidth={4} color="#3B82F6" trackColor="#EFF6FF" />
-                <Text style={[styles.ratingTag, { color: '#10B981' }]}>Good</Text>
-              </View>
-            </View>
-          </View>
-
-          {/* 4. Subject Performance (JAMB) Card */}
-          <View style={styles.card}>
-            <View style={styles.cardHeader}>
-              <Text style={styles.cardTitle}>Subject Performance (JAMB)</Text>
-              <TouchableOpacity activeOpacity={0.7}>
-                <Text style={styles.cardActionText}>View All ›</Text>
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.subjectList}>
-              {[
-                { name: 'Mathematics', score: 78, color: '#4F46E5' },
-                { name: 'Physics', score: 72, color: '#4F46E5' },
-                { name: 'Chemistry', score: 65, color: '#F97316' },
-                { name: 'Biology', score: 74, color: '#4F46E5' },
-                { name: 'English', score: 60, color: '#F97316' },
-              ].map((sub) => (
-                <View key={sub.name} style={styles.subjectRow}>
-                  <Text style={styles.subjectNameLabel}>{sub.name}</Text>
-                  <View style={styles.progressBarTrack}>
-                    <View style={[styles.progressBarFill, { width: `${sub.score}%`, backgroundColor: sub.color }]} />
+              <View style={styles.subjectList}>
+                {subjects.map((sub: any) => (
+                  <View key={sub.name} style={styles.subjectRow}>
+                    <Text style={styles.subjectNameLabel}>{sub.name}</Text>
+                    <View style={styles.progressBarTrack}>
+                      <View style={[styles.progressBarFill, { width: `${sub.score}%`, backgroundColor: sub.color }]} />
+                    </View>
+                    <Text style={styles.subjectScoreLabel}>{sub.score}%</Text>
                   </View>
-                  <Text style={styles.subjectScoreLabel}>{sub.score}%</Text>
-                </View>
-              ))}
+                ))}
+              </View>
             </View>
-          </View>
+          )}
 
           {/* 5. Recent Mock Tests Card */}
-          <View style={styles.card}>
-            <View style={styles.cardHeader}>
-              <Text style={styles.cardTitle}>Recent Mock Tests</Text>
-              <TouchableOpacity activeOpacity={0.7}>
-                <Text style={styles.cardActionText}>View All ›</Text>
-              </TouchableOpacity>
-            </View>
+          {recent_mocks && recent_mocks.length > 0 && (
+            <View style={styles.card}>
+              <View style={styles.cardHeader}>
+                <Text style={styles.cardTitle}>Recent Tests</Text>
+                <TouchableOpacity activeOpacity={0.7}>
+                  <Text style={styles.cardActionText}>View All ›</Text>
+                </TouchableOpacity>
+              </View>
 
-            <View style={styles.mockList}>
-              {[
-                { title: 'JAMB Mock Test 12', subtitle: 'May 19, 2025 · 120 Questions', score: '71%', scoreLabel: 'Score', scoreColor: '#10B981' },
-                { title: 'JAMB Mock Test 11', subtitle: 'May 16, 2025 · 120 Questions', score: '68%', scoreLabel: 'Score', scoreColor: '#10B981' },
-                { title: 'IELTS Mock Test 3', subtitle: 'May 14, 2025 · 4 Sections', score: '6.5', scoreLabel: 'Band', scoreColor: '#111827' },
-                { title: 'IELTS Mock Test 2', subtitle: 'May 10, 2025 · 4 Sections', score: '6.0', scoreLabel: 'Band', scoreColor: '#111827' },
-              ].map((test, index) => (
-                <View key={test.title} style={[styles.mockRow, index > 0 && { borderTopWidth: 1, borderTopColor: '#F9FAFB' }]}>
-                  <View style={styles.mockIconBg}>
-                    <Feather name="file-text" size={15} color="#6D28D9" />
+              <View style={styles.mockList}>
+                {recent_mocks.map((test: any, index: number) => (
+                  <View key={index} style={[styles.mockRow, index > 0 && { borderTopWidth: 1, borderTopColor: '#F9FAFB' }]}>
+                    <View style={styles.mockIconBg}>
+                      <Feather name="file-text" size={15} color="#6D28D9" />
+                    </View>
+                    <View style={styles.mockInfo}>
+                      <Text style={styles.mockTitle}>{test.title}</Text>
+                      <Text style={styles.mockSubtitle}>{test.subtitle}</Text>
+                    </View>
+                    <View style={styles.mockScoreContainer}>
+                      <Text style={[styles.mockScoreValue, { color: test.scoreColor }]}>{test.score}</Text>
+                      <Text style={styles.mockScoreLabel}>{test.scoreLabel}</Text>
+                    </View>
                   </View>
-                  <View style={styles.mockInfo}>
-                    <Text style={styles.mockTitle}>{test.title}</Text>
-                    <Text style={styles.mockSubtitle}>{test.subtitle}</Text>
+                ))}
+              </View>
+            </View>
+          )}
+
+          {/* 6. Topic Analysis Card */}
+          {topics && topics.length > 0 && (
+            <View style={styles.card}>
+              <View style={styles.cardHeader}>
+                <Text style={styles.cardTitle}>Topic Analysis (Needs Work)</Text>
+                <TouchableOpacity activeOpacity={0.7}>
+                  <Text style={styles.cardActionText}>View All ›</Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.topicTableHeader}>
+                <Text style={[styles.topicColHeader, { flex: 2 }]}>Topic</Text>
+                <Text style={[styles.topicColHeader, { flex: 1, textAlign: 'center' }]}>Correct</Text>
+                <Text style={[styles.topicColHeader, { flex: 1, textAlign: 'center' }]}>Incorrect</Text>
+                <Text style={[styles.topicColHeader, { flex: 1.5, textAlign: 'right' }]}>Accuracy</Text>
+              </View>
+
+              {topics.map((row: any, idx: number) => (
+                <View key={idx} style={styles.topicRow}>
+                  <View style={[styles.topicCol, { flex: 2 }]}>
+                    <View style={[styles.topicDot, { backgroundColor: row.dotColor }]} />
+                    <Text style={styles.topicNameText} numberOfLines={1}>{row.topic}</Text>
                   </View>
-                  <View style={styles.mockScoreContainer}>
-                    <Text style={[styles.mockScoreValue, { color: test.scoreColor }]}>{test.score}</Text>
-                    <Text style={styles.mockScoreLabel}>{test.scoreLabel}</Text>
+                  <Text style={[styles.topicStatText, { flex: 1, textAlign: 'center' }]}>{row.correct}</Text>
+                  <Text style={[styles.topicStatText, { flex: 1, textAlign: 'center' }]}>{row.incorrect}</Text>
+                  <View style={[styles.topicAccuracyCol, { flex: 1.5 }]}>
+                    <Text style={styles.topicAccuracyText}>{row.accuracy}%</Text>
+                    <View style={styles.topicAccuracyTrack}>
+                      <View style={[styles.topicAccuracyFill, { width: `${row.accuracy}%`, backgroundColor: row.barColor }]} />
+                    </View>
                   </View>
                 </View>
               ))}
             </View>
-          </View>
+          )}
 
-          {/* 6. Topic Analysis (Top 5) Card */}
-          <View style={styles.card}>
-            <View style={styles.cardHeader}>
-              <Text style={styles.cardTitle}>Topic Analysis (Top 5)</Text>
-              <TouchableOpacity activeOpacity={0.7}>
-                <Text style={styles.cardActionText}>View All ›</Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Table Header */}
-            <View style={styles.topicTableHeader}>
-              <Text style={[styles.topicColHeader, { flex: 2 }]}>Topic</Text>
-              <Text style={[styles.topicColHeader, { flex: 1, textAlign: 'center' }]}>Correct</Text>
-              <Text style={[styles.topicColHeader, { flex: 1, textAlign: 'center' }]}>Incorrect</Text>
-              <Text style={[styles.topicColHeader, { flex: 1.5, textAlign: 'right' }]}>Accuracy</Text>
-            </View>
-
-            {/* Table Rows */}
-            {[
-              { topic: 'Algebra', dotColor: '#10B981', correct: 85, incorrect: 15, accuracy: 85, barColor: '#10B981' },
-              { topic: 'Mechanics', dotColor: '#F97316', correct: 72, incorrect: 28, accuracy: 72, barColor: '#F97316' },
-              { topic: 'Organic Chemistry', dotColor: '#F97316', correct: 64, incorrect: 36, accuracy: 64, barColor: '#F97316' },
-              { topic: 'Comprehension', dotColor: '#10B981', correct: 90, incorrect: 10, accuracy: 90, barColor: '#10B981' },
-              { topic: 'Trigonometry', dotColor: '#EF4444', correct: 55, incorrect: 45, accuracy: 55, barColor: '#EF4444' },
-            ].map((row) => (
-              <View key={row.topic} style={styles.topicRow}>
-                <View style={[styles.topicCol, { flex: 2 }]}>
-                  <View style={[styles.topicDot, { backgroundColor: row.dotColor }]} />
-                  <Text style={styles.topicNameText} numberOfLines={1}>{row.topic}</Text>
-                </View>
-                <Text style={[styles.topicStatText, { flex: 1, textAlign: 'center' }]}>{row.correct}</Text>
-                <Text style={[styles.topicStatText, { flex: 1, textAlign: 'center' }]}>{row.incorrect}</Text>
-                <View style={[styles.topicAccuracyCol, { flex: 1.5 }]}>
-                  <Text style={styles.topicAccuracyText}>{row.accuracy}%</Text>
-                  <View style={styles.topicAccuracyTrack}>
-                    <View style={[styles.topicAccuracyFill, { width: `${row.accuracy}%`, backgroundColor: row.barColor }]} />
-                  </View>
-                </View>
-              </View>
-            ))}
-          </View>
-
-          {/* Bottom Tab Bar Spacer */}
           <View style={{ height: 100 }} />
         </ScrollView>
       </View>

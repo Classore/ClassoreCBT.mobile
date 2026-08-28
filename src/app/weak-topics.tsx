@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   View, 
   Text, 
@@ -6,12 +6,14 @@ import {
   SafeAreaView, 
   ScrollView, 
   TouchableOpacity, 
-  Platform 
+  Platform,
+  ActivityIndicator
 } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
+import { examService } from '@/services/exam';
 
 interface WeakTopicItem {
   id: string;
@@ -26,71 +28,69 @@ interface WeakTopicItem {
   iconFamily: 'feather' | 'material' | 'ionicons';
 }
 
-const WEAK_TOPICS_DATA: WeakTopicItem[] = [
-  {
-    id: '1',
-    topic: 'Trigonometry',
-    subject: 'Mathematics',
-    accuracy: 24,
-    questionsCount: 12,
-    barColor: '#EF4444',
-    iconName: 'activity',
-    iconBg: '#FFE4E6',
-    iconColor: '#E11D48',
-    iconFamily: 'feather',
-  },
-  {
-    id: '2',
-    topic: 'Electricity',
-    subject: 'Physics',
-    accuracy: 28,
-    questionsCount: 15,
-    barColor: '#F97316',
-    iconName: 'zap',
-    iconBg: '#DBEAFE',
-    iconColor: '#2563EB',
-    iconFamily: 'feather',
-  },
-  {
-    id: '3',
-    topic: 'Algebra',
-    subject: 'Mathematics',
-    accuracy: 32,
-    questionsCount: 20,
-    barColor: '#F97316',
-    iconName: 'star',
-    iconBg: '#FEF3C7',
-    iconColor: '#D97706',
-    iconFamily: 'feather',
-  },
-  {
-    id: '4',
-    topic: 'Organic Chemistry',
-    subject: 'Chemistry',
-    accuracy: 35,
-    questionsCount: 18,
-    barColor: '#F97316',
-    iconName: 'flask-outline',
-    iconBg: '#FFEDD5',
-    iconColor: '#EA580C',
-    iconFamily: 'material',
-  },
-  {
-    id: '5',
-    topic: 'Passage Inference',
-    subject: 'English',
-    accuracy: 38,
-    questionsCount: 16,
-    barColor: '#F97316',
-    iconName: 'file-text',
-    iconBg: '#D1FAE5',
-    iconColor: '#059669',
-    iconFamily: 'feather',
-  },
-];
-
 export default function WeakTopicsScreen() {
   const router = useRouter();
+  const [weakTopics, setWeakTopics] = useState<WeakTopicItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchWeakTopics = async () => {
+      try {
+        const response = await examService.getGlobalWeakTopics();
+        const mappedTopics = response.weak_topics.map((t: any) => {
+          let barColor = '#EF4444';
+          let iconBg = '#FFE4E6';
+          let iconColor = '#E11D48';
+
+          if (t.accuracy > 50 && t.accuracy <= 70) {
+            barColor = '#F97316';
+            iconBg = '#FFEDD5';
+            iconColor = '#EA580C';
+          } else if (t.accuracy > 70) {
+            barColor = '#34D399';
+            iconBg = '#D1FAE5';
+            iconColor = '#059669';
+          }
+
+          let iconName = 'activity';
+          let iconFamily: 'feather' | 'material' | 'ionicons' = 'feather';
+          
+          const subj = t.subject.toLowerCase();
+          if (subj.includes('math')) {
+            iconName = 'activity';
+          } else if (subj.includes('phys')) {
+            iconName = 'zap';
+          } else if (subj.includes('chem')) {
+            iconName = 'flask-outline';
+            iconFamily = 'material';
+          } else if (subj.includes('eng')) {
+            iconName = 'file-text';
+          } else {
+            iconName = 'star';
+          }
+
+          return {
+            id: t.id,
+            topic: t.topic,
+            subject: t.subject,
+            accuracy: t.accuracy,
+            questionsCount: t.questionsCount,
+            barColor,
+            iconBg,
+            iconColor,
+            iconName,
+            iconFamily,
+          };
+        });
+        setWeakTopics(mappedTopics);
+      } catch (err) {
+        console.error('Failed to load global weak topics:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchWeakTopics();
+  }, []);
 
   const renderIcon = (item: WeakTopicItem) => {
     if (item.iconFamily === 'material') {
@@ -166,46 +166,52 @@ export default function WeakTopicsScreen() {
 
           {/* Topic Cards List */}
           <View style={styles.cardsList}>
-            {WEAK_TOPICS_DATA.map((item) => (
-              <View key={item.id} style={styles.topicCard}>
-                {/* Header Row */}
-                <View style={styles.cardTopRow}>
-                  <View style={[styles.iconWrapper, { backgroundColor: item.iconBg }]}>
-                    {renderIcon(item)}
+            {loading ? (
+              <ActivityIndicator size="large" color="#7C3AED" style={{ marginTop: 20 }} />
+            ) : weakTopics.length === 0 ? (
+              <Text style={{ textAlign: 'center', color: '#6B7280', marginTop: 20 }}>No weak topics found yet. Complete more exams!</Text>
+            ) : (
+              weakTopics.map((item) => (
+                <View key={item.id} style={styles.topicCard}>
+                  {/* Header Row */}
+                  <View style={styles.cardTopRow}>
+                    <View style={[styles.iconWrapper, { backgroundColor: item.iconBg }]}>
+                      {renderIcon(item)}
+                    </View>
+                    <View style={styles.cardInfo}>
+                      <Text style={styles.topicName}>{item.topic}</Text>
+                      <Text style={styles.subjectName}>{item.subject}</Text>
+                    </View>
+                    <View style={styles.accuracyContainer}>
+                      <Text style={styles.accuracyValue}>{item.accuracy}%</Text>
+                      <Text style={styles.accuracyLabel}>Accuracy</Text>
+                    </View>
                   </View>
-                  <View style={styles.cardInfo}>
-                    <Text style={styles.topicName}>{item.topic}</Text>
-                    <Text style={styles.subjectName}>{item.subject}</Text>
-                  </View>
-                  <View style={styles.accuracyContainer}>
-                    <Text style={styles.accuracyValue}>{item.accuracy}%</Text>
-                    <Text style={styles.accuracyLabel}>Accuracy</Text>
-                  </View>
-                </View>
 
-                {/* Progress Bar */}
-                <View style={styles.progressTrack}>
-                  <View 
-                    style={[
-                      styles.progressFill, 
-                      { width: `${item.accuracy}%`, backgroundColor: item.barColor }
-                    ]} 
-                  />
-                </View>
+                  {/* Progress Bar */}
+                  <View style={styles.progressTrack}>
+                    <View 
+                      style={[
+                        styles.progressFill, 
+                        { width: `${item.accuracy}%`, backgroundColor: item.barColor }
+                      ]} 
+                    />
+                  </View>
 
-                {/* Bottom Row */}
-                <View style={styles.cardBottomRow}>
-                  <Text style={styles.questionsText}>{item.questionsCount} Questions</Text>
-                  <TouchableOpacity 
-                    style={styles.practiceButton}
-                    onPress={() => router.push('/(tabs)/practice')}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={styles.practiceButtonText}>Practice</Text>
-                  </TouchableOpacity>
+                  {/* Bottom Row */}
+                  <View style={styles.cardBottomRow}>
+                    <Text style={styles.questionsText}>{item.questionsCount} Questions</Text>
+                    <TouchableOpacity 
+                      style={styles.practiceButton}
+                      onPress={() => router.push('/(tabs)/practice')}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={styles.practiceButtonText}>Practice</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
-              </View>
-            ))}
+              ))
+            )}
           </View>
 
           {/* View Report Banner */}

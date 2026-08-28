@@ -1,14 +1,74 @@
 import { AppText } from '@/components/AppText';
-import React, { useState } from 'react';
-import { View, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, Platform } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, Platform, ActivityIndicator, Alert } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
+import { contestService, Contest, ContestStats } from '@/services/contest';
 
 export default function ContestZoneScreen() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<'live' | 'upcoming' | 'past'>('live');
+  const [contests, setContests] = useState<Contest[]>([]);
+  const [loadingContests, setLoadingContests] = useState(false);
+  const [stats, setStats] = useState<ContestStats | null>(null);
+  const [loadingStats, setLoadingStats] = useState(true);
+
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        const myStats = await contestService.getMyStats();
+        setStats(myStats);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoadingStats(false);
+      }
+    };
+    fetchStats();
+  }, []);
+
+  useEffect(() => {
+    const fetchContests = async () => {
+      setLoadingContests(true);
+      try {
+        const data = await contestService.getContests(activeTab);
+        setContests(data);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoadingContests(false);
+      }
+    };
+    fetchContests();
+  }, [activeTab]);
+
+  const handleJoinContest = async (contestId: number, fee: number) => {
+    Alert.alert(
+      "Join Contest",
+      `Are you sure you want to join this contest? ${fee > 0 ? `It requires ${fee} tokens.` : 'It is free to join.'}`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: "Join", 
+          onPress: async () => {
+            try {
+              await contestService.joinContest(contestId);
+              Alert.alert("Success", "You have joined the contest!");
+              // Refresh contests
+              const data = await contestService.getContests(activeTab);
+              setContests(data);
+              const myStats = await contestService.getMyStats();
+              setStats(myStats);
+            } catch (err: any) {
+              Alert.alert("Error", err.response?.data?.error || "Failed to join contest.");
+            }
+          }
+        }
+      ]
+    );
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -36,7 +96,11 @@ export default function ContestZoneScreen() {
             
             <View style={styles.heroStatsRow}>
               <View>
-                <AppText style={styles.rankHugeText}>14<AppText style={styles.rankSmallText}> / 2,568</AppText></AppText>
+                {loadingStats ? (
+                  <ActivityIndicator size="small" color="#FFF" />
+                ) : (
+                  <AppText style={styles.rankHugeText}>{stats?.current_rank || '--'}<AppText style={styles.rankSmallText}> / avg</AppText></AppText>
+                )}
               </View>
               <View style={styles.divider} />
               <View>
@@ -44,15 +108,15 @@ export default function ContestZoneScreen() {
                   <Ionicons name="star" size={12} color="#FBBF24" style={{ marginRight: 4 }} />
                   <AppText style={styles.heroStatLabel}>Points</AppText>
                 </View>
-                <AppText style={styles.heroStatValue}>3,260</AppText>
+                <AppText style={styles.heroStatValue}>{loadingStats ? '--' : (stats?.total_score || 0)}</AppText>
               </View>
               <View style={styles.divider} />
               <View>
                 <View style={styles.heroStatHeader}>
                   <Feather name="users" size={12} color="#E0E7FF" style={{ marginRight: 4 }} />
-                  <AppText style={styles.heroStatLabel}>Contests Joined</AppText>
+                  <AppText style={styles.heroStatLabel}>Joined</AppText>
                 </View>
-                <AppText style={styles.heroStatValue}>5</AppText>
+                <AppText style={styles.heroStatValue}>{loadingStats ? '--' : (stats?.contests_joined || 0)}</AppText>
               </View>
             </View>
 
@@ -93,191 +157,79 @@ export default function ContestZoneScreen() {
 
         {/* Contest Cards */}
         <View style={styles.contestList}>
-          {(activeTab === 'live' || activeTab === 'past') && (
-            <>
-              {activeTab === 'live' && (
-                <View style={styles.contestCard}>
+          {loadingContests ? (
+            <ActivityIndicator size="large" color="#6D28D9" style={{ marginVertical: 40 }} />
+          ) : contests.length === 0 ? (
+            <AppText style={{ textAlign: 'center', color: '#6B7280', marginVertical: 20 }}>No {activeTab} contests found.</AppText>
+          ) : (
+            contests.map((contest) => {
+              // Parse out simple date displays
+              const dateObj = activeTab === 'upcoming' ? new Date(contest.start_time) : new Date(contest.end_time);
+              const dateStr = dateObj.toLocaleDateString() + ' ' + dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+              
+              return (
+                <View key={contest.id} style={styles.contestCard}>
                   <View style={styles.cardHeader}>
                     <View style={styles.cardIconBg}>
                       <Image source={require('../../../assets/images/contest-list-trophy.png')} style={styles.cardIcon} contentFit="contain" />
                     </View>
                     <View style={{ flex: 1 }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                        <AppText style={styles.cardTitle}>Weekly Champions</AppText>
-                        <View style={styles.hotBadge}>
-                          <Ionicons name="flame" size={10} color="#DC2626" />
-                          <AppText style={styles.hotBadgeText}>HOT</AppText>
-                        </View>
+                        <AppText style={styles.cardTitle}>{contest.title}</AppText>
+                        {contest.is_hot && (
+                          <View style={styles.hotBadge}>
+                            <Ionicons name="flame" size={10} color="#DC2626" />
+                            <AppText style={styles.hotBadgeText}>HOT</AppText>
+                          </View>
+                        )}
                       </View>
-                      <AppText style={styles.cardSubtitle}>Top the leaderboard this week!</AppText>
+                      <AppText style={styles.cardSubtitle}>{contest.description}</AppText>
                     </View>
                   </View>
 
                   <View style={styles.cardStats}>
                     <View style={styles.statBox}>
                       <View style={styles.statHeader}>
-                        <Feather name="clock" size={12} color="#9CA3AF" style={{ marginRight: 4 }} />
-                        <AppText style={styles.statLabel}>Ends in</AppText>
+                        <Feather name={activeTab === 'upcoming' ? "calendar" : "clock"} size={12} color="#9CA3AF" style={{ marginRight: 4 }} />
+                        <AppText style={styles.statLabel}>{activeTab === 'upcoming' ? 'Starts' : (activeTab === 'past' ? 'Ended' : 'Ends')}</AppText>
                       </View>
-                      <AppText style={styles.statValue}>3d 12h 45m</AppText>
+                      <AppText style={styles.statValue}>{dateStr}</AppText>
                     </View>
                     <View style={styles.statBox}>
                       <View style={styles.statHeader}>
                         <Feather name="users" size={12} color="#9CA3AF" style={{ marginRight: 4 }} />
                         <AppText style={styles.statLabel}>Participants</AppText>
                       </View>
-                      <AppText style={styles.statValue}>2,568</AppText>
+                      <AppText style={styles.statValue}>{contest.participants_count}</AppText>
                     </View>
                     <View style={styles.statBox}>
                       <View style={styles.statHeader}>
                         <Ionicons name="gift-outline" size={12} color="#DC2626" style={{ marginRight: 4 }} />
                         <AppText style={styles.statLabel}>Prize Pool</AppText>
                       </View>
-                      <AppText style={styles.statValue}>₦150,000</AppText>
+                      <AppText style={styles.statValue}>{contest.prize_pool || 'N/A'}</AppText>
                     </View>
                   </View>
 
-                  <View style={styles.cardActions}>
-                    <TouchableOpacity style={[styles.cardButton, styles.primaryBtn]}>
-                      <AppText style={styles.primaryBtnText}>Join</AppText>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={[styles.cardButton, styles.secondaryBtn]}>
+                  <View style={activeTab === 'live' && !contest.has_joined ? styles.cardActions : {}}>
+                    {activeTab === 'live' && !contest.has_joined && (
+                      <TouchableOpacity 
+                        style={[styles.cardButton, styles.primaryBtn]}
+                        onPress={() => handleJoinContest(contest.id, contest.entry_fee_tokens)}
+                      >
+                        <AppText style={styles.primaryBtnText}>Join{contest.entry_fee_tokens ? ` (${contest.entry_fee_tokens}t)` : ''}</AppText>
+                      </TouchableOpacity>
+                    )}
+                    
+                    <TouchableOpacity 
+                      style={activeTab === 'live' && !contest.has_joined ? [styles.cardButton, styles.secondaryBtn] : styles.fullSecondaryBtn}
+                    >
                       <AppText style={styles.secondaryBtnText}>View Leaderboard</AppText>
                     </TouchableOpacity>
                   </View>
                 </View>
-              )}
-
-              <View style={styles.contestCard}>
-                <View style={styles.cardHeader}>
-                  <View style={styles.cardIconBg}>
-                    <Image source={require('../../../assets/images/contest-list-trophy.png')} style={styles.cardIcon} contentFit="contain" />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <AppText style={styles.cardTitle}>JAMB Master Challenge</AppText>
-                    <AppText style={styles.cardSubtitle}>Subject-wise battle for JAMB champs!</AppText>
-                  </View>
-                </View>
-
-                <View style={styles.cardStats}>
-                  <View style={styles.statBox}>
-                    <View style={styles.statHeader}>
-                      <Feather name="clock" size={12} color="#9CA3AF" style={{ marginRight: 4 }} />
-                      <AppText style={styles.statLabel}>Ends in</AppText>
-                    </View>
-                    <AppText style={styles.statValue}>5d 12h 45m</AppText>
-                  </View>
-                  <View style={styles.statBox}>
-                    <View style={styles.statHeader}>
-                      <Feather name="users" size={12} color="#9CA3AF" style={{ marginRight: 4 }} />
-                      <AppText style={styles.statLabel}>Participants</AppText>
-                    </View>
-                    <AppText style={styles.statValue}>2,568</AppText>
-                  </View>
-                  <View style={styles.statBox}>
-                    <View style={styles.statHeader}>
-                      <Ionicons name="gift-outline" size={12} color="#DC2626" style={{ marginRight: 4 }} />
-                      <AppText style={styles.statLabel}>Prize Pool</AppText>
-                    </View>
-                    <AppText style={styles.statValue}>₦500,000</AppText>
-                  </View>
-                </View>
-
-                <TouchableOpacity style={styles.fullSecondaryBtn}>
-                  <AppText style={styles.secondaryBtnText}>View Leaderboard</AppText>
-                </TouchableOpacity>
-              </View>
-
-              <View style={styles.contestCard}>
-                <View style={styles.cardHeader}>
-                  <View style={styles.cardIconBg}>
-                    <Image source={require('../../../assets/images/contest-list-trophy.png')} style={styles.cardIcon} contentFit="contain" />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <AppText style={styles.cardTitle}>IELTS Power Play</AppText>
-                    <AppText style={styles.cardSubtitle}>Test your English. Prove your skills!</AppText>
-                  </View>
-                </View>
-
-                <View style={styles.cardStats}>
-                  <View style={styles.statBox}>
-                    <View style={styles.statHeader}>
-                      <Feather name="clock" size={12} color="#9CA3AF" style={{ marginRight: 4 }} />
-                      <AppText style={styles.statLabel}>Ends in</AppText>
-                    </View>
-                    <AppText style={styles.statValue}>3d 12h 45m</AppText>
-                  </View>
-                  <View style={styles.statBox}>
-                    <View style={styles.statHeader}>
-                      <Feather name="users" size={12} color="#9CA3AF" style={{ marginRight: 4 }} />
-                      <AppText style={styles.statLabel}>Participants</AppText>
-                    </View>
-                    <AppText style={styles.statValue}>2,568</AppText>
-                  </View>
-                  <View style={styles.statBox}>
-                    <View style={styles.statHeader}>
-                      <Ionicons name="gift-outline" size={12} color="#DC2626" style={{ marginRight: 4 }} />
-                      <AppText style={styles.statLabel}>Prize Pool</AppText>
-                    </View>
-                    <AppText style={styles.statValue}>₦150,000</AppText>
-                  </View>
-                </View>
-
-                <TouchableOpacity style={styles.fullSecondaryBtn}>
-                  <AppText style={styles.secondaryBtnText}>View Leaderboard <Feather name="arrow-right" size={14} color="#6D28D9" /></AppText>
-                </TouchableOpacity>
-              </View>
-            </>
-          )}
-
-          {activeTab === 'upcoming' && (
-            <>
-              {[
-                { title: 'Science Olympiad', subtitle: 'Compete in Physics, Chemistry & Bio', img: require('../../../assets/images/contest-upcoming-1.png') },
-                { title: 'Tech Whiz Challenge', subtitle: 'Show off your coding knowledge', img: require('../../../assets/images/contest-upcoming-2.png') },
-                { title: 'Literature Contest', subtitle: 'Are you well-read? Prove it!', img: require('../../../assets/images/contest-upcoming-3.png') }
-              ].map((item, index) => (
-                <View key={index} style={styles.contestCard}>
-                  <View style={styles.cardHeader}>
-                    <View style={styles.cardIconBg}>
-                      <Image source={item.img} style={styles.cardIcon} contentFit="contain" />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <AppText style={styles.cardTitle}>{item.title}</AppText>
-                      <AppText style={styles.cardSubtitle}>{item.subtitle}</AppText>
-                    </View>
-                  </View>
-
-                  <View style={styles.cardStats}>
-                    <View style={styles.statBox}>
-                      <View style={styles.statHeader}>
-                        <Feather name="calendar" size={12} color="#9CA3AF" style={{ marginRight: 4 }} />
-                        <AppText style={styles.statLabel}>Starts in</AppText>
-                      </View>
-                      <AppText style={styles.statValue}>2d 08h 00m</AppText>
-                    </View>
-                    <View style={styles.statBox}>
-                      <View style={styles.statHeader}>
-                        <Feather name="users" size={12} color="#9CA3AF" style={{ marginRight: 4 }} />
-                        <AppText style={styles.statLabel}>Registered</AppText>
-                      </View>
-                      <AppText style={styles.statValue}>1,204</AppText>
-                    </View>
-                    <View style={styles.statBox}>
-                      <View style={styles.statHeader}>
-                        <Ionicons name="gift-outline" size={12} color="#DC2626" style={{ marginRight: 4 }} />
-                        <AppText style={styles.statLabel}>Prize Pool</AppText>
-                      </View>
-                      <AppText style={styles.statValue}>₦300,000</AppText>
-                    </View>
-                  </View>
-
-                  <TouchableOpacity style={styles.fullSecondaryBtn}>
-                    <AppText style={styles.secondaryBtnText}>Set Reminder</AppText>
-                  </TouchableOpacity>
-                </View>
-              ))}
-            </>
+              );
+            })
           )}
         </View>
 

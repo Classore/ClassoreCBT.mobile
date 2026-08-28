@@ -218,6 +218,16 @@ export const examService = {
     return response.data;
   },
 
+  getGlobalWeakTopics: async (): Promise<any> => {
+    const response = await api.get(`/api/user/exam/weak-topics/`);
+    return response.data;
+  },
+
+  getAggregateReport: async (examType: string, timeframe: string): Promise<any> => {
+    const response = await api.get(`/api/user/exam/aggregate-report/?exam_type=${encodeURIComponent(examType)}&timeframe=${encodeURIComponent(timeframe)}`);
+    return response.data;
+  },
+
   resumeExam: async (attemptId: number): Promise<UserAttempt & { timer_info: { total_seconds: number; elapsed_seconds: number; remaining_seconds: number; is_expired: boolean } }> => {
     const response = await api.get(`/api/user/exam/${attemptId}/resume/`);
     return response.data;

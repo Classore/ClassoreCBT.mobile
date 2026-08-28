@@ -1,19 +1,109 @@
 import { AppText } from '@/components/AppText';
-import React, { useState } from 'react';
-import { View, StyleSheet, SafeAreaView, TouchableOpacity, Platform, TextInput, ScrollView } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, StyleSheet, SafeAreaView, TouchableOpacity, Platform, TextInput, ScrollView, ActivityIndicator, Alert, Modal, FlatList } from 'react-native';
 import { Feather, FontAwesome5 } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { walletService, BankAccount, SupportedBank } from '@/services/wallet';
 
 export default function BankDetailsScreen() {
   const router = useRouter();
   const [isAddingNew, setIsAddingNew] = useState(false);
+  const [savedAccounts, setSavedAccounts] = useState<BankAccount[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Add new state
+  const [supportedBanks, setSupportedBanks] = useState<SupportedBank[]>([]);
+  const [selectedBank, setSelectedBank] = useState<SupportedBank | null>(null);
+  const [accountNumber, setAccountNumber] = useState('');
+  const [accountName, setAccountName] = useState('');
+  const [verifying, setVerifying] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [isBankModalVisible, setBankModalVisible] = useState(false);
+  
+  useEffect(() => {
+    fetchAccounts();
+    fetchSupportedBanks();
+  }, []);
+
+  const fetchAccounts = async () => {
+    try {
+      setLoading(true);
+      const accounts = await walletService.getSavedBankAccounts();
+      setSavedAccounts(accounts);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchSupportedBanks = async () => {
+    try {
+      const banks = await walletService.getSupportedBanks();
+      setSupportedBanks(banks);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleVerifyAccount = async (acctNum: string) => {
+    setAccountNumber(acctNum);
+    if (acctNum.length === 10 && selectedBank) {
+      try {
+        setVerifying(true);
+        setAccountName('');
+        const res = await walletService.verifyBankAccount(selectedBank.code, acctNum);
+        setAccountName(res.account_name);
+      } catch (e: any) {
+        Alert.alert("Verification Failed", e.response?.data?.error || "Could not verify account number");
+      } finally {
+        setVerifying(false);
+      }
+    } else {
+      setAccountName('');
+    }
+  };
+
+  const handleSaveAccount = async () => {
+    if (!selectedBank || !accountNumber || !accountName) {
+      Alert.alert("Incomplete", "Please complete all fields to save bank details");
+      return;
+    }
+    try {
+      setSaving(true);
+      await walletService.saveBankAccount({
+        bank_name: selectedBank.name,
+        account_number: accountNumber,
+        account_name: accountName,
+        is_default: savedAccounts.length === 0 // Make default if first
+      });
+      setIsAddingNew(false);
+      setSelectedBank(null);
+      setAccountNumber('');
+      setAccountName('');
+      fetchAccounts();
+    } catch (e) {
+      Alert.alert("Error", "Could not save bank account");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const selectBank = (bank: SupportedBank) => {
+    setSelectedBank(bank);
+    setBankModalVisible(false);
+    if (accountNumber.length === 10) {
+      // Re-trigger verification if 10 digits already typed
+      handleVerifyAccount(accountNumber);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => {
-          if (isAddingNew) {
+          if (isAddingNew && savedAccounts.length > 0) {
             setIsAddingNew(false);
           } else {
             router.back();
@@ -31,24 +121,33 @@ export default function BankDetailsScreen() {
       <ScrollView style={styles.container}>
         <AppText style={styles.pageTitle}>Enter Bank Details</AppText>
         
-        {!isAddingNew ? (
+        {loading ? (
+          <ActivityIndicator size="large" color="#4C1D95" style={{ marginTop: 40 }} />
+        ) : !isAddingNew && savedAccounts.length > 0 ? (
           <>
             <AppText style={styles.pageSubtitle}>Use a saved account or add a new one</AppText>
 
             <View style={styles.accountsCard}>
-              <TouchableOpacity style={styles.savedAccountRow}>
-                <View style={styles.bankIconBg}>
-                  <FontAwesome5 name="university" size={16} color="#4C1D95" />
+              {savedAccounts.map((account, idx) => (
+                <View key={account.id}>
+                  <TouchableOpacity style={styles.savedAccountRow}>
+                    <View style={styles.bankIconBg}>
+                      <FontAwesome5 name="university" size={16} color="#4C1D95" />
+                    </View>
+                    <View style={styles.savedAccountInfo}>
+                      <AppText style={styles.bankName}>{account.bank_name}</AppText>
+                      <AppText style={styles.accountNumber}>{account.account_number} · {account.account_name}</AppText>
+                    </View>
+                    {account.is_default && (
+                      <View style={styles.defaultBadge}>
+                        <AppText style={styles.defaultBadgeText}>Default</AppText>
+                      </View>
+                    )}
+                    <Feather name="chevron-right" size={20} color="#9CA3AF" style={{ marginLeft: 8 }} />
+                  </TouchableOpacity>
+                  {idx < savedAccounts.length - 1 && <View style={styles.divider} />}
                 </View>
-                <View style={styles.savedAccountInfo}>
-                  <AppText style={styles.bankName}>Access Bank</AppText>
-                  <AppText style={styles.accountNumber}>1234567890 · John Doe</AppText>
-                </View>
-                <View style={styles.defaultBadge}>
-                  <AppText style={styles.defaultBadgeText}>Default</AppText>
-                </View>
-                <Feather name="chevron-right" size={20} color="#9CA3AF" style={{ marginLeft: 8 }} />
-              </TouchableOpacity>
+              ))}
 
               <View style={styles.divider} />
 
@@ -62,10 +161,14 @@ export default function BankDetailsScreen() {
           </>
         ) : (
           <>
+            <AppText style={styles.pageSubtitle}>Link a Nigerian bank account for withdrawals.</AppText>
+            
             <View style={styles.formGroup}>
               <AppText style={styles.label}>Bank Name</AppText>
-              <TouchableOpacity style={styles.dropdownInput}>
-                <AppText style={styles.dropdownPlaceholder}>Select Bank</AppText>
+              <TouchableOpacity style={styles.dropdownInput} onPress={() => setBankModalVisible(true)}>
+                <AppText style={[styles.dropdownPlaceholder, selectedBank && { color: '#111827' }]}>
+                  {selectedBank ? selectedBank.name : 'Select Bank'}
+                </AppText>
                 <Feather name="chevron-down" size={20} color="#9CA3AF" />
               </TouchableOpacity>
             </View>
@@ -78,18 +181,27 @@ export default function BankDetailsScreen() {
                   placeholder="Enter account number"
                   placeholderTextColor="#9CA3AF"
                   keyboardType="numeric"
+                  maxLength={10}
+                  value={accountNumber}
+                  onChangeText={handleVerifyAccount}
                 />
               </View>
             </View>
 
             <View style={styles.formGroup}>
               <AppText style={styles.label}>Account Name</AppText>
-              <View style={styles.textInputContainer}>
-                <TextInput 
-                  style={styles.textInput}
-                  placeholder="Enter account name"
-                  placeholderTextColor="#9CA3AF"
-                />
+              <View style={[styles.textInputContainer, { backgroundColor: '#F9FAFB' }]}>
+                {verifying ? (
+                  <ActivityIndicator size="small" color="#4C1D95" style={{ alignSelf: 'flex-start' }} />
+                ) : (
+                  <TextInput 
+                    style={[styles.textInput, { color: '#6B7280' }]}
+                    placeholder="Account name will appear here"
+                    placeholderTextColor="#9CA3AF"
+                    value={accountName}
+                    editable={false}
+                  />
+                )}
               </View>
             </View>
           </>
@@ -103,10 +215,48 @@ export default function BankDetailsScreen() {
 
       {/* Bottom Button */}
       <View style={styles.footer}>
-        <TouchableOpacity style={styles.primaryBtn} onPress={() => router.push('/wallet/withdraw/review')}>
-          <AppText style={styles.primaryBtnText}>{isAddingNew ? 'Continue' : 'Next'} <Feather name="arrow-right" size={16} color="#FFF" style={{ marginLeft: 4 }} /></AppText>
+        <TouchableOpacity 
+          style={[styles.primaryBtn, (isAddingNew && (!accountName || saving)) && { opacity: 0.7 }]} 
+          onPress={() => {
+            if (isAddingNew) {
+              handleSaveAccount();
+            } else {
+              router.push('/wallet/withdraw/review');
+            }
+          }}
+          disabled={isAddingNew && (!accountName || saving)}
+        >
+          {saving ? (
+            <ActivityIndicator color="#FFF" />
+          ) : (
+            <AppText style={styles.primaryBtnText}>{isAddingNew ? 'Save Bank Account' : 'Next'} <Feather name={isAddingNew ? "check" : "arrow-right"} size={16} color="#FFF" style={{ marginLeft: 4 }} /></AppText>
+          )}
         </TouchableOpacity>
       </View>
+
+      {/* Bank Selection Modal */}
+      <Modal visible={isBankModalVisible} animationType="slide" transparent={true}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <AppText style={styles.modalTitle}>Select Bank</AppText>
+              <TouchableOpacity onPress={() => setBankModalVisible(false)} style={styles.closeBtn}>
+                <Feather name="x" size={20} color="#111827" />
+              </TouchableOpacity>
+            </View>
+            <FlatList
+              data={supportedBanks}
+              keyExtractor={(item) => item.code}
+              renderItem={({ item }) => (
+                <TouchableOpacity style={styles.bankItem} onPress={() => selectBank(item)}>
+                  <AppText style={styles.bankItemText}>{item.name}</AppText>
+                  {selectedBank?.code === item.code && <Feather name="check" size={20} color="#4C1D95" />}
+                </TouchableOpacity>
+              )}
+            />
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -150,5 +300,13 @@ const styles = StyleSheet.create({
 
   footer: { padding: 16, paddingBottom: Platform.OS === 'ios' ? 32 : 16 },
   primaryBtn: { backgroundColor: '#4C1D95', paddingVertical: 16, borderRadius: 16, alignItems: 'center', justifyContent: 'center', flexDirection: 'row' },
-  primaryBtnText: { color: '#FFF', fontSize: 16, fontWeight: 'bold' }
+  primaryBtnText: { color: '#FFF', fontSize: 16, fontWeight: 'bold' },
+
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
+  modalContent: { backgroundColor: '#FFF', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, maxHeight: '80%' },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
+  modalTitle: { fontSize: 18, fontWeight: 'bold', color: '#111827' },
+  closeBtn: { padding: 4 },
+  bankItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
+  bankItemText: { fontSize: 16, color: '#111827' },
 });
