@@ -1,4 +1,4 @@
-import api from './api';
+import { api } from './api';
 
 export interface TokenPackage {
   id: number;
@@ -36,6 +36,11 @@ export const paymentService = {
 
   initializePaystack: async (packageId: number): Promise<{ authorization_url: string; access_code: string; reference: string }> => {
     const response = await api.post('/api/payments/paystack/initialize/', { package_id: packageId });
+    return response.data;
+  },
+
+  initializeFlutterwave: async (packageId: number): Promise<{ authorization_url: string; reference: string }> => {
+    const response = await api.post('/api/payments/flutterwave/initialize/', { package_id: packageId });
     return response.data;
   },
 

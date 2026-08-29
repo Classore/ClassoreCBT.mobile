@@ -104,7 +104,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await SecureStore.setItemAsync('auth_token', newToken);
       }
       setToken(newToken);
-      await fetchUserDetails(newToken);
+      // Fetch details asynchronously without blocking the login resolution
+      fetchUserDetails(newToken).catch(err => console.error('Failed to fetch user after login', err));
     } catch (e) {
       console.error('Failed to save token', e);
     }

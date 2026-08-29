@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   View, 
   Text, 
@@ -9,41 +9,78 @@ import {
   Platform,
   Modal,
   Alert,
-  Animated 
+  Animated,
+  ActivityIndicator
 } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { examService } from '@/services/exam';
+import { examService, UserAttempt, AttemptSection, QuestionGroupItem, UserResponseItem } from '@/services/exam';
+import { Audio } from 'expo-av';
 
 export default function IELTSSpeakingSessionScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ attempt_id?: string }>();
+  
+  const [attempt, setAttempt] = useState<UserAttempt | null>(null);
+  const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Active Part: 'part1-get-ready' | 'part1-recording' | 'part2-prepare' | 'part2-recording' | 'part3'
-  const [activeTab, setActiveTab] = useState<'Part 1' | 'Part 2' | 'Part 3'>('Part 1');
+  // Exam structure pointers
+  const [speakingSection, setSpeakingSection] = useState<AttemptSection | null>(null);
+  const [activeGroupIndex, setActiveGroupIndex] = useState(0); // 0 = Part 1, 1 = Part 2, 2 = Part 3
+  const [currentResponseIndex, setCurrentResponseIndex] = useState(0);
+
+  // States
   const [subState, setSubState] = useState<'get-ready' | 'recording' | 'prepare'>('get-ready');
-  
-  // Total Exam Timer (59 minutes)
   const [totalTimeLeft, setTotalTimeLeft] = useState(3540);
   
-  // Sub Countdown Timer (seconds)
   const [countdown, setCountdown] = useState(5);
-  const [recordingSeconds, setRecordingSeconds] = useState(28);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [prepSeconds, setPrepSeconds] = useState(60);
-  const [talkSeconds, setTalkSeconds] = useState(120);
 
   const [isBookmarked, setIsBookmarked] = useState(false);
   const [isPaletteVisible, setIsPaletteVisible] = useState(false);
 
-  // Animated Waveform Heights
+  // Audio Recording
+  const [recording, setRecording] = useState<Audio.Recording | null>(null);
+  const [audioPermission, setAudioPermission] = useState<boolean>(false);
+
+  // Waveform animations
   const waveAnim1 = useRef(new Animated.Value(15)).current;
   const waveAnim2 = useRef(new Animated.Value(30)).current;
   const waveAnim3 = useRef(new Animated.Value(45)).current;
   const waveAnim4 = useRef(new Animated.Value(60)).current;
   const waveAnim5 = useRef(new Animated.Value(35)).current;
 
-  // Waveform Looping Animation
+  useEffect(() => {
+    (async () => {
+      const perm = await Audio.requestPermissionsAsync();
+      setAudioPermission(perm.status === 'granted');
+    })();
+  }, []);
+
+  useEffect(() => {
+    const initIelts = async () => {
+      try {
+        if (params.attempt_id) {
+          const res = await examService.resumeExam(Number(params.attempt_id));
+          setAttempt(res);
+          setTotalTimeLeft(res.timer_info.remaining_seconds);
+          
+          const speakSec = res.sections.find(s => s.section_name.toLowerCase().includes('speaking'));
+          if (speakSec) {
+            setSpeakingSection(speakSec);
+          }
+        }
+      } catch (e) {
+        console.warn('Could not initialize IELTS speaking:', e);
+      } finally {
+        setLoading(false);
+      }
+    };
+    initIelts();
+  }, [params.attempt_id]);
+
   useEffect(() => {
     if (subState === 'recording') {
       const createWaveAnimation = (anim: Animated.Value, minH: number, maxH: number, dur: number) => {
@@ -61,58 +98,45 @@ export default function IELTSSpeakingSessionScreen() {
       const a4 = createWaveAnimation(waveAnim4, 20, 70, 300);
       const a5 = createWaveAnimation(waveAnim5, 14, 50, 420);
 
-      a1.start();
-      a2.start();
-      a3.start();
-      a4.start();
-      a5.start();
+      a1.start(); a2.start(); a3.start(); a4.start(); a5.start();
 
       return () => {
-        a1.stop();
-        a2.stop();
-        a3.stop();
-        a4.stop();
-        a5.stop();
+        a1.stop(); a2.stop(); a3.stop(); a4.stop(); a5.stop();
       };
     }
   }, [subState]);
 
-  // Overall Timer Countdown
   useEffect(() => {
+    if (loading) return;
     const timer = setInterval(() => {
       setTotalTimeLeft((prev) => (prev > 0 ? prev - 1 : 0));
     }, 1000);
     return () => clearInterval(timer);
-  }, []);
+  }, [loading]);
 
-  // Substate Timers Countdown
   useEffect(() => {
     let subTimer: NodeJS.Timeout;
-
-    if (activeTab === 'Part 1' && subState === 'get-ready') {
+    if (subState === 'get-ready') {
       subTimer = setInterval(() => {
         setCountdown((prev) => {
           if (prev <= 1) {
-            setSubState('recording');
+            handleStartNow();
             return 0;
           }
           return prev - 1;
         });
       }, 1000);
-    } else if (activeTab === 'Part 1' && subState === 'recording') {
+    } else if (subState === 'recording') {
       subTimer = setInterval(() => {
-        setRecordingSeconds((prev) => (prev > 0 ? prev - 1 : 0));
+        setRecordingSeconds((prev) => prev + 1);
       }, 1000);
-    } else if (activeTab === 'Part 2' && subState === 'prepare') {
+    } else if (subState === 'prepare') {
       subTimer = setInterval(() => {
         setPrepSeconds((prev) => (prev > 0 ? prev - 1 : 0));
       }, 1000);
     }
-
-    return () => {
-      if (subTimer) clearInterval(subTimer);
-    };
-  }, [activeTab, subState]);
+    return () => { if (subTimer) clearInterval(subTimer); };
+  }, [subState]);
 
   const formatTotalTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -120,28 +144,55 @@ export default function IELTSSpeakingSessionScreen() {
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const handleStartNow = () => {
+  const startRecording = async () => {
+    try {
+      if (!audioPermission) return;
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+      const { recording } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+      setRecording(recording);
+    } catch (err) {
+      console.error('Failed to start recording', err);
+    }
+  };
+
+  const stopRecording = async () => {
+    if (!recording) return null;
+    try {
+      await recording.stopAndUnloadAsync();
+      const uri = recording.getURI();
+      setRecording(null);
+      return uri;
+    } catch (err) {
+      console.error('Failed to stop recording', err);
+      return null;
+    }
+  };
+
+  const handleStartNow = async () => {
     setSubState('recording');
+    setRecordingSeconds(0);
+    await startRecording();
   };
 
-  const handleEndAnswer = () => {
-    // Transition to Part 2
-    setActiveTab('Part 2');
-    setSubState('prepare');
-  };
+  const handleEndAnswer = async () => {
+    const uri = await stopRecording();
+    const activeGroup = speakingSection?.question_groups[activeGroupIndex];
+    if (uri && attempt && activeGroup) {
+      const q = activeGroup.responses[currentResponseIndex];
+      examService.uploadAudio(attempt.id, q.question.id, uri).catch(console.error);
+    }
 
-  const handleStartSpeakingPart2 = () => {
-    setSubState('recording');
-  };
-
-  const handleTabPress = (tab: 'Part 1' | 'Part 2' | 'Part 3') => {
-    setActiveTab(tab);
-    if (tab === 'Part 1') {
-      setSubState('recording');
-    } else if (tab === 'Part 2') {
+    if (activeGroup && currentResponseIndex < activeGroup.responses.length - 1) {
+      setCurrentResponseIndex(prev => prev + 1);
+      setSubState('get-ready');
+      setCountdown(3);
+    } else if (speakingSection && activeGroupIndex < speakingSection.question_groups.length - 1) {
+      setActiveGroupIndex(prev => prev + 1);
+      setCurrentResponseIndex(0);
       setSubState('prepare');
+      setPrepSeconds(60);
     } else {
-      setSubState('recording');
+      handleSubmit();
     }
   };
 
@@ -155,6 +206,9 @@ export default function IELTSSpeakingSessionScreen() {
           text: 'Submit',
           style: 'destructive',
           onPress: async () => {
+            if (recording) {
+              await stopRecording();
+            }
             try {
               setIsSubmitting(true);
               if (params.attempt_id) {
@@ -175,6 +229,22 @@ export default function IELTSSpeakingSessionScreen() {
       ]
     );
   };
+
+  const activeGroup = speakingSection?.question_groups[activeGroupIndex];
+  const currentQ = activeGroup?.responses[currentResponseIndex]?.question;
+
+  if (loading || !speakingSection) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+          <ActivityIndicator size="large" color="#6D28D9" />
+          <Text style={{ marginTop: 12, color: '#6B7280' }}>Loading Speaking Session...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  const partTabs = speakingSection.question_groups.map(g => g.group_title || 'Part');
 
   const waveformHeights = [
     waveAnim1, waveAnim2, waveAnim3, waveAnim4, waveAnim5,
@@ -205,21 +275,16 @@ export default function IELTSSpeakingSessionScreen() {
 
         {/* Part Tabs */}
         <View style={styles.partTabsContainer}>
-          {(['Part 1', 'Part 2', 'Part 3'] as const).map((tab) => {
-            const isActive = activeTab === tab;
-            return (
-              <TouchableOpacity
-                key={tab}
-                style={[styles.partTab, isActive && styles.partTabActive]}
-                onPress={() => handleTabPress(tab)}
-                activeOpacity={0.8}
-              >
-                <Text style={[styles.partTabText, isActive && styles.partTabTextActive]}>
-                  {tab}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
+          {partTabs.map((tab, idx) => (
+            <View
+              key={idx}
+              style={[styles.partTab, activeGroupIndex === idx && styles.partTabActive]}
+            >
+              <Text style={[styles.partTabText, activeGroupIndex === idx && styles.partTabTextActive]}>
+                {tab}
+              </Text>
+            </View>
+          ))}
         </View>
 
         <ScrollView 
@@ -228,7 +293,7 @@ export default function IELTSSpeakingSessionScreen() {
         >
           {/* Top Label & Bookmark Row */}
           <View style={styles.partHeaderRow}>
-            <Text style={styles.partLabelText}>{activeTab}</Text>
+            <Text style={styles.partLabelText}>{partTabs[activeGroupIndex]}</Text>
             <TouchableOpacity 
               style={styles.bookmarkButton}
               onPress={() => setIsBookmarked(!isBookmarked)}
@@ -242,14 +307,12 @@ export default function IELTSSpeakingSessionScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* ============================================================ */}
-          {/* SCREEN 3: Part 1 - Get Ready State */}
-          {/* ============================================================ */}
-          {activeTab === 'Part 1' && subState === 'get-ready' && (
+          {/* GET READY STATE */}
+          {subState === 'get-ready' && (
             <View style={styles.contentCard}>
-              <Text style={styles.cardHeading}>Introduction & Interview</Text>
+              <Text style={styles.cardHeading}>Get Ready for {partTabs[activeGroupIndex]}</Text>
               <Text style={styles.cardSubText}>
-                The examiner will ask you general questions about yourself, your home, your work or studies and other familiar topics.
+                The examiner will ask you questions. Prepare to speak clearly into the microphone.
               </Text>
 
               {/* Examiner Avatar */}
@@ -260,7 +323,7 @@ export default function IELTSSpeakingSessionScreen() {
               </View>
 
               <Text style={styles.getReadyTitle}>Get ready...</Text>
-              <Text style={styles.getReadySubtitle}>Part 1 will start in</Text>
+              <Text style={styles.getReadySubtitle}>Question {currentResponseIndex + 1} will start in</Text>
 
               {/* Countdown Digits */}
               <View style={styles.digitsRow}>
@@ -285,13 +348,41 @@ export default function IELTSSpeakingSessionScreen() {
             </View>
           )}
 
-          {/* ============================================================ */}
-          {/* SCREEN 1: Part 1 - Question & Waveform Listening State */}
-          {/* ============================================================ */}
-          {activeTab === 'Part 1' && subState === 'recording' && (
+          {/* PREPARE STATE (Part 2 usually) */}
+          {subState === 'prepare' && (
             <View style={styles.contentCard}>
-              <Text style={styles.questionLabel}>Question</Text>
-              <Text style={styles.questionTitleText}>Do you enjoy your studies?</Text>
+              <Text style={styles.cardHeading}>{currentQ?.text || 'Long Turn'}</Text>
+              
+              {currentQ?.instructions && (
+                <View style={styles.bulletList}>
+                  <Text style={styles.bulletItem}>{currentQ.instructions}</Text>
+                </View>
+              )}
+
+              {/* Dual Prepare and Talk Time Box */}
+              <View style={styles.dualTimerBox}>
+                <Text style={styles.timerBoxSubHeader}>You have</Text>
+                <Text style={styles.timerBigNumber}>
+                  00 : {prepSeconds.toString().padStart(2, '0')}
+                </Text>
+                <Text style={styles.timerBoxLabel}>Prepare Time Remaining</Text>
+              </View>
+
+              <TouchableOpacity 
+                style={styles.primaryActionButton}
+                onPress={handleStartNow}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.primaryActionButtonText}>Start Speaking</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* RECORDING STATE */}
+          {subState === 'recording' && (
+            <View style={styles.contentCard}>
+              <Text style={styles.questionLabel}>Question {currentResponseIndex + 1}</Text>
+              <Text style={styles.questionTitleText}>{currentQ?.text}</Text>
 
               {/* Audio Waveform Equalizer */}
               <View style={styles.waveformContainer}>
@@ -300,29 +391,30 @@ export default function IELTSSpeakingSessionScreen() {
                     key={i} 
                     style={[
                       styles.waveBar, 
-                      { height: animH }
+                      { height: animH, backgroundColor: recording ? '#EF4444' : '#7C3AED' }
                     ]} 
                   />
                 ))}
               </View>
 
-              <Text style={styles.listeningText}>Listening...</Text>
+              <Text style={styles.listeningText}>{recording ? 'Recording your answer...' : 'Waiting...'}</Text>
 
-              {/* Time Left Digits */}
               <View style={styles.digitsRow}>
                 <View style={styles.digitCol}>
-                  <Text style={styles.digitNumber}>00</Text>
+                  <Text style={styles.digitNumber}>
+                    {Math.floor(recordingSeconds / 60).toString().padStart(2, '0')}
+                  </Text>
                   <Text style={styles.digitLabel}>Minutes</Text>
                 </View>
                 <Text style={styles.colonSeparator}>:</Text>
                 <View style={styles.digitCol}>
                   <Text style={styles.digitNumber}>
-                    {recordingSeconds.toString().padStart(2, '0')}
+                    {(recordingSeconds % 60).toString().padStart(2, '0')}
                   </Text>
                   <Text style={styles.digitLabel}>Seconds</Text>
                 </View>
               </View>
-              <Text style={styles.timeLeftSubText}>Time Left</Text>
+              <Text style={styles.timeLeftSubText}>Recording Time</Text>
 
               {/* End Answer Button */}
               <TouchableOpacity 
@@ -330,88 +422,7 @@ export default function IELTSSpeakingSessionScreen() {
                 onPress={handleEndAnswer}
                 activeOpacity={0.85}
               >
-                <Text style={styles.outlineActionButtonText}>End Answer</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {/* ============================================================ */}
-          {/* SCREEN 2: Part 2 - Long Turn & Prepare Time */}
-          {/* ============================================================ */}
-          {activeTab === 'Part 2' && (
-            <View style={styles.contentCard}>
-              <Text style={styles.cardHeading}>Long Turn - Talk about a book you have read.</Text>
-              
-              <Text style={styles.promptHeader}>You should say:</Text>
-              <View style={styles.bulletList}>
-                <Text style={styles.bulletItem}>• What the book is</Text>
-                <Text style={styles.bulletItem}>• When you read it</Text>
-                <Text style={styles.bulletItem}>• What it is about</Text>
-                <Text style={styles.bulletItem}>• And explain why you liked it.</Text>
-              </View>
-
-              {/* Dual Prepare and Talk Time Box */}
-              <View style={styles.dualTimerBox}>
-                <Text style={styles.timerBoxSubHeader}>You have</Text>
-                <Text style={styles.timerBigNumber}>
-                  01 : 00
-                </Text>
-                <Text style={styles.timerBoxLabel}>Prepare Time</Text>
-
-                <Text style={[styles.timerBoxSubHeader, { marginTop: 18 }]}>And</Text>
-                <Text style={styles.timerBigNumber}>
-                  02 : 00
-                </Text>
-                <Text style={styles.timerBoxLabel}>To Talk</Text>
-              </View>
-
-              {/* Start Speaking Button */}
-              <TouchableOpacity 
-                style={styles.primaryActionButton}
-                onPress={handleStartSpeakingPart2}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.primaryActionButtonText}>Start Speaking</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {/* ============================================================ */}
-          {/* Part 3 - Discussion */}
-          {/* ============================================================ */}
-          {activeTab === 'Part 3' && (
-            <View style={styles.contentCard}>
-              <Text style={styles.cardHeading}>Two-way Discussion</Text>
-              <Text style={styles.cardSubText}>
-                The examiner will ask further questions connected to the topic in Part 2.
-              </Text>
-
-              <Text style={[styles.questionLabel, { marginTop: 14 }]}>Question 1</Text>
-              <Text style={styles.questionTitleText}>
-                How has technology changed reading habits among young people today?
-              </Text>
-
-              {/* Waveform Equalizer */}
-              <View style={styles.waveformContainer}>
-                {waveformHeights.map((animH, i) => (
-                  <Animated.View 
-                    key={i} 
-                    style={[
-                      styles.waveBar, 
-                      { height: animH }
-                    ]} 
-                  />
-                ))}
-              </View>
-
-              <Text style={styles.listeningText}>Listening...</Text>
-
-              <TouchableOpacity 
-                style={styles.outlineActionButton}
-                onPress={handleSubmit}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.outlineActionButtonText}>Finish Section</Text>
+                <Text style={styles.outlineActionButtonText}>End Answer & Next</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -421,7 +432,6 @@ export default function IELTSSpeakingSessionScreen() {
 
         {/* Bottom Utility Bar */}
         <View style={styles.bottomBar}>
-          {/* Question Palette */}
           <TouchableOpacity 
             style={styles.bottomBarAction}
             onPress={() => setIsPaletteVisible(true)}
@@ -431,7 +441,6 @@ export default function IELTSSpeakingSessionScreen() {
             <Text style={styles.bottomBarActionText}>Question Palette</Text>
           </TouchableOpacity>
 
-          {/* Submit Test */}
           <TouchableOpacity 
             style={styles.bottomBarAction}
             onPress={handleSubmit}
@@ -441,14 +450,13 @@ export default function IELTSSpeakingSessionScreen() {
             <Text style={[styles.bottomBarActionText, { color: '#EF4444' }]}>Submit Test</Text>
           </TouchableOpacity>
 
-          {/* Contact Support */}
           <TouchableOpacity style={styles.bottomBarAction} activeOpacity={0.7}>
             <Feather name="headphones" size={18} color="#4B5563" />
-            <Text style={styles.bottomBarActionText}>Contact Support</Text>
+            <Text style={styles.bottomBarActionText}>Support</Text>
           </TouchableOpacity>
         </View>
 
-        {/* Question Palette Modal */}
+        {/* Modal simplified */}
         <Modal
           visible={isPaletteVisible}
           transparent
@@ -458,58 +466,12 @@ export default function IELTSSpeakingSessionScreen() {
           <View style={styles.modalBackdrop}>
             <View style={styles.modalContainer}>
               <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Question Palette</Text>
-                <TouchableOpacity 
-                  onPress={() => setIsPaletteVisible(false)}
-                  style={styles.modalCloseButton}
-                >
+                <Text style={styles.modalTitle}>Speaking Overview</Text>
+                <TouchableOpacity onPress={() => setIsPaletteVisible(false)} style={styles.modalCloseButton}>
                   <Feather name="x" size={18} color="#6B7280" />
                 </TouchableOpacity>
               </View>
-
-              {/* Status Indicator Legend */}
-              <View style={styles.legendRow}>
-                <View style={styles.legendItem}>
-                  <View style={[styles.legendDot, { backgroundColor: '#7C3AED' }]} />
-                  <Text style={styles.legendText}>Answered</Text>
-                </View>
-                <View style={styles.legendItem}>
-                  <View style={[styles.legendDot, { backgroundColor: '#F59E0B' }]} />
-                  <Text style={styles.legendText}>Current</Text>
-                </View>
-                <View style={styles.legendItem}>
-                  <View style={[styles.legendRing, { borderColor: '#CBD5E1' }]} />
-                  <Text style={styles.legendText}>Not Answered</Text>
-                </View>
-              </View>
-
-              {/* Part Tabs in Modal */}
-              <View style={styles.modalPartTabs}>
-                {(['Part 1', 'Part 2', 'Part 3'] as const).map((tab) => (
-                  <TouchableOpacity
-                    key={tab}
-                    style={[
-                      styles.modalPartPill,
-                      activeTab === tab && styles.modalPartPillActive,
-                    ]}
-                    onPress={() => {
-                      handleTabPress(tab);
-                      setIsPaletteVisible(false);
-                    }}
-                  >
-                    <Text
-                      style={[
-                        styles.modalPartText,
-                        activeTab === tab && styles.modalPartTextActive,
-                      ]}
-                    >
-                      {tab}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              <View style={{ height: 16 }} />
+              <Text style={{color: '#6B7280', marginBottom: 20}}>You are on Part {activeGroupIndex + 1}, Question {currentResponseIndex + 1}. Follow the on-screen flow to complete the speaking assessment.</Text>
             </View>
           </View>
         </Modal>
@@ -726,7 +688,6 @@ const styles = StyleSheet.create({
   waveBar: {
     width: 4,
     borderRadius: 2,
-    backgroundColor: '#7C3AED',
   },
   listeningText: {
     textAlign: 'center',
@@ -751,15 +712,10 @@ const styles = StyleSheet.create({
   },
 
   // Part 2 Prompt
-  promptHeader: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#4B5563',
-    marginBottom: 6,
-  },
   bulletList: {
     gap: 4,
     marginBottom: 20,
+    marginTop: 10,
   },
   bulletItem: {
     fontSize: 13.5,
@@ -798,29 +754,29 @@ const styles = StyleSheet.create({
     backgroundColor: '#4C1D95',
     borderRadius: 16,
     paddingVertical: 16,
+    justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 10,
   },
   primaryActionButtonText: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '800',
     color: '#FFFFFF',
   },
   outlineActionButton: {
-    borderWidth: 1.5,
+    borderWidth: 2,
     borderColor: '#4C1D95',
     borderRadius: 16,
     paddingVertical: 16,
+    justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
   },
   outlineActionButtonText: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '800',
     color: '#4C1D95',
   },
 
-  // Bottom Bar
+  // Bottom Utility Bar
   bottomBar: {
     flexDirection: 'row',
     justifyContent: 'space-around',
@@ -840,7 +796,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
 
-  // Modal
+  // Modal Styles
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(15, 23, 42, 0.5)',
@@ -850,7 +806,7 @@ const styles = StyleSheet.create({
   },
   modalContainer: {
     width: '100%',
-    maxWidth: 340,
+    maxWidth: 360,
     backgroundColor: '#FFFFFF',
     borderRadius: 24,
     padding: 20,
@@ -876,7 +832,7 @@ const styles = StyleSheet.create({
   },
   legendRow: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
+    justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 16,
   },
@@ -901,35 +857,5 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#6B7280',
     fontWeight: '600',
-  },
-  modalPartTabs: {
-    flexDirection: 'row',
-    backgroundColor: '#F1F5F9',
-    borderRadius: 12,
-    padding: 4,
-  },
-  modalPartPill: {
-    flex: 1,
-    paddingVertical: 8,
-    borderRadius: 10,
-    alignItems: 'center',
-  },
-  modalPartPillActive: {
-    backgroundColor: '#FFFFFF',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  modalPartText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#6B7280',
-  },
-  modalPartTextActive: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#7C3AED',
-  },
+  }
 });

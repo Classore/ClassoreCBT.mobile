@@ -23,6 +23,16 @@ export default function ProfileScreen() {
     : (user?.username || 'Classore Student');
   const displayEmail = user?.email || 'student@example.com';
   const tokenBalance = user?.token_balance ?? 0;
+  
+  const xp = user?.xp || 0;
+  const level = Math.floor(xp / 1000) + 1;
+  const nextLevelXp = level * 1000;
+  const xpToNextLevel = nextLevelXp - xp;
+  const progressPercent = ((xp % 1000) / 1000) * 100;
+  
+  const avatarSource = user?.avatar_url 
+    ? { uri: user.avatar_url } 
+    : { uri: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80' };
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -32,7 +42,7 @@ export default function ProfileScreen() {
         <View style={styles.header}>
           <TouchableOpacity 
             style={styles.headerButton} 
-            onPress={() => router.back()}
+            onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}
             activeOpacity={0.7}
           >
             <Feather name="chevron-left" size={24} color="#111827" />
@@ -66,7 +76,7 @@ export default function ProfileScreen() {
                 {/* Avatar with Camera Badge */}
                 <View style={styles.avatarWrapper}>
                   <Image
-                    source={{ uri: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80' }}
+                    source={avatarSource}
                     style={styles.avatarImage}
                     contentFit="cover"
                   />
@@ -88,15 +98,15 @@ export default function ProfileScreen() {
 
               {/* Level & XP */}
               <View style={styles.levelBadge}>
-                <Text style={styles.levelBadgeText}>Level 4 • Achiever</Text>
+                <Text style={styles.levelBadgeText}>Level {level} • Scholar</Text>
               </View>
 
               <View style={styles.xpRow}>
-                <Text style={styles.xpText}>🔥 3,240 XP to Level 5</Text>
+                <Text style={styles.xpText}>🔥 {xpToNextLevel.toLocaleString()} XP to Level {level + 1}</Text>
               </View>
 
               <View style={styles.xpProgressBarTrack}>
-                <View style={styles.xpProgressBarFill} />
+                <View style={[styles.xpProgressBarFill, { width: `${progressPercent}%` }]} />
               </View>
             </LinearGradient>
           </TouchableOpacity>
@@ -132,7 +142,7 @@ export default function ProfileScreen() {
               </View>
               <View style={styles.summaryInfo}>
                 <Text style={styles.summaryLabel}>Streak</Text>
-                <Text style={styles.summaryValueMain}>7 Days</Text>
+                <Text style={styles.summaryValueMain}>{user?.streak || 0} Days</Text>
                 <Text style={styles.streakSubText}>Keep it up!</Text>
               </View>
             </TouchableOpacity>
@@ -146,7 +156,7 @@ export default function ProfileScreen() {
               <View style={[styles.overviewIconBg, { backgroundColor: '#EFF6FF' }]}>
                 <Feather name="file-text" size={18} color="#3B82F6" />
               </View>
-              <Text style={styles.overviewValue}>128</Text>
+              <Text style={styles.overviewValue}>{user?.tests_taken || 0}</Text>
               <Text style={styles.overviewLabel}>Tests Taken</Text>
             </View>
 
@@ -155,7 +165,7 @@ export default function ProfileScreen() {
               <View style={[styles.overviewIconBg, { backgroundColor: '#EFF6FF' }]}>
                 <Feather name="activity" size={18} color="#3B82F6" />
               </View>
-              <Text style={styles.overviewValue}>72%</Text>
+              <Text style={styles.overviewValue}>{user?.average_score || 0}%</Text>
               <Text style={styles.overviewLabel}>Average Score</Text>
             </View>
 
@@ -164,7 +174,7 @@ export default function ProfileScreen() {
               <View style={[styles.overviewIconBg, { backgroundColor: '#ECFDF5' }]}>
                 <Feather name="check-circle" size={18} color="#10B981" />
               </View>
-              <Text style={styles.overviewValue}>68%</Text>
+              <Text style={styles.overviewValue}>--%</Text>
               <Text style={styles.overviewLabel}>Accuracy</Text>
             </View>
 
@@ -173,7 +183,7 @@ export default function ProfileScreen() {
               <View style={[styles.overviewIconBg, { backgroundColor: '#FFF1F2' }]}>
                 <Feather name="clock" size={18} color="#F43F5E" />
               </View>
-              <Text style={styles.overviewValue}>34h 20m</Text>
+              <Text style={styles.overviewValue}>--h --m</Text>
               <Text style={styles.overviewLabel}>Study Time</Text>
             </View>
           </View>

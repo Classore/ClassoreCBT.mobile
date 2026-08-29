@@ -10,8 +10,8 @@ export default function ExploreScreen() {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
   const [recentSearches, setRecentSearches] = useState<SearchHistoryItem[]>([]);
-  const [exams, setExams] = useState<ExamType[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [exams, setExams] = useState<ExamType[]>(() => examService.getCachedExamsSync() || []);
+  const [loading, setLoading] = useState(() => !examService.getCachedExamsSync() || (examService.getCachedExamsSync()?.length === 0));
 
   // Search Results State
   const [searchResults, setSearchResults] = useState<SearchResults | null>(null);

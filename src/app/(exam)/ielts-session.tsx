@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   View, 
   Text, 
@@ -8,111 +8,78 @@ import {
   TouchableOpacity, 
   Platform,
   Modal,
-  Alert 
+  Alert,
+  ActivityIndicator
 } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { examService } from '@/services/exam';
-
-interface Question {
-  id: number;
-  questionText: string;
-  options: { label: string; text: string }[];
-  selectedOption: string | null;
-  isMarked?: boolean;
-}
+import { examService, UserAttempt, AttemptSection, QuestionGroupItem, UserResponseItem } from '@/services/exam';
 
 export default function IELTSSessionScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ attempt_id?: string; exam?: string; exam_type_id?: string }>();
-  const [currentAttemptId, setCurrentAttemptId] = useState<number | null>(params.attempt_id ? Number(params.attempt_id) : null);
-
-  // Timer State (59 minutes = 3540 seconds)
-  const [timeLeft, setTimeLeft] = useState(3540);
-  const [activePassage, setActivePassage] = useState<'p1' | 'p2' | 'p3'>('p1');
-  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const params = useLocalSearchParams<{ attempt_id?: string; exam?: string; exam_type_id?: string; section_order?: string }>();
+  
+  const [attempt, setAttempt] = useState<UserAttempt | null>(null);
+  const [loading, setLoading] = useState(true);
+  
+  const [activeSectionIndex, setActiveSectionIndex] = useState(0);
+  const [activeGroupIndex, setActiveGroupIndex] = useState(0);
+  const [currentResponseIndex, setCurrentResponseIndex] = useState(0);
+  
+  const [timeLeft, setTimeLeft] = useState(3600);
   const [isPaletteVisible, setIsPaletteVisible] = useState(false);
   const [isBookmarked, setIsBookmarked] = useState(false);
 
   useEffect(() => {
     const initIelts = async () => {
-      if (!currentAttemptId) {
-        try {
+      try {
+        let currentAttempt: UserAttempt;
+        if (params.attempt_id) {
+          const res = await examService.resumeExam(Number(params.attempt_id));
+          currentAttempt = res;
+          setTimeLeft(res.timer_info.remaining_seconds);
+        } else {
           const examId = params.exam ? Number(params.exam) : (params.exam_type_id ? Number(params.exam_type_id) : 42);
+          const order = params.section_order ? params.section_order.split(',').map(Number) : undefined;
           const newAttempt = await examService.startExam({
             exam_type_id: examId,
             mode: 'Standard',
+            selected_section_ids: order,
           });
-          if (newAttempt) {
-            setCurrentAttemptId(newAttempt.id);
-          }
-        } catch (e) {
-          console.warn('Could not initialize live IELTS attempt:', e);
+          const res = await examService.resumeExam(newAttempt.id);
+          currentAttempt = res;
+          setTimeLeft(res.timer_info.remaining_seconds);
         }
+
+        // Sort sections according to section_order if available
+        if (params.section_order && currentAttempt.sections) {
+          const orderMap = new Map(params.section_order.split(',').map((id, index) => [Number(id), index]));
+          currentAttempt.sections.sort((a, b) => {
+            const indexA = orderMap.has(a.section_id) ? orderMap.get(a.section_id)! : 999;
+            const indexB = orderMap.has(b.section_id) ? orderMap.get(b.section_id)! : 999;
+            return indexA - indexB;
+          });
+        }
+        
+        setAttempt(currentAttempt);
+      } catch (e) {
+        console.warn('Could not initialize live IELTS attempt:', e);
+      } finally {
+        setLoading(false);
       }
     };
     initIelts();
-  }, [params.exam, params.exam_type_id]);
-
-  // Sample Passage 1 Questions (1 to 14)
-  const [questions, setQuestions] = useState<Question[]>([
-    {
-      id: 1,
-      questionText: 'What is the main idea of the passage?',
-      options: [
-        { label: 'A', text: 'Fossil fuels are more efficient than renewable energy sources.' },
-        { label: 'B', text: 'Renewable energy is a clean and sustainable alternative to fossil fuels.' },
-        { label: 'C', text: 'Climate change is caused by natural events.' },
-        { label: 'D', text: 'Renewable energy is more expensive than fossil fuels.' },
-      ],
-      selectedOption: 'B',
-      isMarked: false,
-    },
-    {
-      id: 2,
-      questionText: 'According to paragraph 1, what is a primary drawback of burning fossil fuels?',
-      options: [
-        { label: 'A', text: 'They require specialized wind turbines to operate.' },
-        { label: 'B', text: 'They release high amounts of greenhouse gases.' },
-        { label: 'C', text: 'They are replenished constantly by nature.' },
-        { label: 'D', text: 'They produce zero emissions in operation.' },
-      ],
-      selectedOption: null,
-      isMarked: false,
-    },
-    {
-      id: 3,
-      questionText: 'Which of the following is cited as an advantage of renewable energy in paragraph 2?',
-      options: [
-        { label: 'A', text: 'It creates a dependence on finite coal reserves.' },
-        { label: 'B', text: 'It improves long-term energy security.' },
-        { label: 'C', text: 'It speeds up environmental degradation.' },
-        { label: 'D', text: 'It completely replaces the need for electricity grids.' },
-      ],
-      selectedOption: null,
-      isMarked: false,
-    },
-    ...Array.from({ length: 11 }, (_, i) => ({
-      id: i + 4,
-      questionText: `Sample question ${i + 4} regarding renewable energy technologies and economic impacts.`,
-      options: [
-        { label: 'A', text: 'First potential answer analysis' },
-        { label: 'B', text: 'Second potential answer analysis' },
-        { label: 'C', text: 'Third potential answer analysis' },
-        { label: 'D', text: 'Fourth potential answer analysis' },
-      ],
-      selectedOption: null,
-      isMarked: false,
-    })),
-  ]);
+  }, [params.attempt_id, params.exam, params.exam_type_id, params.section_order]);
 
   // Timer Countdown Effect
   useEffect(() => {
-    const timer = setInterval(() => {
-      setTimeLeft((prev) => (prev > 0 ? prev - 1 : 0));
-    }, 1000);
-    return () => clearInterval(timer);
-  }, []);
+    if (!loading && attempt) {
+      const timer = setInterval(() => {
+        setTimeLeft((prev) => (prev > 0 ? prev - 1 : 0));
+      }, 1000);
+      return () => clearInterval(timer);
+    }
+  }, [loading, attempt]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -120,55 +87,118 @@ export default function IELTSSessionScreen() {
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const handleSelectOption = async (optionLabel: string) => {
-    const updated = [...questions];
-    updated[currentQuestionIndex].selectedOption = optionLabel;
-    setQuestions(updated);
+  const activeSection = attempt?.sections[activeSectionIndex];
+  const activeGroup = activeSection?.question_groups[activeGroupIndex];
+  const currentResponse = activeGroup?.responses[currentResponseIndex];
 
-    if (currentAttemptId) {
-      const qId = updated[currentQuestionIndex].id;
-      try {
-        await examService.autoSave(currentAttemptId, {
-          responses: [{ question_id: qId, written_response: optionLabel }]
-        });
-      } catch (e) {
-        console.warn('Auto-save failed:', e);
-      }
+  // Map of all responses in the current section for the palette
+  const allSectionResponses = useMemo(() => {
+    if (!activeSection) return [];
+    return activeSection.question_groups.flatMap(g => g.responses);
+  }, [activeSection]);
+
+  const handleSelectOption = async (choiceId: number) => {
+    if (!attempt || !currentResponse) return;
+    
+    // Optimistic update
+    const updatedAttempt = { ...attempt };
+    const sec = updatedAttempt.sections[activeSectionIndex];
+    const grp = sec.question_groups[activeGroupIndex];
+    const resp = grp.responses[currentResponseIndex];
+    resp.selected_choice = choiceId;
+    setAttempt(updatedAttempt);
+
+    try {
+      await examService.autoSave(attempt.id, {
+        responses: [{ 
+          question_id: currentResponse.question.id, 
+          choice_id: choiceId,
+          time_spent_seconds: 15 // Approx
+        }]
+      });
+    } catch (e) {
+      console.warn('Auto-save failed:', e);
     }
   };
 
   const handleNext = () => {
-    if (currentQuestionIndex < questions.length - 1) {
-      setCurrentQuestionIndex(currentQuestionIndex + 1);
+    if (!activeGroup || !activeSection) return;
+    if (currentResponseIndex < activeGroup.responses.length - 1) {
+      setCurrentResponseIndex(prev => prev + 1);
+    } else if (activeGroupIndex < activeSection.question_groups.length - 1) {
+      setActiveGroupIndex(prev => prev + 1);
+      setCurrentResponseIndex(0);
     }
   };
 
   const handlePrevious = () => {
-    if (currentQuestionIndex > 0) {
-      setCurrentQuestionIndex(currentQuestionIndex - 1);
+    if (!activeGroup || !activeSection) return;
+    if (currentResponseIndex > 0) {
+      setCurrentResponseIndex(prev => prev - 1);
+    } else if (activeGroupIndex > 0) {
+      setActiveGroupIndex(prev => prev - 1);
+      setCurrentResponseIndex(activeSection.question_groups[activeGroupIndex - 1].responses.length - 1);
     }
   };
 
-  const handleSubmit = () => {
+  const handleFinishSection = () => {
+    if (!attempt) return;
     Alert.alert(
-      'Complete Reading Section',
-      'Are you sure you want to finish the Reading section and proceed to IELTS Speaking?',
+      `Complete ${activeSection?.section_name} Section`,
+      `Are you sure you want to finish the ${activeSection?.section_name} section and proceed?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Proceed to Speaking',
+          text: 'Proceed',
           onPress: () => {
-            router.push({
-              pathname: '/(exam)/ielts-speaking-instructions',
-              params: { attempt_id: params.attempt_id }
-            });
+            if (activeSectionIndex < attempt.sections.length - 1) {
+              const nextSection = attempt.sections[activeSectionIndex + 1];
+              if (nextSection.section_name.toLowerCase().includes('speaking')) {
+                 router.replace({
+                   pathname: '/(exam)/ielts-speaking-instructions',
+                   params: { attempt_id: attempt.id }
+                 });
+              } else {
+                 setActiveSectionIndex(prev => prev + 1);
+                 setActiveGroupIndex(0);
+                 setCurrentResponseIndex(0);
+              }
+            } else {
+              // Submit exam
+              examService.submitExam(attempt.id, { responses: [] }).then(() => {
+                Alert.alert("Exam Submitted", "You have completed the test!");
+                router.replace('/');
+              }).catch(e => console.error(e));
+            }
           },
         },
       ]
     );
   };
 
-  const currentQ = questions[currentQuestionIndex];
+  if (loading || !attempt) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+          <ActivityIndicator size="large" color="#6D28D9" />
+          <Text style={{ marginTop: 12, color: '#6B7280' }}>Loading Exam Session...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!activeSection || !activeGroup || !currentResponse) {
+     return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+          <Text style={{ color: '#6B7280' }}>No content available for this section.</Text>
+          <TouchableOpacity onPress={handleFinishSection} style={[styles.nextButton, { marginTop: 20 }]}>
+            <Text style={styles.nextButtonText}>Next Section</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+     );
+  }
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -183,7 +213,7 @@ export default function IELTSSessionScreen() {
           >
             <Feather name="menu" size={20} color="#111827" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>IELTS Reading</Text>
+          <Text style={styles.headerTitle}>{activeSection.section_name}</Text>
           <View style={styles.timerBadge}>
             <Text style={styles.timerText}>{formatTime(timeLeft)}</Text>
           </View>
@@ -191,44 +221,21 @@ export default function IELTSSessionScreen() {
 
         {/* Passage Selection Tabs */}
         <View style={styles.passageTabsContainer}>
-          <TouchableOpacity 
-            style={[styles.passageTab, activePassage === 'p1' && styles.passageTabActive]}
-            onPress={() => setActivePassage('p1')}
-            activeOpacity={0.8}
-          >
-            <Text style={[styles.passageTabTitle, activePassage === 'p1' && styles.passageTabTitleActive]}>
-              Passage 1
-            </Text>
-            <Text style={[styles.passageTabSub, activePassage === 'p1' && styles.passageTabSubActive]}>
-              Questions 1–14
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity 
-            style={[styles.passageTab, activePassage === 'p2' && styles.passageTabActive]}
-            onPress={() => setActivePassage('p2')}
-            activeOpacity={0.8}
-          >
-            <Text style={[styles.passageTabTitle, activePassage === 'p2' && styles.passageTabTitleActive]}>
-              Passage 2
-            </Text>
-            <Text style={[styles.passageTabSub, activePassage === 'p2' && styles.passageTabSubActive]}>
-              Questions 15–27
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity 
-            style={[styles.passageTab, activePassage === 'p3' && styles.passageTabActive]}
-            onPress={() => setActivePassage('p3')}
-            activeOpacity={0.8}
-          >
-            <Text style={[styles.passageTabTitle, activePassage === 'p3' && styles.passageTabTitleActive]}>
-              Passage 3
-            </Text>
-            <Text style={[styles.passageTabSub, activePassage === 'p3' && styles.passageTabSubActive]}>
-              Questions 28–40
-            </Text>
-          </TouchableOpacity>
+          {activeSection.question_groups.map((group, idx) => (
+             <TouchableOpacity 
+              key={group.group_id}
+              style={[styles.passageTab, activeGroupIndex === idx && styles.passageTabActive]}
+              onPress={() => { setActiveGroupIndex(idx); setCurrentResponseIndex(0); }}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.passageTabTitle, activeGroupIndex === idx && styles.passageTabTitleActive]}>
+                Part {idx + 1}
+              </Text>
+              <Text style={[styles.passageTabSub, activeGroupIndex === idx && styles.passageTabSubActive]}>
+                {group.responses.length} Qs
+              </Text>
+            </TouchableOpacity>
+          ))}
         </View>
 
         <ScrollView 
@@ -236,78 +243,81 @@ export default function IELTSSessionScreen() {
           contentContainerStyle={styles.scrollContent}
         >
           {/* Passage Reading Card */}
-          <View style={styles.passageCard}>
-            <View style={styles.passageHeaderRow}>
-              <Text style={styles.passageNumberText}>Passage 1</Text>
-              <TouchableOpacity 
-                style={styles.bookmarkButton}
-                onPress={() => setIsBookmarked(!isBookmarked)}
-                activeOpacity={0.7}
-              >
-                <Feather 
-                  name="bookmark" 
-                  size={18} 
-                  color={isBookmarked ? '#7C3AED' : '#4B5563'} 
-                />
-              </TouchableOpacity>
+          {(activeGroup.context_text || activeGroup.context_media) && (
+            <View style={styles.passageCard}>
+              <View style={styles.passageHeaderRow}>
+                <Text style={styles.passageNumberText}>Context</Text>
+                <TouchableOpacity 
+                  style={styles.bookmarkButton}
+                  onPress={() => setIsBookmarked(!isBookmarked)}
+                  activeOpacity={0.7}
+                >
+                  <Feather 
+                    name="bookmark" 
+                    size={18} 
+                    color={isBookmarked ? '#7C3AED' : '#4B5563'} 
+                  />
+                </TouchableOpacity>
+              </View>
+
+              {activeGroup.group_title && (
+                <Text style={styles.passageTitle}>{activeGroup.group_title}</Text>
+              )}
+
+              {activeGroup.context_text && (
+                <Text style={styles.passageBodyText}>{activeGroup.context_text}</Text>
+              )}
             </View>
-
-            <Text style={styles.passageTitle}>
-              The Impact of Renewable Energy on the Environment
-            </Text>
-
-            <Text style={styles.passageBodyText}>
-              Renewable energy sources, such as solar, wind and hydropower, are increasingly seen as viable alternatives to fossil fuels. Unlike fossil fuels, which release large amounts of carbon dioxide and other greenhouse gases when burned, renewable energy produces little to no emissions during operation. This makes it an important part of the global effort to combat climate change and reduce environmental degradation.
-              {'\n\n'}
-              Furthermore, renewable energy is sustainable, as natural resources like sunlight and wind are constantly replenished. This ensures a long-term supply of clean energy, which can help reduce reliance on finite resources and improve energy security for countries around the world.
-            </Text>
-          </View>
+          )}
 
           {/* Question Subheading */}
-          <Text style={styles.questionSectionTitle}>Questions 1–14</Text>
+          <Text style={styles.questionSectionTitle}>Question {currentResponseIndex + 1} of {activeGroup.responses.length}</Text>
 
           {/* Current Question */}
           <View style={styles.questionCard}>
             <View style={styles.questionHeaderRow}>
               <View style={styles.questionNumberBadge}>
-                <Text style={styles.questionNumberText}>{currentQ.id}</Text>
+                <Text style={styles.questionNumberText}>{currentResponseIndex + 1}</Text>
               </View>
-              <Text style={styles.questionText}>{currentQ.questionText}</Text>
+              <Text style={styles.questionText}>{currentResponse.question.text}</Text>
             </View>
 
             {/* Options List */}
-            <View style={styles.optionsList}>
-              {currentQ.options.map((opt) => {
-                const isSelected = currentQ.selectedOption === opt.label;
-                return (
-                  <TouchableOpacity
-                    key={opt.label}
-                    style={[
-                      styles.optionItem,
-                      isSelected && styles.optionItemSelected,
-                    ]}
-                    onPress={() => handleSelectOption(opt.label)}
-                    activeOpacity={0.8}
-                  >
-                    <View style={[styles.radioCircle, isSelected && styles.radioCircleSelected]}>
-                      {isSelected && <View style={styles.radioDot} />}
-                    </View>
-                    <Text style={[styles.optionText, isSelected && styles.optionTextSelected]}>
-                      <Text style={styles.optionLabel}>{opt.label}. </Text>
-                      {opt.text}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
+            {currentResponse.question.choices && currentResponse.question.choices.length > 0 && (
+              <View style={styles.optionsList}>
+                {currentResponse.question.choices.map((opt, i) => {
+                  const isSelected = currentResponse.selected_choice === opt.id;
+                  const label = String.fromCharCode(65 + i);
+                  return (
+                    <TouchableOpacity
+                      key={opt.id}
+                      style={[
+                        styles.optionItem,
+                        isSelected && styles.optionItemSelected,
+                      ]}
+                      onPress={() => handleSelectOption(opt.id)}
+                      activeOpacity={0.8}
+                    >
+                      <View style={[styles.radioCircle, isSelected && styles.radioCircleSelected]}>
+                        {isSelected && <View style={styles.radioDot} />}
+                      </View>
+                      <Text style={[styles.optionText, isSelected && styles.optionTextSelected]}>
+                        <Text style={styles.optionLabel}>{label}. </Text>
+                        {opt.text}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            )}
           </View>
 
           {/* Previous & Next Buttons */}
           <View style={styles.navigationButtonsRow}>
             <TouchableOpacity 
-              style={[styles.prevButton, currentQuestionIndex === 0 && { opacity: 0.5 }]}
+              style={[styles.prevButton, (activeGroupIndex === 0 && currentResponseIndex === 0) && { opacity: 0.5 }]}
               onPress={handlePrevious}
-              disabled={currentQuestionIndex === 0}
+              disabled={activeGroupIndex === 0 && currentResponseIndex === 0}
               activeOpacity={0.8}
             >
               <Text style={styles.prevButtonText}>Previous</Text>
@@ -340,17 +350,17 @@ export default function IELTSSessionScreen() {
           {/* Submit Test */}
           <TouchableOpacity 
             style={styles.bottomBarAction}
-            onPress={handleSubmit}
+            onPress={handleFinishSection}
             activeOpacity={0.7}
           >
             <Feather name="flag" size={18} color="#EF4444" />
-            <Text style={[styles.bottomBarActionText, { color: '#EF4444' }]}>Submit Test</Text>
+            <Text style={[styles.bottomBarActionText, { color: '#EF4444' }]}>Finish Section</Text>
           </TouchableOpacity>
 
           {/* Contact Support */}
           <TouchableOpacity style={styles.bottomBarAction} activeOpacity={0.7}>
             <Feather name="headphones" size={18} color="#4B5563" />
-            <Text style={styles.bottomBarActionText}>Contact Support</Text>
+            <Text style={styles.bottomBarActionText}>Support</Text>
           </TouchableOpacity>
         </View>
 
@@ -386,70 +396,60 @@ export default function IELTSSessionScreen() {
                 </View>
                 <View style={styles.legendItem}>
                   <View style={[styles.legendRing, { borderColor: '#CBD5E1' }]} />
-                  <Text style={styles.legendText}>Not Answered</Text>
-                </View>
-                <View style={styles.legendItem}>
-                  <View style={[styles.legendDot, { backgroundColor: '#EF4444' }]} />
-                  <Text style={styles.legendText}>Marked</Text>
+                  <Text style={styles.legendText}>Unanswered</Text>
                 </View>
               </View>
 
-              {/* Passage Pills Filter */}
-              <View style={styles.modalPassageTabs}>
-                <TouchableOpacity style={[styles.modalPassagePill, styles.modalPassagePillActive]}>
-                  <Text style={styles.modalPassageTextActive}>Passage 1</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.modalPassagePill}>
-                  <Text style={styles.modalPassageText}>Passage 2</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.modalPassagePill}>
-                  <Text style={styles.modalPassageText}>Passage 3</Text>
-                </TouchableOpacity>
-              </View>
+              {/* Question Number Grid */}
+              <ScrollView style={{ maxHeight: 300 }}>
+                <View style={styles.questionGrid}>
+                  {allSectionResponses.map((r, idx) => {
+                    // Find actual group index and response index for this question
+                    let targetGroupIdx = 0;
+                    let targetRespIdx = 0;
+                    let count = 0;
+                    for (let g = 0; g < activeSection.question_groups.length; g++) {
+                      const len = activeSection.question_groups[g].responses.length;
+                      if (idx < count + len) {
+                        targetGroupIdx = g;
+                        targetRespIdx = idx - count;
+                        break;
+                      }
+                      count += len;
+                    }
 
-              {/* Question Number Grid (1 to 14) */}
-              <View style={styles.questionGrid}>
-                {questions.map((q, idx) => {
-                  const isCurrent = currentQuestionIndex === idx;
-                  const isAnswered = q.selectedOption !== null;
+                    const isCurrent = activeGroupIndex === targetGroupIdx && currentResponseIndex === targetRespIdx;
+                    const isAnswered = r.selected_choice !== null || r.written_response !== null;
 
-                  return (
-                    <TouchableOpacity
-                      key={q.id}
-                      style={[
-                        styles.gridCircle,
-                        isAnswered && styles.gridCircleAnswered,
-                        isCurrent && !isAnswered && styles.gridCircleCurrent,
-                      ]}
-                      onPress={() => {
-                        setCurrentQuestionIndex(idx);
-                        setIsPaletteVisible(false);
-                      }}
-                      activeOpacity={0.8}
-                    >
-                      <Text
+                    return (
+                      <TouchableOpacity
+                        key={r.id}
                         style={[
-                          styles.gridCircleText,
-                          isAnswered && styles.gridCircleTextAnswered,
-                          isCurrent && !isAnswered && styles.gridCircleTextCurrent,
+                          styles.gridCircle,
+                          isAnswered && styles.gridCircleAnswered,
+                          isCurrent && !isAnswered && styles.gridCircleCurrent,
                         ]}
+                        onPress={() => {
+                          setActiveGroupIndex(targetGroupIdx);
+                          setCurrentResponseIndex(targetRespIdx);
+                          setIsPaletteVisible(false);
+                        }}
+                        activeOpacity={0.8}
                       >
-                        {q.id}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-
-              {/* Pagination Arrows */}
-              <View style={styles.modalPaginationRow}>
-                <TouchableOpacity style={styles.arrowButton}>
-                  <Feather name="chevron-left" size={20} color="#111827" />
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.arrowButton}>
-                  <Feather name="chevron-right" size={20} color="#111827" />
-                </TouchableOpacity>
-              </View>
+                        <Text
+                          style={[
+                            styles.gridCircleText,
+                            isAnswered && styles.gridCircleTextAnswered,
+                            isCurrent && !isAnswered && styles.gridCircleTextCurrent,
+                          ]}
+                        >
+                          {idx + 1}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </ScrollView>
             </View>
           </View>
         </Modal>
@@ -800,42 +800,11 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     fontWeight: '600',
   },
-  modalPassageTabs: {
-    flexDirection: 'row',
-    backgroundColor: '#F1F5F9',
-    borderRadius: 12,
-    padding: 4,
-    marginBottom: 20,
-  },
-  modalPassagePill: {
-    flex: 1,
-    paddingVertical: 8,
-    borderRadius: 10,
-    alignItems: 'center',
-  },
-  modalPassagePillActive: {
-    backgroundColor: '#FFFFFF',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  modalPassageText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#6B7280',
-  },
-  modalPassageTextActive: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#7C3AED',
-  },
   questionGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 10,
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     marginBottom: 16,
   },
   gridCircle: {
@@ -866,14 +835,5 @@ const styles = StyleSheet.create({
   },
   gridCircleTextCurrent: {
     color: '#F59E0B',
-  },
-  modalPaginationRow: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 16,
-    paddingTop: 8,
-  },
-  arrowButton: {
-    padding: 6,
-  },
+  }
 });

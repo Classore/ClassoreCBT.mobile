@@ -22,7 +22,7 @@ export default function IELTSSectionInstructionsScreen() {
         <View style={styles.header}>
           <TouchableOpacity 
             style={styles.headerButton} 
-            onPress={() => router.back()}
+            onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}
             activeOpacity={0.7}
           >
             <Feather name="chevron-left" size={24} color="#111827" />

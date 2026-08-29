@@ -104,7 +104,7 @@ export default function IELTSSetupScreen() {
         <View style={styles.header}>
           <TouchableOpacity 
             style={styles.headerButton} 
-            onPress={() => router.back()}
+            onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}
             activeOpacity={0.7}
           >
             <Feather name="chevron-left" size={24} color="#111827" />
@@ -238,9 +238,10 @@ export default function IELTSSetupScreen() {
             onPress={() => {
               const examIdStr = Array.isArray(params.exam) ? params.exam[0] : params.exam;
               const examId = examIdStr ? parseInt(examIdStr, 10) : 42;
+              const sectionOrder = sections.map(s => s.id).join(',');
               router.push({
                 pathname: '/(exam)/ielts-instructions',
-                params: { exam: examId }
+                params: { exam: examId, section_order: sectionOrder }
               });
             }}
             activeOpacity={0.85}

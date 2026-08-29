@@ -1,17 +1,17 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  SafeAreaView, 
-  ScrollView, 
-  TouchableOpacity, 
-  Platform,
-  ActivityIndicator
-} from 'react-native';
-import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
 import { paymentService, TokenPackage } from '@/services/payment';
+import { Feather, Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import { useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Platform,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
+} from 'react-native';
 
 export default function TokenPackagesScreen() {
   const router = useRouter();
@@ -55,7 +55,7 @@ export default function TokenPackagesScreen() {
         <View style={styles.header}>
           <TouchableOpacity 
             style={styles.headerButton} 
-            onPress={() => router.back()}
+            onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}
             activeOpacity={0.7}
           >
             <Feather name="chevron-left" size={24} color="#111827" />

@@ -2,14 +2,17 @@ import { AppText } from '@/components/AppText';
 import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, SafeAreaView, TouchableOpacity, Platform, TextInput, ScrollView, ActivityIndicator, Alert, Modal, FlatList } from 'react-native';
 import { Feather, FontAwesome5 } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { walletService, BankAccount, SupportedBank } from '@/services/wallet';
 
 export default function BankDetailsScreen() {
   const router = useRouter();
+  const { amount } = useLocalSearchParams<{ amount: string }>();
+  
   const [isAddingNew, setIsAddingNew] = useState(false);
   const [savedAccounts, setSavedAccounts] = useState<BankAccount[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
 
   // Add new state
   const [supportedBanks, setSupportedBanks] = useState<SupportedBank[]>([]);
@@ -30,6 +33,10 @@ export default function BankDetailsScreen() {
       setLoading(true);
       const accounts = await walletService.getSavedBankAccounts();
       setSavedAccounts(accounts);
+      if (accounts.length > 0) {
+        const defaultAcc = accounts.find(a => a.is_default) || accounts[0];
+        if (defaultAcc.id) setSelectedAccountId(defaultAcc.id);
+      }
     } catch (e) {
       console.error(e);
     } finally {
@@ -106,7 +113,7 @@ export default function BankDetailsScreen() {
           if (isAddingNew && savedAccounts.length > 0) {
             setIsAddingNew(false);
           } else {
-            router.back();
+            (router.canGoBack() ? router.back() : router.replace('/'));
           }
         }} style={styles.iconButton}>
           <Feather name="chevron-left" size={24} color="#111827" />
@@ -130,7 +137,10 @@ export default function BankDetailsScreen() {
             <View style={styles.accountsCard}>
               {savedAccounts.map((account, idx) => (
                 <View key={account.id}>
-                  <TouchableOpacity style={styles.savedAccountRow}>
+                  <TouchableOpacity 
+                    style={[styles.savedAccountRow, selectedAccountId === account.id && { backgroundColor: '#F5F3FF' }]}
+                    onPress={() => account.id && setSelectedAccountId(account.id)}
+                  >
                     <View style={styles.bankIconBg}>
                       <FontAwesome5 name="university" size={16} color="#4C1D95" />
                     </View>
@@ -143,7 +153,11 @@ export default function BankDetailsScreen() {
                         <AppText style={styles.defaultBadgeText}>Default</AppText>
                       </View>
                     )}
-                    <Feather name="chevron-right" size={20} color="#9CA3AF" style={{ marginLeft: 8 }} />
+                    {selectedAccountId === account.id ? (
+                      <Feather name="check-circle" size={20} color="#4C1D95" style={{ marginLeft: 8 }} />
+                    ) : (
+                      <Feather name="circle" size={20} color="#D1D5DB" style={{ marginLeft: 8 }} />
+                    )}
                   </TouchableOpacity>
                   {idx < savedAccounts.length - 1 && <View style={styles.divider} />}
                 </View>
@@ -216,15 +230,28 @@ export default function BankDetailsScreen() {
       {/* Bottom Button */}
       <View style={styles.footer}>
         <TouchableOpacity 
-          style={[styles.primaryBtn, (isAddingNew && (!accountName || saving)) && { opacity: 0.7 }]} 
+          style={[styles.primaryBtn, (isAddingNew && (!accountName || saving)) && { opacity: 0.7 }, (!isAddingNew && !selectedAccountId) && { opacity: 0.7 }]} 
           onPress={() => {
             if (isAddingNew) {
               handleSaveAccount();
             } else {
-              router.push('/wallet/withdraw/review');
+              if (!selectedAccountId) return;
+              const account = savedAccounts.find(a => a.id === selectedAccountId);
+              if (account) {
+                router.push({
+                  pathname: '/wallet/withdraw/review',
+                  params: {
+                    amount,
+                    bank_id: account.id,
+                    bank_name: account.bank_name,
+                    account_number: account.account_number,
+                    account_name: account.account_name
+                  }
+                });
+              }
             }
           }}
-          disabled={isAddingNew && (!accountName || saving)}
+          disabled={isAddingNew ? (!accountName || saving) : !selectedAccountId}
         >
           {saving ? (
             <ActivityIndicator color="#FFF" />

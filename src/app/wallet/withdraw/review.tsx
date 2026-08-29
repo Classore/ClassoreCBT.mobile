@@ -1,17 +1,51 @@
 import { AppText } from '@/components/AppText';
-import React from 'react';
-import { View, StyleSheet, SafeAreaView, TouchableOpacity, Platform, ScrollView } from 'react-native';
+import React, { useState } from 'react';
+import { View, StyleSheet, SafeAreaView, TouchableOpacity, Platform, ScrollView, ActivityIndicator, Alert } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import { walletService } from '@/services/wallet';
 
 export default function ReviewDetailsScreen() {
   const router = useRouter();
+  const { amount, bank_id, bank_name, account_number, account_name } = useLocalSearchParams<{
+    amount: string;
+    bank_id: string;
+    bank_name: string;
+    account_number: string;
+    account_name: string;
+  }>();
+
+  const [submitting, setSubmitting] = useState(false);
+
+  const rawAmount = amount ? Number(amount) : 0;
+  const fee = 100;
+  const receiveAmount = rawAmount - fee;
+
+  const handleSubmit = async () => {
+    if (!bank_id || !rawAmount) return;
+    try {
+      setSubmitting(true);
+      await walletService.requestWithdrawal(rawAmount, Number(bank_id));
+      Alert.alert(
+        "Withdrawal Successful",
+        "Your withdrawal request has been submitted successfully.",
+        [{ text: "OK", onPress: () => router.replace('/wallet') }]
+      );
+    } catch (error: any) {
+      Alert.alert(
+        "Withdrawal Failed",
+        error.response?.data?.error || "Could not process withdrawal request at this time."
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.iconButton}>
+        <TouchableOpacity onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))} style={styles.iconButton}>
           <Feather name="chevron-left" size={24} color="#111827" />
         </TouchableOpacity>
         <AppText style={styles.headerTitle}>Review Details</AppText>
@@ -34,19 +68,19 @@ export default function ReviewDetailsScreen() {
           
           <View style={styles.detailRow}>
             <AppText style={styles.detailLabel}>Amount</AppText>
-            <AppText style={styles.detailValue}>₦2,450.00</AppText>
+            <AppText style={styles.detailValue}>₦{rawAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</AppText>
           </View>
           <View style={styles.divider} />
           
           <View style={styles.detailRow}>
             <AppText style={styles.detailLabel}>Fee</AppText>
-            <AppText style={styles.detailValue}>₦100.00</AppText>
+            <AppText style={styles.detailValue}>₦{fee.toLocaleString(undefined, { minimumFractionDigits: 2 })}</AppText>
           </View>
           <View style={styles.divider} />
           
           <View style={styles.detailRow}>
             <AppText style={[styles.detailLabel, styles.highlightText]}>You Will Receive</AppText>
-            <AppText style={[styles.detailValue, styles.highlightText]}>₦2,350.00</AppText>
+            <AppText style={[styles.detailValue, styles.highlightText]}>₦{receiveAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</AppText>
           </View>
         </View>
 
@@ -54,19 +88,19 @@ export default function ReviewDetailsScreen() {
         <View style={styles.detailsCard}>
           <View style={styles.detailRow}>
             <AppText style={styles.detailLabel}>Bank</AppText>
-            <AppText style={styles.detailValue}>Access Bank</AppText>
+            <AppText style={styles.detailValue}>{bank_name}</AppText>
           </View>
           <View style={styles.divider} />
           
           <View style={styles.detailRow}>
             <AppText style={styles.detailLabel}>Account Number</AppText>
-            <AppText style={styles.detailValue}>1234567890</AppText>
+            <AppText style={styles.detailValue}>{account_number}</AppText>
           </View>
           <View style={styles.divider} />
           
           <View style={styles.detailRow}>
             <AppText style={styles.detailLabel}>Account Name</AppText>
-            <AppText style={styles.detailValue}>John Doe</AppText>
+            <AppText style={styles.detailValue}>{account_name}</AppText>
           </View>
         </View>
 
@@ -79,8 +113,16 @@ export default function ReviewDetailsScreen() {
 
       {/* Bottom Button */}
       <View style={styles.footer}>
-        <TouchableOpacity style={styles.primaryBtn} onPress={() => router.replace('/wallet')}>
-          <AppText style={styles.primaryBtnText}>Continue <Feather name="arrow-right" size={16} color="#FFF" style={{ marginLeft: 4 }} /></AppText>
+        <TouchableOpacity 
+          style={[styles.primaryBtn, submitting && { opacity: 0.7 }]} 
+          onPress={handleSubmit}
+          disabled={submitting}
+        >
+          {submitting ? (
+             <ActivityIndicator color="#FFF" />
+          ) : (
+             <AppText style={styles.primaryBtnText}>Submit Request <Feather name="check" size={16} color="#FFF" style={{ marginLeft: 4 }} /></AppText>
+          )}
         </TouchableOpacity>
       </View>
     </SafeAreaView>

@@ -12,7 +12,7 @@ export default function WithdrawAmountScreen() {
     <SafeAreaView style={styles.safeArea}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.iconButton}>
+        <TouchableOpacity onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))} style={styles.iconButton}>
           <Feather name="chevron-left" size={24} color="#111827" />
         </TouchableOpacity>
         <AppText style={styles.headerTitle}>Withdraw Amount</AppText>
@@ -51,7 +51,16 @@ export default function WithdrawAmountScreen() {
 
       {/* Bottom Button */}
       <View style={styles.footer}>
-        <TouchableOpacity style={styles.primaryBtn} onPress={() => router.push('/wallet/withdraw/bank-details')}>
+        <TouchableOpacity 
+          style={[styles.primaryBtn, (!amount || Number(amount.replace(/,/g, '')) < 100) && { opacity: 0.5 }]} 
+          onPress={() => {
+            const rawAmount = amount.replace(/,/g, '');
+            if (Number(rawAmount) >= 100) {
+              router.push({ pathname: '/wallet/withdraw/bank-details', params: { amount: rawAmount } });
+            }
+          }}
+          disabled={!amount || Number(amount.replace(/,/g, '')) < 100}
+        >
           <AppText style={styles.primaryBtnText}>Continue <Feather name="arrow-right" size={16} color="#FFF" style={{ marginLeft: 4 }} /></AppText>
         </TouchableOpacity>
       </View>

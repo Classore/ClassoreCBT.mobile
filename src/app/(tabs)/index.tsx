@@ -1,17 +1,89 @@
 import { AppText } from '@/components/AppText';
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, SafeAreaView, Platform } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, SafeAreaView, Platform, ActivityIndicator } from 'react-native';
 import { Image } from 'expo-image';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
+import { examService } from '@/services/exam';
+import { contestService, Contest } from '@/services/contest';
 
 export default function HomeScreen() {
   const router = useRouter();
   const { user } = useAuth();
-  const [isDarkMode, setIsDarkMode] = React.useState(true);
+  const [isDarkMode, setIsDarkMode] = useState(true);
   
   const userName = user?.first_name || user?.username || "Student";
+  const currentStreak = user?.streak || 0;
+
+  const [reportData, setReportData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  // Contest Zone State
+  const [activeContest, setActiveContest] = useState<Contest | null>(null);
+  const [contestLeaderboard, setContestLeaderboard] = useState<any[]>([]);
+  const [contestLoading, setContestLoading] = useState(true);
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 60000);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const fetchReport = async () => {
+      try {
+        const data = await examService.getAggregateReport('Overview', 'This Week');
+        setReportData(data);
+      } catch (err) {
+        console.error('Failed to fetch home report', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    const fetchContests = async () => {
+      try {
+        let liveContests = await contestService.getContests('live');
+        if (liveContests.length === 0) {
+          liveContests = await contestService.getContests('upcoming');
+        }
+
+        if (liveContests.length > 0) {
+          setActiveContest(liveContests[0]);
+          const lb = await contestService.getLeaderboard(liveContests[0].id);
+          setContestLeaderboard(lb);
+        }
+      } catch (err) {
+        console.error('Failed to fetch home contests', err);
+      } finally {
+        setContestLoading(false);
+      }
+    };
+
+    fetchReport();
+    fetchContests();
+  }, []);
+
+  const overall = reportData?.overall || { correct_pct: 0, correct_count: 0, incorrect_count: 0, unattempted_count: 0 };
+  const trend = reportData?.trend || [
+    { day: 'Mon', active: false },
+    { day: 'Tue', active: false },
+    { day: 'Wed', active: false },
+    { day: 'Thu', active: false },
+    { day: 'Fri', active: false },
+    { day: 'Sat', active: false },
+    { day: 'Sun', active: false }
+  ];
+
+  const getTimeLeft = (endTimeStr: string) => {
+    const diff = new Date(endTimeStr).getTime() - now;
+    if (diff <= 0) return 'Ended';
+    const d = Math.floor(diff / (1000 * 60 * 60 * 24));
+    const h = Math.floor((diff / (1000 * 60 * 60)) % 24);
+    const m = Math.floor((diff / 1000 / 60) % 60);
+    return `${d}d : ${h}h : ${m}m`;
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -176,67 +248,84 @@ export default function HomeScreen() {
         </View>
 
         {/* Contest Zone */}
-        <View style={styles.contestCard}>
-          <View style={styles.contestHeader}>
-            <Image source={require('../../../assets/images/contest-trophy.png')} style={styles.contestTrophy} contentFit="contain" />
-            
-            <View style={styles.contestMainInfo}>
-              <View style={styles.contestTag}>
-                <Image source={require('../../../assets/images/contest-star-icon.png')} style={{ width: 11, height: 11 }} contentFit="contain" />
-                <AppText style={styles.contestTagText}>Contest Zone</AppText>
-              </View>
-              <AppText style={styles.contestTitle}>Compete. Rank. Win!</AppText>
-              <AppText style={styles.contestSubtitle}>Join weekly contests and climb{'\n'}the leaderboard.</AppText>
-              <TouchableOpacity style={styles.contestButton} activeOpacity={0.85} onPress={() => router.push('/contest')}>
-                <AppText style={styles.contestButtonText}>View Contests</AppText>
-                <Image source={require('../../../assets/images/arrow-right-sm-icon.png')} style={{ width: 10, height: 10, tintColor: '#FFF' }} contentFit="contain" />
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.contestLeaderboard}>
-              <AppText style={styles.leaderboardTitle}>This Week's Top 3</AppText>
-              {[
-                { rank: 1, name: 'Blessing A.', score: '12,450', color: '#F59E0B' },
-                { rank: 2, name: 'Daniel O.', score: '9,870', color: '#9CA3AF' },
-                { rank: 3, name: 'Victory M.', score: '8,610', color: '#D97706' },
-              ].map(item => (
-                <View key={item.rank} style={styles.leaderboardRow}>
-                  <View style={[styles.rankBadge, { backgroundColor: item.color }]}>
-                    <AppText style={styles.rankText}>{item.rank}</AppText>
-                  </View>
-                  <AppText style={styles.leaderboardName} numberOfLines={1}>{item.name}</AppText>
-                  <AppText style={styles.leaderboardScore}>{item.score}</AppText>
+        {!contestLoading && activeContest && (
+          <View style={styles.contestCard}>
+            <View style={styles.contestHeader}>
+              <Image source={require('../../../assets/images/contest-trophy.png')} style={styles.contestTrophy} contentFit="contain" />
+              
+              <View style={styles.contestMainInfo}>
+                <View style={styles.contestTag}>
+                  <Image source={require('../../../assets/images/contest-star-icon.png')} style={{ width: 11, height: 11 }} contentFit="contain" />
+                  <AppText style={styles.contestTagText}>Contest Zone</AppText>
                 </View>
-              ))}
+                <AppText style={styles.contestTitle}>{activeContest.title}</AppText>
+                <AppText style={styles.contestSubtitle}>{activeContest.description}</AppText>
+                <TouchableOpacity style={styles.contestButton} activeOpacity={0.85} onPress={() => router.push('/contest')}>
+                  <AppText style={styles.contestButtonText}>View Contests</AppText>
+                  <Image source={require('../../../assets/images/arrow-right-sm-icon.png')} style={{ width: 10, height: 10, tintColor: '#FFF' }} contentFit="contain" />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.contestLeaderboard}>
+                <AppText style={styles.leaderboardTitle}>Top 3 Leaderboard</AppText>
+                {contestLeaderboard.length === 0 ? (
+                  <AppText style={{ color: '#9CA3AF', fontSize: 11, marginTop: 4 }}>No participants yet.</AppText>
+                ) : (
+                  contestLeaderboard.slice(0, 3).map((item: any, index: number) => {
+                    const colors = ['#F59E0B', '#9CA3AF', '#D97706'];
+                    return (
+                      <View key={item.id || index} style={styles.leaderboardRow}>
+                        <View style={[styles.rankBadge, { backgroundColor: colors[index] || '#6B7280' }]}>
+                          <AppText style={styles.rankText}>{index + 1}</AppText>
+                        </View>
+                        <AppText style={styles.leaderboardName} numberOfLines={1}>{item.user_name || 'Participant'}</AppText>
+                        <AppText style={styles.leaderboardScore}>{item.score}</AppText>
+                      </View>
+                    );
+                  })
+                )}
+              </View>
+            </View>
+
+            <View style={styles.contestFooter}>
+              {activeContest.status === 'live' ? (
+                <View style={styles.contestStat}>
+                  <View style={styles.contestStatHeader}>
+                    <Image source={require('../../../assets/images/contest-time-icon.png')} style={{ width: 12, height: 12 }} contentFit="contain" />
+                    <AppText style={styles.statLabel}>Time Left</AppText>
+                  </View>
+                  <AppText style={styles.statValue}>{getTimeLeft(activeContest.end_time)}</AppText>
+                </View>
+              ) : (
+                <View style={styles.contestStat}>
+                  <View style={styles.contestStatHeader}>
+                    <Image source={require('../../../assets/images/contest-time-icon.png')} style={{ width: 12, height: 12 }} contentFit="contain" />
+                    <AppText style={styles.statLabel}>Status</AppText>
+                  </View>
+                  <AppText style={styles.statValue}>
+                    {activeContest.status === 'upcoming' ? 'Upcoming' : 'Ended'}
+                  </AppText>
+                </View>
+              )}
+              
+              <View style={styles.contestStat}>
+                <View style={styles.contestStatHeader}>
+                  <Image source={require('../../../assets/images/contest-participants-icon.png')} style={{ width: 12, height: 12 }} contentFit="contain" />
+                  <AppText style={styles.statLabel}>Participants</AppText>
+                </View>
+                <AppText style={styles.statValue}>{activeContest.participants_count}</AppText>
+              </View>
+
+              <View style={styles.contestStat}>
+                <View style={styles.contestStatHeader}>
+                  <Image source={require('../../../assets/images/contest-prize-icon.png')} style={{ width: 12, height: 12 }} contentFit="contain" />
+                  <AppText style={styles.statLabel}>Prize Pool</AppText>
+                </View>
+                <AppText style={styles.statValue}>₦{Number(activeContest.prize_pool).toLocaleString()}</AppText>
+              </View>
             </View>
           </View>
-
-          <View style={styles.contestFooter}>
-            <View style={styles.contestStat}>
-              <View style={styles.contestStatHeader}>
-                <Image source={require('../../../assets/images/contest-time-icon.png')} style={{ width: 12, height: 12 }} contentFit="contain" />
-                <AppText style={styles.statLabel}>Time Left</AppText>
-              </View>
-              <AppText style={styles.statValue}>3d : 12h : 45m</AppText>
-            </View>
-            
-            <View style={styles.contestStat}>
-              <View style={styles.contestStatHeader}>
-                <Image source={require('../../../assets/images/contest-participants-icon.png')} style={{ width: 12, height: 12 }} contentFit="contain" />
-                <AppText style={styles.statLabel}>Participants</AppText>
-              </View>
-              <AppText style={styles.statValue}>2,568</AppText>
-            </View>
-
-            <View style={styles.contestStat}>
-              <View style={styles.contestStatHeader}>
-                <Image source={require('../../../assets/images/contest-prize-icon.png')} style={{ width: 12, height: 12 }} contentFit="contain" />
-                <AppText style={styles.statLabel}>Prize Pool</AppText>
-              </View>
-              <AppText style={styles.statValue}>150,000</AppText>
-            </View>
-          </View>
-        </View>
+        )}
 
         {/* Bottom Row: Your Progress & Daily Streak */}
         <View style={styles.bottomRow}>
@@ -247,48 +336,64 @@ export default function HomeScreen() {
               <AppText style={styles.cardSubtitle}>This Week</AppText>
             </View>
             
-            <View style={styles.progressChartArea}>
-              <View style={styles.donutContainer}>
-                <View style={styles.donutCircle}>
-                  <AppText style={styles.progressPercent}>72%</AppText>
-                </View>
+            {loading ? (
+              <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+                <ActivityIndicator size="small" color="#4C1D95" />
               </View>
-              <View style={styles.progressLegend}>
-                <View style={styles.legendItem}>
-                  <View style={[styles.dot, { backgroundColor: '#10B981' }]} />
-                  <AppText style={styles.legendText}>Correct 85</AppText>
+            ) : (
+              <>
+                <View style={styles.progressChartArea}>
+                  <View style={styles.donutContainer}>
+                    <View style={[styles.donutCircle, { borderTopColor: '#2563EB', borderRightColor: overall.correct_pct > 25 ? '#2563EB' : '#E5E7EB', borderBottomColor: overall.correct_pct > 50 ? '#2563EB' : '#E5E7EB', borderLeftColor: overall.correct_pct > 75 ? '#2563EB' : '#E5E7EB' }]}>
+                      <AppText style={styles.progressPercent}>{overall.correct_pct}%</AppText>
+                    </View>
+                  </View>
+                  <View style={styles.progressLegend}>
+                    <View style={styles.legendItem}>
+                      <View style={[styles.dot, { backgroundColor: '#10B981' }]} />
+                      <AppText style={styles.legendText}>Correct {overall.correct_count}</AppText>
+                    </View>
+                    <View style={styles.legendItem}>
+                      <View style={[styles.dot, { backgroundColor: '#EF4444' }]} />
+                      <AppText style={styles.legendText}>Incorrect {overall.incorrect_count}</AppText>
+                    </View>
+                    <View style={styles.legendItem}>
+                      <View style={[styles.dot, { backgroundColor: '#9CA3AF' }]} />
+                      <AppText style={styles.legendText}>Unattempted {overall.unattempted_count}</AppText>
+                    </View>
+                  </View>
                 </View>
-                <View style={styles.legendItem}>
-                  <View style={[styles.dot, { backgroundColor: '#EF4444' }]} />
-                  <AppText style={styles.legendText}>Incorrect 23</AppText>
-                </View>
-                <View style={styles.legendItem}>
-                  <View style={[styles.dot, { backgroundColor: '#9CA3AF' }]} />
-                  <AppText style={styles.legendText}>Unattempted 12</AppText>
-                </View>
-              </View>
-            </View>
-            <TouchableOpacity activeOpacity={0.7} onPress={() => router.push('/(tabs)/reports')}>
-              <AppText style={styles.linkText}>See Detailed Report ›</AppText>
-            </TouchableOpacity>
+                <TouchableOpacity activeOpacity={0.7} onPress={() => router.push('/(tabs)/reports')}>
+                  <AppText style={styles.linkText}>See Detailed Report ›</AppText>
+                </TouchableOpacity>
+              </>
+            )}
           </View>
 
           {/* Daily Streak Card */}
           <TouchableOpacity style={styles.streakCard} activeOpacity={0.8} onPress={() => router.push('/streak')}>
             <AppText style={styles.cardTitle}>Daily Streak 🔥</AppText>
-            <AppText style={styles.streakNumber}>7 <AppText style={styles.streakLabel}>Days in a row!</AppText></AppText>
+            <AppText style={styles.streakNumber}>{currentStreak} <AppText style={styles.streakLabel}>Days in a row!</AppText></AppText>
             
             <View style={styles.daysRow}>
-              {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day, i) => (
-                <View key={day} style={styles.dayItem}>
-                  <View style={[styles.dayCircle, i < 6 ? styles.dayActive : styles.dayInactive]}>
-                    {i < 6 && <Image source={require('../../../assets/images/streak-check-icon.png')} style={{ width: 9, height: 9 }} contentFit="contain" />}
-                  </View>
-                  <AppText style={styles.dayText}>{day}</AppText>
+              {loading ? (
+                <View style={{ width: '100%', alignItems: 'center', paddingVertical: 10 }}>
+                  <ActivityIndicator size="small" color="#4C1D95" />
                 </View>
-              ))}
+              ) : (
+                trend.map((dayObj: any, i: number) => (
+                  <View key={dayObj.day} style={styles.dayItem}>
+                    <View style={[styles.dayCircle, dayObj.active ? styles.dayActive : styles.dayInactive]}>
+                      {dayObj.active && <Image source={require('../../../assets/images/streak-check-icon.png')} style={{ width: 9, height: 9 }} contentFit="contain" />}
+                    </View>
+                    <AppText style={styles.dayText}>{dayObj.day}</AppText>
+                  </View>
+                ))
+              )}
             </View>
-            <AppText style={styles.streakSubText}>Keep it up! You're on fire!</AppText>
+            <AppText style={styles.streakSubText}>
+              {currentStreak > 0 ? "Keep it up! You're on fire!" : "Start practicing to build your streak!"}
+            </AppText>
           </TouchableOpacity>
         </View>
         

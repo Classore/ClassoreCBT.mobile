@@ -1,5 +1,6 @@
 import { api } from './api';
 import { Platform } from 'react-native';
+import { storage } from './storage';
 
 export interface ExamGenerationRules {
   selection_strategy: string;
@@ -125,10 +126,44 @@ export interface SubmitExamPayload {
   }[];
 }
 
+const EXAMS_CACHE_KEY = '@classore_cached_exams';
+let memoryCachedExams: ExamType[] | null = null;
+
 export const examService = {
-  getExams: async (): Promise<ExamType[]> => {
-    const response = await api.get('/api/admin/exams/?is_published=true');
-    return response.data.results ? response.data.results : response.data;
+  getCachedExamsSync: (): ExamType[] | null => {
+    return memoryCachedExams;
+  },
+
+  getCachedExams: async (): Promise<ExamType[] | null> => {
+    if (memoryCachedExams && memoryCachedExams.length > 0) {
+      return memoryCachedExams;
+    }
+    const stored = await storage.get<ExamType[]>(EXAMS_CACHE_KEY);
+    if (stored && stored.length > 0) {
+      memoryCachedExams = stored;
+      return stored;
+    }
+    return null;
+  },
+
+  getExams: async (options?: { forceRefresh?: boolean }): Promise<ExamType[]> => {
+    try {
+      const response = await api.get('/api/admin/exams/?is_published=true');
+      const freshExams: ExamType[] = response.data.results ? response.data.results : response.data;
+      if (Array.isArray(freshExams) && freshExams.length > 0) {
+        memoryCachedExams = freshExams;
+        await storage.set(EXAMS_CACHE_KEY, freshExams);
+      }
+      return freshExams;
+    } catch (error) {
+      // Fallback to cache if network request fails
+      const cached = await examService.getCachedExams();
+      if (cached && cached.length > 0) {
+        console.warn('[examService] Network failed, falling back to cached exams');
+        return cached;
+      }
+      throw error;
+    }
   },
 
   getSections: async (examTypeId: number): Promise<ExamSection[]> => {

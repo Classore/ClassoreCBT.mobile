@@ -14,36 +14,68 @@ export default function ExamSetupScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ exam?: string }>();
   
-  const [exams, setExams] = useState<ExamType[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedExam, setSelectedExam] = useState<number | null>(null);
+  // Instant synchronous memory cache
+  const initialCached = examService.getCachedExamsSync();
+  const [exams, setExams] = useState<ExamType[]>(initialCached || []);
+  const [loading, setLoading] = useState<boolean>(!initialCached || initialCached.length === 0);
+  
+  // Helper to determine active exam ID based on list and params
+  const resolveExamId = (examList: ExamType[], currentId: number | null): number | null => {
+    if (!examList || examList.length === 0) return null;
+    if (params.exam) {
+      const examParam = Array.isArray(params.exam) ? params.exam[0] : params.exam;
+      const match = examList.find(e => 
+        String(e.id) === String(examParam) || 
+        e.name.toLowerCase().includes(String(examParam).toLowerCase())
+      );
+      if (match) return match.id;
+    }
+    if (currentId !== null && examList.some(e => e.id === currentId)) {
+      return currentId;
+    }
+    return examList[0].id;
+  };
+
+  const [selectedExam, setSelectedExam] = useState<number | null>(() => {
+    return initialCached && initialCached.length > 0 ? resolveExamId(initialCached, null) : null;
+  });
   const [selectedMode, setSelectedMode] = useState<'practice' | 'standard'>('practice');
 
   useEffect(() => {
-    const fetchExams = async () => {
+    let isMounted = true;
+
+    const loadExams = async () => {
+      // 1. If we don't have exams from memory cache yet, try persistent storage
+      if (!initialCached || initialCached.length === 0) {
+        const storedExams = await examService.getCachedExams();
+        if (isMounted && storedExams && storedExams.length > 0) {
+          setExams(storedExams);
+          setLoading(false);
+          setSelectedExam(prev => resolveExamId(storedExams, prev));
+        }
+      }
+
+      // 2. Fetch fresh updated exams from backend in background
       try {
-        const fetchedExams = await examService.getExams();
-        setExams(fetchedExams);
-        if (fetchedExams.length > 0) {
-          // If passed a param, try to match by name, else default to first
-          if (params.exam) {
-            const examParam = Array.isArray(params.exam) ? params.exam[0] : params.exam;
-            const match = fetchedExams.find(e => 
-              String(e.id) === String(examParam) || 
-              e.name.toLowerCase().includes(String(examParam).toLowerCase())
-            );
-            setSelectedExam(match ? match.id : fetchedExams[0].id);
-          } else {
-            setSelectedExam(fetchedExams[0].id);
-          }
+        const freshExams = await examService.getExams();
+        if (isMounted && freshExams && freshExams.length > 0) {
+          setExams(freshExams);
+          setSelectedExam(prev => resolveExamId(freshExams, prev));
         }
       } catch (error) {
-        console.error('Failed to fetch exams:', error);
+        console.error('Failed to fetch exams from backend:', error);
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     };
-    fetchExams();
+
+    loadExams();
+
+    return () => {
+      isMounted = false;
+    };
   }, [params.exam]);
 
   const handleContinue = () => {

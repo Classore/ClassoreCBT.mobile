@@ -17,66 +17,114 @@ import { Image } from 'expo-image';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { paymentService } from '@/services/payment';
 import { useAuth } from '@/context/AuthContext';
+import { WebView } from 'react-native-webview';
+import { RNIap } from '@/utils/iap';
+import { Modal } from 'react-native';
 
 export default function BuyTokensScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const { user, refreshUser } = useAuth();
 
-  const [selectedPack, setSelectedPack] = useState(
-    (params.packName as string) || 'Student Pack'
-  );
   const [selectedPayment, setSelectedPayment] = useState<'paystack' | 'flutterwave' | 'applepay'>('paystack');
   const [customAmount, setCustomAmount] = useState('');
   const [selectedQuickAmount, setSelectedQuickAmount] = useState('₦1,000');
   const [loading, setLoading] = useState(false);
+  const [showWebView, setShowWebView] = useState(false);
+  const [paymentUrl, setPaymentUrl] = useState('');
+
+  React.useEffect(() => {
+    // Initialize IAP connection
+    RNIap.initConnection().catch(console.warn);
+
+    const purchaseUpdateSubscription = RNIap.purchaseUpdatedListener(async (purchase) => {
+      try {
+        const receipt = purchase.transactionReceipt;
+        if (receipt) {
+          setLoading(true);
+          const data = await paymentService.verifyAppleIAP(purchase.transactionId || receipt);
+          Alert.alert('Success', data.message || 'Token purchase completed successfully!', [
+            { text: 'View Wallet', onPress: () => { refreshUser(); router.replace('/wallet'); } }
+          ]);
+          await RNIap.finishTransaction({ purchase, isConsumable: true });
+        }
+      } catch (err: any) {
+        Alert.alert('Error', err.message || 'Failed to verify purchase.');
+      } finally {
+        setLoading(false);
+      }
+    });
+
+    const purchaseErrorSubscription = RNIap.purchaseErrorListener((error) => {
+      console.log('purchaseErrorListener', error);
+      if (error.code !== 'E_USER_CANCELLED') {
+        Alert.alert('Purchase Error', error.message);
+      }
+    });
+
+    return () => {
+      purchaseUpdateSubscription.remove();
+      purchaseErrorSubscription.remove();
+      RNIap.endConnection();
+    };
+  }, []);
 
   const quickAmounts = ['₦1,000', '₦2,500', '₦5,000', '₦10,000'];
 
   const handleProceed = async () => {
     if (!params.packId) {
-      Alert.alert('Error', 'Please select a package first.');
+      if (Platform.OS === 'web') {
+        window.alert('Please select a package first.');
+      } else {
+        Alert.alert('Error', 'Please select a package first.');
+      }
       return;
     }
 
-    Alert.alert(
-      'Payment Confirmation',
-      `Proceeding to pay with ${selectedPayment.toUpperCase()} for ${selectedPack}?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Pay Now', 
-          onPress: async () => {
-            setLoading(true);
-            try {
-              if (selectedPayment === 'paystack') {
-                const data = await paymentService.initializePaystack(Number(params.packId));
-                if (data.authorization_url) {
-                  await Linking.openURL(data.authorization_url);
-                  // Optionally refresh user balance when returning
-                  setTimeout(() => refreshUser(), 5000);
-                } else {
-                  Alert.alert('Error', 'No authorization URL returned.');
-                }
-              } else if (selectedPayment === 'applepay') {
-                // Mock StoreKit 2 transaction verification
-                const data = await paymentService.verifyAppleIAP('mock_tx_id_12345');
-                Alert.alert('Success', data.message || 'Token purchase completed successfully!', [
-                  { text: 'View Wallet', onPress: () => { refreshUser(); router.replace('/wallet'); } }
-                ]);
-              } else {
-                Alert.alert('Notice', 'Payment method not yet implemented.');
-              }
-            } catch (err) {
-              console.error(err);
-              Alert.alert('Error', 'Failed to initialize payment.');
-            } finally {
-              setLoading(false);
-            }
-          } 
+    setLoading(true);
+    try {
+      if (selectedPayment === 'paystack') {
+        const data = await paymentService.initializePaystack(Number(params.packId));
+        if (data.authorization_url) {
+          setPaymentUrl(data.authorization_url);
+          setShowWebView(true);
+        } else {
+          if (Platform.OS === 'web') window.alert('No authorization URL returned.');
+          else Alert.alert('Error', 'No authorization URL returned.');
         }
-      ]
-    );
+      } else if (selectedPayment === 'applepay') {
+        if (Platform.OS !== 'ios') {
+          if (Platform.OS === 'web') window.alert('Apple Pay / In-App Purchases are only available on iOS.');
+          else Alert.alert('Notice', 'Apple Pay / In-App Purchases are only available on iOS.');
+          return;
+        }
+        const productId = `com.classorecbt.tokens.${params.packId}`;
+        const products = await RNIap.getProducts({ skus: [productId] });
+        if (products && products.length > 0) {
+          await RNIap.requestPurchase({ sku: productId });
+        } else {
+          Alert.alert('Error', 'Product not found on the App Store.');
+        }
+      } else if (selectedPayment === 'flutterwave') {
+        const data = await paymentService.initializeFlutterwave(Number(params.packId));
+        if (data.authorization_url) {
+          setPaymentUrl(data.authorization_url);
+          setShowWebView(true);
+        } else {
+          if (Platform.OS === 'web') window.alert('No authorization URL returned.');
+          else Alert.alert('Error', 'No authorization URL returned.');
+        }
+      } else {
+        if (Platform.OS === 'web') window.alert('Payment method not yet implemented.');
+        else Alert.alert('Notice', 'Payment method not yet implemented.');
+      }
+    } catch (err: any) {
+      console.error(err);
+      if (Platform.OS === 'web') window.alert(err.message || 'Failed to initialize payment.');
+      else Alert.alert('Error', err.message || 'Failed to initialize payment.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -87,7 +135,7 @@ export default function BuyTokensScreen() {
         <View style={styles.header}>
           <TouchableOpacity 
             style={styles.headerButton} 
-            onPress={() => router.back()}
+            onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}
             activeOpacity={0.7}
           >
             <Feather name="chevron-left" size={24} color="#111827" />
@@ -116,7 +164,7 @@ export default function BuyTokensScreen() {
                 style={styles.coinImageSmall} 
                 contentFit="contain" 
               />
-              <Text style={styles.balanceNumber}>2,450</Text>
+              <Text style={styles.balanceNumber}>{user?.token_balance?.toLocaleString() || '0'}</Text>
             </View>
           </View>
 
@@ -131,11 +179,11 @@ export default function BuyTokensScreen() {
               <Ionicons name="settings-outline" size={20} color="#6B7280" />
             </View>
             <View style={styles.packageInfo}>
-              <Text style={styles.packageName}>{selectedPack}</Text>
-              <Text style={styles.packageTokens}>1,000 Tokens</Text>
+              <Text style={styles.packageName}>{(params.packName as string) || 'Student Pack'}</Text>
+              <Text style={styles.packageTokens}>{(params.tokens as string) || '1,000 Tokens'}</Text>
             </View>
             <View style={styles.packagePriceRow}>
-              <Text style={styles.packagePrice}>₦1,000</Text>
+              <Text style={styles.packagePrice}>{(params.price as string) || '₦1,000'}</Text>
               <Feather name="chevron-down" size={16} color="#6B7280" style={{ marginLeft: 4 }} />
             </View>
           </TouchableOpacity>
@@ -268,13 +316,13 @@ export default function BuyTokensScreen() {
                   style={styles.coinImageTiny} 
                   contentFit="contain" 
                 />
-                <Text style={styles.receiveTokensText}>1,000 Tokens</Text>
+                <Text style={styles.receiveTokensText}>{(params.tokens as string) || '1,000 Tokens'}</Text>
               </View>
             </View>
 
             <View style={[styles.summaryCol, { alignItems: 'flex-end' }]}>
               <Text style={styles.summaryLabel}>Total Amount</Text>
-              <Text style={styles.totalAmountText}>₦1,000.00</Text>
+              <Text style={styles.totalAmountText}>{(params.price as string) || '₦1,000.00'}</Text>
             </View>
           </View>
 
@@ -291,6 +339,36 @@ export default function BuyTokensScreen() {
           <View style={{ height: 40 }} />
         </ScrollView>
       </View>
+
+      {/* Payment WebView Modal */}
+      <Modal visible={showWebView} animationType="slide" onRequestClose={() => setShowWebView(false)}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
+          <View style={styles.header}>
+            <TouchableOpacity style={styles.headerButton} onPress={() => setShowWebView(false)}>
+              <Feather name="x" size={24} color="#111827" />
+            </TouchableOpacity>
+            <Text style={styles.headerTitle}>Complete Payment</Text>
+            <View style={{ width: 40 }} />
+          </View>
+          <WebView
+            source={{ uri: paymentUrl }}
+            onNavigationStateChange={(navState) => {
+              if (navState.url.includes('/success') || navState.url.includes('/verify') || navState.url.includes('/callback')) {
+                // If it hits a success callback URL
+                setShowWebView(false);
+                Alert.alert('Success', 'Payment completed successfully!', [
+                  { text: 'View Wallet', onPress: () => { refreshUser(); router.replace('/wallet'); } }
+                ]);
+              } else if (navState.url.includes('/cancel')) {
+                setShowWebView(false);
+                Alert.alert('Cancelled', 'Payment was cancelled.');
+              }
+            }}
+            startInLoadingState={true}
+            renderLoading={() => <ActivityIndicator size="large" color="#7C3AED" style={{ flex: 1, justifyContent: 'center' }} />}
+          />
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }

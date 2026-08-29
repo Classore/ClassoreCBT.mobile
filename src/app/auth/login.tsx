@@ -78,11 +78,31 @@ export default function LoginScreen() {
                 try {
                   setFormError(null);
                   setLoading(true);
-                  const response = await api.post('/api/auth/login/', {
-                    username: email,
-                    password: password
+                  const API_URL = process.env.EXPO_PUBLIC_API_URL || (Platform.OS === 'android' ? 'http://10.0.2.2:8000' : 'http://127.0.0.1:8000');
+                  const res = await fetch(`${API_URL}/api/auth/login/`, {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                      username: email,
+                      password: password
+                    })
                   });
-                  await login(response.data.token);
+                  
+                  if (!res.ok) {
+                    const errorText = await res.text();
+                    throw new Error(`Login failed (${res.status}): ${errorText}`);
+                  }
+                  
+                  const response = { data: await res.json() };
+                  
+                  const token = response.data.token || response.data.key || response.data.access;
+                  if (!token) {
+                    throw new Error('No authentication token received from the server.');
+                  }
+                  
+                  login(token).catch(err => console.error("Login storage failed:", err));
                   router.replace('/(tabs)');
                 } catch (error: any) {
                   const data = error.response?.data;

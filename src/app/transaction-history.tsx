@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   View, 
   Text, 
@@ -6,10 +6,12 @@ import {
   SafeAreaView, 
   ScrollView, 
   TouchableOpacity, 
-  Platform 
+  Platform,
+  ActivityIndicator
 } from 'react-native';
-import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { walletService } from '@/services/wallet';
 
 interface TransactionItem {
   id: string;
@@ -18,110 +20,76 @@ interface TransactionItem {
   amount: string;
   balance: string;
   isPositive: boolean;
-  section: 'Today' | 'Yesterday' | 'May 8, 2026';
+  section: string;
   icon: string;
   iconBg: string;
   iconColor: string;
   type: 'sent' | 'received' | 'purchase';
 }
 
-const TRANSACTIONS_DATA: TransactionItem[] = [
-  {
-    id: '1',
-    title: 'Practice Test - JAMB UTME',
-    date: 'AUG 12, 2026 • 10:30 AM',
-    amount: '-300',
-    balance: 'Balance: 2,450',
-    isPositive: false,
-    section: 'Today',
-    icon: 'file-text',
-    iconBg: '#EDE9FE',
-    iconColor: '#7C3AED',
-    type: 'sent',
-  },
-  {
-    id: '2',
-    title: 'AI Writing Assessment',
-    date: 'AUG 12, 2026 • 09:15 AM',
-    amount: '-1000',
-    balance: 'Balance: 3,450',
-    isPositive: false,
-    section: 'Today',
-    icon: 'auto-fix',
-    iconBg: '#EDE9FE',
-    iconColor: '#7C3AED',
-    type: 'sent',
-  },
-  {
-    id: '3',
-    title: 'Token Purchase',
-    date: 'AUG 11, 2026 • 10:30 AM',
-    amount: '+1,000',
-    balance: 'Balance: 2,450',
-    isPositive: true,
-    section: 'Yesterday',
-    icon: 'file-text',
-    iconBg: '#EDE9FE',
-    iconColor: '#7C3AED',
-    type: 'purchase',
-  },
-  {
-    id: '4',
-    title: 'Streak Bonus (7 days)',
-    date: 'AUG 11, 2026 • 09:15 AM',
-    amount: '+1,000',
-    balance: 'Balance: 3,450',
-    isPositive: true,
-    section: 'Yesterday',
-    icon: 'fire',
-    iconBg: '#FFE4E6',
-    iconColor: '#E11D48',
-    type: 'received',
-  },
-  {
-    id: '5',
-    title: 'Referral Bonus',
-    date: 'AUG 11, 2026 • 10:30 AM',
-    amount: '+100',
-    balance: 'Balance: 2,450',
-    isPositive: true,
-    section: 'May 8, 2026',
-    icon: 'gift',
-    iconBg: '#EDE9FE',
-    iconColor: '#7C3AED',
-    type: 'received',
-  },
-  {
-    id: '6',
-    title: 'Streak Bonus (7 days)',
-    date: 'AUG 11, 2026 • 09:15 AM',
-    amount: '+1,000',
-    balance: 'Balance: 3,450',
-    isPositive: true,
-    section: 'May 8, 2026',
-    icon: 'fire',
-    iconBg: '#FFE4E6',
-    iconColor: '#E11D48',
-    type: 'received',
-  },
-];
-
 export default function TransactionHistoryScreen() {
   const router = useRouter();
   const [activeFilter, setActiveFilter] = useState<'All' | 'Sent' | 'Received' | 'Purchase'>('All');
+  const [transactions, setTransactions] = useState<TransactionItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const fetchTransactions = async () => {
+    try {
+      setIsLoading(true);
+      // Fetch matching filter directly, or filter on client
+      const data = await walletService.getTransactions({ type: activeFilter });
+      
+      const mapped = data.map((item: any, index: number) => {
+        const isPos = item.transaction_type === 'CREDIT' || Number(item.amount) > 0;
+        const d = new Date(item.created_at);
+        const today = new Date();
+        const yesterday = new Date(today);
+        yesterday.setDate(yesterday.getDate() - 1);
+
+        let sectionName = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        if (d.toDateString() === today.toDateString()) {
+          sectionName = 'Today';
+        } else if (d.toDateString() === yesterday.toDateString()) {
+          sectionName = 'Yesterday';
+        }
+
+        let typeStr: 'sent' | 'received' | 'purchase' = isPos ? 'received' : 'sent';
+        if (item.description?.toLowerCase().includes('purchase')) typeStr = 'purchase';
+
+        return {
+          id: String(item.id || index),
+          title: item.description || (isPos ? 'Deposit' : 'Withdrawal'),
+          date: `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).toUpperCase()} • ${d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`,
+          amount: isPos ? `+${Number(item.amount).toLocaleString()}` : `-${Math.abs(Number(item.amount)).toLocaleString()}`,
+          balance: item.balance_after ? `Balance: ${Number(item.balance_after).toLocaleString()}` : '',
+          isPositive: isPos,
+          section: sectionName,
+          icon: isPos ? 'gift' : 'file-text',
+          iconBg: isPos ? '#EDE9FE' : '#FFE4E6',
+          iconColor: isPos ? '#7C3AED' : '#E11D48',
+          type: typeStr,
+        };
+      });
+      setTransactions(mapped);
+    } catch (error) {
+      console.error('Failed to fetch transactions:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchTransactions();
+  }, [activeFilter]);
 
   const filters: ('All' | 'Sent' | 'Received' | 'Purchase')[] = ['All', 'Sent', 'Received', 'Purchase'];
 
-  const filteredData = TRANSACTIONS_DATA.filter(item => {
-    if (activeFilter === 'Sent') return item.type === 'sent';
-    if (activeFilter === 'Received') return item.type === 'received';
-    if (activeFilter === 'Purchase') return item.type === 'purchase';
-    return true;
-  });
-
-  const todayItems = filteredData.filter(item => item.section === 'Today');
-  const yesterdayItems = filteredData.filter(item => item.section === 'Yesterday');
-  const may8Items = filteredData.filter(item => item.section === 'May 8, 2026');
+  // Group by section
+  const sectionsObj = transactions.reduce((acc, curr) => {
+    if (!acc[curr.section]) acc[curr.section] = [];
+    acc[curr.section].push(curr);
+    return acc;
+  }, {} as Record<string, TransactionItem[]>);
 
   const renderIcon = (item: TransactionItem) => {
     if (item.icon === 'fire') {
@@ -144,7 +112,7 @@ export default function TransactionHistoryScreen() {
         <View style={styles.header}>
           <TouchableOpacity 
             style={styles.headerButton} 
-            onPress={() => router.back()}
+            onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}
             activeOpacity={0.7}
           >
             <Feather name="chevron-left" size={24} color="#111827" />
@@ -183,82 +151,35 @@ export default function TransactionHistoryScreen() {
             })}
           </View>
 
-          {/* Today Section */}
-          {todayItems.length > 0 && (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Today</Text>
-              <View style={styles.cardsList}>
-                {todayItems.map((item) => (
-                  <View key={item.id} style={styles.transactionCard}>
-                    <View style={[styles.iconBg, { backgroundColor: item.iconBg }]}>
-                      {renderIcon(item)}
+          {isLoading ? (
+            <ActivityIndicator size="large" color="#4C1D95" style={{ marginVertical: 40 }} />
+          ) : Object.keys(sectionsObj).length === 0 ? (
+            <Text style={{ textAlign: 'center', color: '#6B7280', marginTop: 20 }}>No transactions found.</Text>
+          ) : (
+            Object.keys(sectionsObj).map(sectionTitle => (
+              <View key={sectionTitle} style={styles.section}>
+                <Text style={styles.sectionTitle}>{sectionTitle}</Text>
+                <View style={styles.cardsList}>
+                  {sectionsObj[sectionTitle].map((item) => (
+                    <View key={item.id} style={styles.transactionCard}>
+                      <View style={[styles.iconBg, { backgroundColor: item.iconBg }]}>
+                        {renderIcon(item)}
+                      </View>
+                      <View style={styles.infoCol}>
+                        <Text style={styles.itemTitle}>{item.title}</Text>
+                        <Text style={styles.itemDate}>{item.date}</Text>
+                      </View>
+                      <View style={styles.amountCol}>
+                        <Text style={[styles.amountText, { color: item.isPositive ? '#2563EB' : '#EF4444' }]}>
+                          {item.amount}
+                        </Text>
+                        {!!item.balance && <Text style={styles.balanceText}>{item.balance}</Text>}
+                      </View>
                     </View>
-                    <View style={styles.infoCol}>
-                      <Text style={styles.itemTitle}>{item.title}</Text>
-                      <Text style={styles.itemDate}>{item.date}</Text>
-                    </View>
-                    <View style={styles.amountCol}>
-                      <Text style={[styles.amountText, { color: item.isPositive ? '#2563EB' : '#EF4444' }]}>
-                        {item.amount}
-                      </Text>
-                      <Text style={styles.balanceText}>{item.balance}</Text>
-                    </View>
-                  </View>
-                ))}
+                  ))}
+                </View>
               </View>
-            </View>
-          )}
-
-          {/* Yesterday Section */}
-          {yesterdayItems.length > 0 && (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Yesterday</Text>
-              <View style={styles.cardsList}>
-                {yesterdayItems.map((item) => (
-                  <View key={item.id} style={styles.transactionCard}>
-                    <View style={[styles.iconBg, { backgroundColor: item.iconBg }]}>
-                      {renderIcon(item)}
-                    </View>
-                    <View style={styles.infoCol}>
-                      <Text style={styles.itemTitle}>{item.title}</Text>
-                      <Text style={styles.itemDate}>{item.date}</Text>
-                    </View>
-                    <View style={styles.amountCol}>
-                      <Text style={[styles.amountText, { color: item.isPositive ? '#2563EB' : '#EF4444' }]}>
-                        {item.amount}
-                      </Text>
-                      <Text style={styles.balanceText}>{item.balance}</Text>
-                    </View>
-                  </View>
-                ))}
-              </View>
-            </View>
-          )}
-
-          {/* May 8 Section */}
-          {may8Items.length > 0 && (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>May 8, 2026</Text>
-              <View style={styles.cardsList}>
-                {may8Items.map((item) => (
-                  <View key={item.id} style={styles.transactionCard}>
-                    <View style={[styles.iconBg, { backgroundColor: item.iconBg }]}>
-                      {renderIcon(item)}
-                    </View>
-                    <View style={styles.infoCol}>
-                      <Text style={styles.itemTitle}>{item.title}</Text>
-                      <Text style={styles.itemDate}>{item.date}</Text>
-                    </View>
-                    <View style={styles.amountCol}>
-                      <Text style={[styles.amountText, { color: item.isPositive ? '#2563EB' : '#EF4444' }]}>
-                        {item.amount}
-                      </Text>
-                      <Text style={styles.balanceText}>{item.balance}</Text>
-                    </View>
-                  </View>
-                ))}
-              </View>
-            </View>
+            ))
           )}
 
           <View style={{ height: 40 }} />

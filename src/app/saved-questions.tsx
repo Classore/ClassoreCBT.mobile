@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   View, 
   Text, 
@@ -7,10 +7,12 @@ import {
   ScrollView, 
   TouchableOpacity, 
   TextInput, 
-  Platform 
+  Platform,
+  ActivityIndicator
 } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { examService } from '@/services/exam';
 
 interface SavedQuestionItem {
   id: string;
@@ -25,54 +27,46 @@ interface SavedQuestionItem {
   iconName: string;
   iconBg: string;
   iconColor: string;
+  originalId: number;
 }
-
-const SAVED_QUESTIONS_DATA: SavedQuestionItem[] = [
-  {
-    id: '1',
-    exam: 'JAMB UTME',
-    subject: 'Mathematics',
-    tag: 'Bookmarked',
-    question: 'Solve for x: 2x + 5 = 17',
-    date: 'May 10, 2025',
-    qCode: 'Q#234567',
-    difficulty: 'Easy',
-    hasDiagram: true,
-    iconName: 'file-text',
-    iconBg: '#EDE9FE',
-    iconColor: '#7C3AED',
-  },
-  {
-    id: '2',
-    exam: 'WAEC',
-    subject: 'Physics',
-    tag: 'Difficult',
-    question: 'A body of mass 2kg is accelerated at 4m/s². What is the force acting on the body?',
-    date: 'May 9, 2025',
-    qCode: 'Q#112233',
-    difficulty: 'Medium',
-    iconName: 'clock',
-    iconBg: '#FFEDD5',
-    iconColor: '#EA580C',
-  },
-  {
-    id: '3',
-    exam: 'NECO',
-    subject: 'English Language',
-    tag: 'Bookmarked',
-    question: 'Choose the option that best completes the sentence: She has been working here _____ 2019.',
-    date: 'May 8, 2025',
-    qCode: 'Q#778899',
-    difficulty: 'Easy',
-    iconName: 'file-text',
-    iconBg: '#D1FAE5',
-    iconColor: '#059669',
-  },
-];
 
 export default function SavedQuestionsScreen() {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
+  const [questions, setQuestions] = useState<SavedQuestionItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const fetchQuestions = async () => {
+    try {
+      setIsLoading(true);
+      const data = await examService.getSavedQuestions();
+      // Map API data to UI items
+      const mapped = data.map((item: any, index: number) => ({
+        id: String(index),
+        originalId: item.question.id,
+        exam: item.question.exam_type_name || 'General',
+        subject: item.question.section_name || 'General',
+        tag: item.notes?.toLowerCase().includes('difficult') ? 'Difficult' : 'Bookmarked',
+        question: item.question.text || 'No question text',
+        date: new Date(item.created_at).toLocaleDateString(),
+        qCode: `Q#${item.question.id}`,
+        difficulty: item.question.difficulty || 'Medium',
+        hasDiagram: !!item.question.image,
+        iconName: item.notes?.toLowerCase().includes('difficult') ? 'clock' : 'file-text',
+        iconBg: item.notes?.toLowerCase().includes('difficult') ? '#FFEDD5' : '#EDE9FE',
+        iconColor: item.notes?.toLowerCase().includes('difficult') ? '#EA580C' : '#7C3AED',
+      }));
+      setQuestions(mapped);
+    } catch (error) {
+      console.error('Failed to fetch saved questions:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchQuestions();
+  }, []);
 
   const getDifficultyColor = (diff: string) => {
     switch (diff) {
@@ -83,6 +77,11 @@ export default function SavedQuestionsScreen() {
     }
   };
 
+  const filteredQuestions = questions.filter(q => 
+    q.question.toLowerCase().includes(searchQuery.toLowerCase()) || 
+    q.subject.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
@@ -91,7 +90,7 @@ export default function SavedQuestionsScreen() {
         <View style={styles.header}>
           <TouchableOpacity 
             style={styles.headerButton} 
-            onPress={() => router.back()}
+            onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}
             activeOpacity={0.7}
           >
             <Feather name="chevron-left" size={24} color="#111827" />
@@ -139,70 +138,76 @@ export default function SavedQuestionsScreen() {
 
           {/* Questions Cards List */}
           <View style={styles.cardsList}>
-            {SAVED_QUESTIONS_DATA.map((item) => {
-              const isDifficult = item.tag === 'Difficult';
-              return (
-                <TouchableOpacity key={item.id} style={styles.questionCard} activeOpacity={0.8}>
-                  {/* Top Row: Exam & Tag Badge */}
-                  <View style={styles.cardTopRow}>
-                    <View style={[styles.iconBg, { backgroundColor: item.iconBg }]}>
-                      <Feather name={item.iconName as any} size={16} color={item.iconColor} />
+            {isLoading ? (
+              <ActivityIndicator size="large" color="#4C1D95" style={{ marginVertical: 40 }} />
+            ) : filteredQuestions.length === 0 ? (
+              <Text style={{ textAlign: 'center', color: '#6B7280', marginTop: 20 }}>No saved questions found.</Text>
+            ) : (
+              filteredQuestions.map((item) => {
+                const isDifficult = item.tag === 'Difficult';
+                return (
+                  <TouchableOpacity key={item.id} style={styles.questionCard} activeOpacity={0.8}>
+                    {/* Top Row: Exam & Tag Badge */}
+                    <View style={styles.cardTopRow}>
+                      <View style={[styles.iconBg, { backgroundColor: item.iconBg }]}>
+                        <Feather name={item.iconName as any} size={16} color={item.iconColor} />
+                      </View>
+                      <View style={styles.examInfo}>
+                        <Text style={styles.examName}>{item.exam}</Text>
+                        <Text style={styles.subjectName}>{item.subject}</Text>
+                      </View>
+                      <View style={[styles.tagBadge, isDifficult ? styles.difficultBadge : styles.bookmarkedBadge]}>
+                        <Text style={[styles.tagBadgeText, isDifficult ? styles.difficultBadgeText : styles.bookmarkedBadgeText]}>
+                          {item.tag}
+                        </Text>
+                      </View>
                     </View>
-                    <View style={styles.examInfo}>
-                      <Text style={styles.examName}>{item.exam}</Text>
-                      <Text style={styles.subjectName}>{item.subject}</Text>
+
+                    {/* Question Body */}
+                    <View style={styles.questionBodyRow}>
+                      <Text style={styles.questionText}>
+                        {item.question}
+                      </Text>
+                      {item.hasDiagram && (
+                        <View style={styles.diagramBox}>
+                          <MaterialCommunityIcons name="angle-acute" size={32} color="#9CA3AF" />
+                          <Text style={styles.diagramText}>img</Text>
+                        </View>
+                      )}
                     </View>
-                    <View style={[styles.tagBadge, isDifficult ? styles.difficultBadge : styles.bookmarkedBadge]}>
-                      <Text style={[styles.tagBadgeText, isDifficult ? styles.difficultBadgeText : styles.bookmarkedBadgeText]}>
-                        {item.tag}
+
+                    {/* Card Bottom Row: Date & Difficulty */}
+                    <View style={styles.cardBottomRow}>
+                      <Text style={styles.metaText}>{item.date} • {item.qCode}</Text>
+                      <Text style={[styles.difficultyText, { color: getDifficultyColor(item.difficulty) }]}>
+                        {item.difficulty}
                       </Text>
                     </View>
-                  </View>
-
-                  {/* Question Body */}
-                  <View style={styles.questionBodyRow}>
-                    <Text style={styles.questionText}>
-                      {item.question}
-                    </Text>
-                    {item.hasDiagram && (
-                      <View style={styles.diagramBox}>
-                        <MaterialCommunityIcons name="angle-acute" size={32} color="#9CA3AF" />
-                        <Text style={styles.diagramText}>x</Text>
-                      </View>
-                    )}
-                  </View>
-
-                  {/* Card Bottom Row: Date & Difficulty */}
-                  <View style={styles.cardBottomRow}>
-                    <Text style={styles.metaText}>{item.date} • {item.qCode}</Text>
-                    <Text style={[styles.difficultyText, { color: getDifficultyColor(item.difficulty) }]}>
-                      {item.difficulty}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
+                  </TouchableOpacity>
+                );
+              })
+            )}
           </View>
 
           {/* Bottom Stats Triad Card */}
           <View style={styles.statsCard}>
             <View style={styles.statCol}>
               <Text style={styles.statLabel}>Total Saved</Text>
-              <Text style={[styles.statValue, { color: '#6D28D9' }]}>128</Text>
+              <Text style={[styles.statValue, { color: '#6D28D9' }]}>{questions.length}</Text>
             </View>
 
             <View style={styles.statDivider} />
 
             <View style={styles.statCol}>
               <Text style={styles.statLabel}>Bookmarked</Text>
-              <Text style={[styles.statValue, { color: '#6D28D9' }]}>84</Text>
+              <Text style={[styles.statValue, { color: '#6D28D9' }]}>{questions.filter(q => q.tag === 'Bookmarked').length}</Text>
             </View>
 
             <View style={styles.statDivider} />
 
             <View style={styles.statCol}>
               <Text style={styles.statLabel}>Difficult</Text>
-              <Text style={[styles.statValue, { color: '#EF4444' }]}>44</Text>
+              <Text style={[styles.statValue, { color: '#EF4444' }]}>{questions.filter(q => q.tag === 'Difficult').length}</Text>
             </View>
           </View>
 

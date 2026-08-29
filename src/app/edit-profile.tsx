@@ -22,15 +22,15 @@ export default function EditProfileScreen() {
   const [fullName, setFullName] = useState(
     user?.first_name && user?.last_name
       ? `${user.first_name} ${user.last_name}`
-      : (user?.username || 'Daniel Adekunle')
+      : (user?.username || '')
   );
-  const [email, setEmail] = useState(user?.email || 'daniel.adekunle@example.com');
-  const [phoneNumber, setPhoneNumber] = useState(user?.phone_number || '+234 801 234 5678');
-  const [dateOfBirth, setDateOfBirth] = useState('15 May 2002');
-  const [gender, setGender] = useState('Male');
-  const [state, setState] = useState(user?.state || 'Lagos');
-  const [school, setSchool] = useState(user?.school || 'Lagos State University');
-  const [classLevel, setClassLevel] = useState('200 Level');
+  const [email, setEmail] = useState(user?.email || '');
+  const [phoneNumber, setPhoneNumber] = useState(user?.phone_number || '');
+  const [dateOfBirth, setDateOfBirth] = useState(user?.date_of_birth || '');
+  const [gender, setGender] = useState(user?.gender || '');
+  const [state, setState] = useState(user?.state || '');
+  const [school, setSchool] = useState(user?.school || '');
+  const [classLevel, setClassLevel] = useState(user?.class_level || '');
 
   const [isSaving, setIsSaving] = useState(false);
 
@@ -45,6 +45,7 @@ export default function EditProfileScreen() {
         first_name: firstName,
         last_name: lastName,
         phone_number: phoneNumber.trim(),
+        date_of_birth: dateOfBirth.trim(),
         gender: gender,
         state: state.trim(),
         school: school.trim(),
@@ -52,7 +53,7 @@ export default function EditProfileScreen() {
       });
 
       Alert.alert('Success', 'Profile changes saved successfully!', [
-        { text: 'OK', onPress: () => router.back() }
+        { text: 'OK', onPress: () => (router.canGoBack() ? router.back() : router.replace('/')) }
       ]);
     } catch (error: any) {
       const errorMsg = error.response?.data?.message || 'Failed to save profile changes. Please try again.';
@@ -84,7 +85,7 @@ export default function EditProfileScreen() {
         <View style={styles.header}>
           <TouchableOpacity 
             style={styles.headerButton} 
-            onPress={() => router.back()}
+            onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}
             activeOpacity={0.7}
           >
             <Feather name="chevron-left" size={24} color="#111827" />
