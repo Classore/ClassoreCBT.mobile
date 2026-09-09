@@ -67,13 +67,26 @@ export default function IELTSSpeakingSessionScreen() {
           setAttempt(res);
           setTotalTimeLeft(res.timer_info.remaining_seconds);
           
-          const speakSec = res.sections.find(s => s.section_name.toLowerCase().includes('speaking'));
+          const speakSec = res.sections.find(s => s.section_name.toLowerCase().includes('speaking')) || res.sections[0];
+          if (speakSec) {
+            setSpeakingSection(speakSec);
+          }
+        } else {
+          const examId = (params as any).exam ? Number((params as any).exam) : ((params as any).exam_type_id ? Number((params as any).exam_type_id) : 42);
+          const newAttempt = await examService.startExam({
+            exam_type_id: examId,
+            mode: 'Standard',
+          });
+          const res = await examService.resumeExam(newAttempt.id);
+          setAttempt(res);
+          setTotalTimeLeft(res.timer_info.remaining_seconds);
+          const speakSec = res.sections.find(s => s.section_name.toLowerCase().includes('speaking')) || res.sections[0];
           if (speakSec) {
             setSpeakingSection(speakSec);
           }
         }
       } catch (e) {
-        console.warn('Could not initialize IELTS speaking:', e);
+        console.warn('Could not initialize speaking session:', e);
       } finally {
         setLoading(false);
       }
@@ -115,7 +128,7 @@ export default function IELTSSpeakingSessionScreen() {
   }, [loading]);
 
   useEffect(() => {
-    let subTimer: NodeJS.Timeout;
+    let subTimer: ReturnType<typeof setInterval>;
     if (subState === 'get-ready') {
       subTimer = setInterval(() => {
         setCountdown((prev) => {
@@ -199,7 +212,7 @@ export default function IELTSSpeakingSessionScreen() {
   const handleSubmit = () => {
     Alert.alert(
       'Submit Test',
-      'Are you sure you want to submit your IELTS Speaking test?',
+      `Are you sure you want to submit your ${speakingSection?.section_name || 'Speaking'} test?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -267,7 +280,7 @@ export default function IELTSSpeakingSessionScreen() {
           >
             <Feather name="menu" size={20} color="#111827" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>IELTS Speaking</Text>
+          <Text style={styles.headerTitle}>{speakingSection?.section_name || 'Speaking'}</Text>
           <View style={styles.timerBadge}>
             <Text style={styles.timerText}>{formatTotalTime(totalTimeLeft)}</Text>
           </View>

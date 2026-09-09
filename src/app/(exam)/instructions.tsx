@@ -1,14 +1,118 @@
 import { AppText } from '@/components/AppText';
-import React from 'react';
-import { View, Text, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, Platform } from 'react-native';
+import { useAuth } from '@/context/AuthContext';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, Platform, Alert } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Image } from 'expo-image';
 import { CustomButton } from '@/components/CustomButton';
 
+import { examService, isSectionBasedExam } from '@/services/exam';
+
 export default function TestInstructionsScreen() {
+  const { user } = useAuth();
   const router = useRouter();
-  const params = useLocalSearchParams();
+  const params = useLocalSearchParams<{
+    exam_type_id?: string;
+    exam?: string;
+    mode?: string;
+    sections?: string;
+    difficulty?: string;
+    question_count?: string;
+    time_limit?: string;
+    is_timed?: string;
+  }>();
+
+  const [isStarting, setIsStarting] = useState(false);
+
+  const handleBeginTest = async () => {
+    if (isStarting) return;
+    setIsStarting(true);
+    try {
+      const examTypeId = params.exam_type_id 
+        ? Number(params.exam_type_id) 
+        : (params.exam ? Number(params.exam) : 41);
+      
+      const mode = (params.mode as 'Standard' | 'Practice') || 'Standard';
+      let selectedSectionIds: number[] | undefined;
+      if (params.sections) {
+        try {
+          selectedSectionIds = typeof params.sections === 'string' 
+            ? JSON.parse(params.sections) 
+            : params.sections;
+        } catch {
+          selectedSectionIds = undefined;
+        }
+      }
+
+      const timeLimitOverride = params.time_limit ? Number(params.time_limit) : undefined;
+      const targetQuestionCount = params.question_count ? Number(params.question_count) : undefined;
+      const targetDifficulty = params.difficulty ? String(params.difficulty) : undefined;
+
+      let practiceConfig: Record<string, any> | undefined;
+      if (mode === 'Practice') {
+        practiceConfig = {
+          question_count: targetQuestionCount || 40,
+          difficulty: targetDifficulty || 'Medium',
+        };
+        if (selectedSectionIds && selectedSectionIds.length > 0) {
+          selectedSectionIds.forEach(id => {
+            practiceConfig![String(id)] = {
+              question_count: targetQuestionCount || 40,
+              difficulty: targetDifficulty || 'Medium',
+            };
+          });
+        }
+      }
+
+      const allExams = await examService.getExams();
+      const currentExam = allExams.find(e => e.id === examTypeId);
+
+      const newAttempt = await examService.startExam({
+        exam_type_id: examTypeId,
+        mode: mode,
+        selected_section_ids: selectedSectionIds,
+        time_limit_override: mode === 'Practice' && timeLimitOverride ? timeLimitOverride : undefined,
+        question_count: targetQuestionCount,
+        difficulty: targetDifficulty,
+        practice_config: practiceConfig,
+      });
+
+      const isSectionExam = isSectionBasedExam(currentExam?.name, newAttempt.sections);
+
+      if (isSectionExam) {
+        router.push({
+          pathname: '/(exam)/ielts-session',
+          params: {
+            attempt_id: String(newAttempt.id),
+            exam: String(examTypeId),
+            exam_type_id: String(examTypeId),
+            mode: mode,
+            sections: params.sections,
+          },
+        });
+      } else {
+        router.push({
+          pathname: '/(exam)/session',
+          params: {
+            attempt_id: String(newAttempt.id),
+            exam_type_id: String(examTypeId),
+            mode: mode,
+            sections: params.sections,
+          },
+        });
+      }
+    } catch (error: any) {
+      console.error('Failed to start exam:', error);
+      const errorMsg = error?.response?.data?.error 
+        || error?.response?.data?.detail 
+        || error?.message 
+        || 'Failed to start exam. Please check your connection and try again.';
+      Alert.alert('Unable to Start Exam', errorMsg);
+    } finally {
+      setIsStarting(false);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -22,7 +126,7 @@ export default function TestInstructionsScreen() {
           <AppText style={styles.headerTitle}>Test Instructions</AppText>
           <View style={styles.streakBadge}>
             <AppText style={styles.streakEmoji}>🔥</AppText>
-            <AppText style={styles.streakText}>120</AppText>
+            <AppText style={styles.streakText}>{user?.streak || 0}</AppText>
           </View>
         </View>
 
@@ -72,12 +176,9 @@ export default function TestInstructionsScreen() {
 
         <CustomButton 
           title="Begin Test" 
-          onPress={() => router.push({
-            pathname: '/(exam)/session',
-            params: params
-          })} 
+          onPress={handleBeginTest} 
+          loading={isStarting}
           style={styles.beginButton} 
-          iconRight="arrow-right"
         />
 
         <View style={{height: 40}} />

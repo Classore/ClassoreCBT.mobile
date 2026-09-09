@@ -1,3 +1,4 @@
+import { useAuth } from '@/context/AuthContext';
 import React from 'react';
 import { 
   View, 
@@ -6,7 +7,8 @@ import {
   SafeAreaView, 
   ScrollView, 
   TouchableOpacity, 
-  Platform 
+  Platform,
+  ActivityIndicator
 } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -25,66 +27,34 @@ interface SubjectItem {
 }
 
 export default function SubjectPerformanceScreen() {
+  const { user } = useAuth();
   const router = useRouter();
   const params = useLocalSearchParams<{ attempt_id?: string }>();
 
-  const [loading, setLoading] = React.useState(false);
-  const [overallAccuracy, setOverallAccuracy] = React.useState(54);
-  const [subjectList, setSubjectList] = React.useState<SubjectItem[]>([
-    {
-      id: 'english',
-      name: 'Use of English',
-      score: 60,
-      total: 100,
-      percentage: 60,
-      rating: 'Excellent',
-      icon: 'book-open-outline',
-      iconBg: '#EDE9FE',
-      iconColor: '#7C3AED',
-    },
-    {
-      id: 'math',
-      name: 'Mathematics',
-      score: 70,
-      total: 100,
-      percentage: 70,
-      rating: 'Excellent',
-      icon: 'function-variant',
-      iconBg: '#DCFCE7',
-      iconColor: '#16A34A',
-    },
-    {
-      id: 'physics',
-      name: 'Physics',
-      score: 34,
-      total: 100,
-      percentage: 34,
-      rating: 'Poor',
-      icon: 'atom',
-      iconBg: '#FEF3C7',
-      iconColor: '#D97706',
-    },
-    {
-      id: 'chemistry',
-      name: 'Chemistry',
-      score: 35,
-      total: 70,
-      percentage: 35,
-      rating: 'Poor',
-      icon: 'flask-outline',
-      iconBg: '#FEE2E2',
-      iconColor: '#DC2626',
-    },
-  ]);
+  const [loading, setLoading] = React.useState<boolean>(Boolean(params.attempt_id));
+  const [overallAccuracy, setOverallAccuracy] = React.useState<number | null>(null);
+  const [totalQuestions, setTotalQuestions] = React.useState<number>(0);
+  const [subjectList, setSubjectList] = React.useState<SubjectItem[]>([]);
+  const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     const loadPerformance = async () => {
-      if (!params.attempt_id) return;
+      if (!params.attempt_id) {
+        setError('No exam session ID provided.');
+        setLoading(false);
+        return;
+      }
       try {
         setLoading(true);
+        setError(null);
         const data = await examService.getDetailedAnalytics(Number(params.attempt_id));
         if (data) {
-          if (data.overall_accuracy !== undefined) setOverallAccuracy(data.overall_accuracy);
+          if (data.overall_accuracy !== undefined) {
+            setOverallAccuracy(Math.round(data.overall_accuracy));
+          }
+          if (data.total_questions_attempted !== undefined) {
+            setTotalQuestions(data.total_questions_attempted);
+          }
           if (data.subjects && Array.isArray(data.subjects) && data.subjects.length > 0) {
             const icons = [
               { icon: 'book-open-outline', iconBg: '#EDE9FE', iconColor: '#7C3AED' },
@@ -92,28 +62,44 @@ export default function SubjectPerformanceScreen() {
               { icon: 'atom', iconBg: '#FEF3C7', iconColor: '#D97706' },
               { icon: 'flask-outline', iconBg: '#FEE2E2', iconColor: '#DC2626' },
             ];
+            let calculatedTotalQ = 0;
             const mapped: SubjectItem[] = data.subjects.map((s: any, idx: number) => {
-              const pct = s.accuracy_percentage ?? 50;
+              const pct = Math.round(s.accuracy_percentage ?? (s.total_questions ? (s.score / s.total_questions) * 100 : 0));
               let rating: 'Excellent' | 'Good' | 'Poor' = 'Good';
               if (pct >= 70) rating = 'Excellent';
               else if (pct < 45) rating = 'Poor';
 
+              const qCount = s.total_questions || 0;
+              calculatedTotalQ += qCount;
+
               const iconStyle = icons[idx % icons.length];
               return {
-                id: String(s.section_name),
+                id: String(s.section_name || idx),
                 name: s.section_name,
-                score: s.score,
-                total: s.total_questions || 100,
+                score: s.score ?? 0,
+                total: qCount,
                 percentage: pct,
                 rating: rating,
                 ...iconStyle
               };
             });
+
+            if (!data.total_questions_attempted && calculatedTotalQ > 0) {
+              setTotalQuestions(calculatedTotalQ);
+            }
             setSubjectList(mapped);
+
+            if (data.overall_accuracy === undefined && mapped.length > 0) {
+              const avg = Math.round(mapped.reduce((acc, curr) => acc + curr.percentage, 0) / mapped.length);
+              setOverallAccuracy(avg);
+            }
           }
+        } else {
+          setError('Could not retrieve subject performance data.');
         }
-      } catch (e) {
+      } catch (e: any) {
         console.warn('Could not fetch subject performance analytics:', e);
+        setError('Failed to load subject performance.');
       } finally {
         setLoading(false);
       }
@@ -144,109 +130,133 @@ export default function SubjectPerformanceScreen() {
             activeOpacity={0.8}
           >
             <Text style={{ fontSize: 13, marginRight: 4 }}>🔥</Text>
-            <Text style={styles.streakText}>120</Text>
+            <Text style={styles.streakText}>{user?.streak || 0}</Text>
           </TouchableOpacity>
         </View>
 
-        <ScrollView 
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.scrollContent}
-        >
-          {/* Headline Row */}
-          <View style={styles.headlineRow}>
-            <Text style={styles.mainTitle}>Subject Performance</Text>
-            <View style={styles.questionsPill}>
-              <Text style={styles.questionsPillText}>400 Questions</Text>
-            </View>
+        {loading ? (
+          <View style={styles.centerContainer}>
+            <ActivityIndicator size="large" color="#7C3AED" />
+            <Text style={styles.loadingText}>Loading subject performance...</Text>
           </View>
-          <Text style={styles.subtitle}>See how you performed in each subject</Text>
+        ) : error || subjects.length === 0 ? (
+          <View style={styles.centerContainer}>
+            <MaterialCommunityIcons name="alert-circle-outline" size={48} color="#94A3B8" />
+            <Text style={styles.errorTitle}>No Subject Data</Text>
+            <Text style={styles.errorSubtitle}>{error || 'No subject performance records available.'}</Text>
+            <TouchableOpacity 
+              style={styles.retryButton} 
+              onPress={() => router.replace('/(tabs)')}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.retryButtonText}>Go to Home</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <ScrollView 
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.scrollContent}
+          >
+            {/* Headline Row */}
+            <View style={styles.headlineRow}>
+              <Text style={styles.mainTitle}>Subject Performance</Text>
+              {totalQuestions > 0 && (
+                <View style={styles.questionsPill}>
+                  <Text style={styles.questionsPillText}>{totalQuestions} Questions</Text>
+                </View>
+              )}
+            </View>
+            <Text style={styles.subtitle}>See how you performed in each subject</Text>
 
-          {/* Subject Cards List */}
-          <View style={styles.subjectList}>
-            {subjects.map((sub) => {
-              const isExcellent = sub.rating === 'Excellent';
-              return (
-                <TouchableOpacity 
-                  key={sub.id} 
-                  style={styles.subjectCard}
-                  onPress={() => router.push({
-                    pathname: '/(exam)/topic-performance',
-                    params: { subject: sub.name }
-                  })}
-                  activeOpacity={0.8}
-                >
-                  <View style={styles.cardTopRow}>
-                    <View style={[styles.iconBg, { backgroundColor: sub.iconBg }]}>
-                      <MaterialCommunityIcons name={sub.icon as any} size={20} color={sub.iconColor} />
-                    </View>
-                    <View style={styles.subjectInfo}>
-                      <Text style={styles.subjectName}>{sub.name}</Text>
-                      <Text style={styles.subjectScore}>{sub.score} / {sub.total}</Text>
-                    </View>
-                    <View style={styles.ratingContainer}>
-                      <Text style={styles.percentageText}>{sub.percentage}%</Text>
-                      <View style={[
-                        styles.ratingBadge, 
-                        isExcellent ? styles.ratingBadgeGreen : styles.ratingBadgeRed
-                      ]}>
-                        <Text style={[
-                          styles.ratingText, 
-                          isExcellent ? styles.ratingTextGreen : styles.ratingTextRed
+            {/* Subject Cards List */}
+            <View style={styles.subjectList}>
+              {subjects.map((sub) => {
+                const isExcellent = sub.rating === 'Excellent';
+                return (
+                  <TouchableOpacity 
+                    key={sub.id} 
+                    style={styles.subjectCard}
+                    onPress={() => router.push({
+                      pathname: '/(exam)/topic-performance',
+                      params: { subject: sub.name, attempt_id: params.attempt_id }
+                    })}
+                    activeOpacity={0.8}
+                  >
+                    <View style={styles.cardTopRow}>
+                      <View style={[styles.iconBg, { backgroundColor: sub.iconBg }]}>
+                        <MaterialCommunityIcons name={sub.icon as any} size={20} color={sub.iconColor} />
+                      </View>
+                      <View style={styles.subjectInfo}>
+                        <Text style={styles.subjectName}>{sub.name}</Text>
+                        <Text style={styles.subjectScore}>{sub.score} / {sub.total}</Text>
+                      </View>
+                      <View style={styles.ratingContainer}>
+                        <Text style={styles.percentageText}>{sub.percentage}%</Text>
+                        <View style={[
+                          styles.ratingBadge, 
+                          isExcellent ? styles.ratingBadgeGreen : styles.ratingBadgeRed
                         ]}>
-                          {sub.rating}
-                        </Text>
+                          <Text style={[
+                            styles.ratingText, 
+                            isExcellent ? styles.ratingTextGreen : styles.ratingTextRed
+                          ]}>
+                            {sub.rating}
+                          </Text>
+                        </View>
                       </View>
                     </View>
-                  </View>
 
-                  {/* Horizontal Progress Bar */}
-                  <View style={styles.progressBarBg}>
-                    <View style={[styles.progressBarFill, { width: `${sub.percentage}%` }]} />
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-
-          {/* Overall Accuracy Card */}
-          <View style={styles.accuracyCard}>
-            <View style={styles.accuracyIconBg}>
-              <Ionicons name="radio-button-on" size={22} color="#7C3AED" />
+                    {/* Horizontal Progress Bar */}
+                    <View style={styles.progressBarBg}>
+                      <View style={[styles.progressBarFill, { width: `${sub.percentage}%` }]} />
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
-            <View style={styles.accuracyInfo}>
-              <Text style={styles.accuracyLabel}>Overall Accuracy</Text>
-              <Text style={styles.accuracyValue}>{overallAccuracy}%</Text>
-              <Text style={styles.accuracySub}>Across all subject sections</Text>
-            </View>
-            <MaterialCommunityIcons name="chart-bar" size={26} color="#94A3B8" />
-          </View>
 
-          {/* View Topic Breakdown Button */}
-          <TouchableOpacity 
-            style={[styles.actionButton, { backgroundColor: '#F5F3FF', borderWidth: 1.5, borderColor: '#7C3AED', marginBottom: 12 }]}
-            onPress={() => router.push({
-              pathname: '/(exam)/topic-performance',
-              params: { attempt_id: params.attempt_id }
-            })}
-            activeOpacity={0.85}
-          >
-            <Text style={[styles.actionButtonText, { color: '#7C3AED' }]}>View Topic Breakdown</Text>
-          </TouchableOpacity>
+            {/* Overall Accuracy Card */}
+            {overallAccuracy !== null && (
+              <View style={styles.accuracyCard}>
+                <View style={styles.accuracyIconBg}>
+                  <Ionicons name="radio-button-on" size={22} color="#7C3AED" />
+                </View>
+                <View style={styles.accuracyInfo}>
+                  <Text style={styles.accuracyLabel}>Overall Accuracy</Text>
+                  <Text style={styles.accuracyValue}>{overallAccuracy}%</Text>
+                  <Text style={styles.accuracySub}>Across all subject sections</Text>
+                </View>
+                <MaterialCommunityIcons name="chart-bar" size={26} color="#94A3B8" />
+              </View>
+            )}
 
-          {/* Review Question Button */}
-          <TouchableOpacity 
-            style={styles.actionButton}
-            onPress={() => router.push({
-              pathname: '/(exam)/review-answers',
-              params: { attempt_id: params.attempt_id }
-            })}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.actionButtonText}>Review Questions</Text>
-          </TouchableOpacity>
+            {/* View Topic Breakdown Button */}
+            <TouchableOpacity 
+              style={[styles.actionButton, { backgroundColor: '#F5F3FF', borderWidth: 1.5, borderColor: '#7C3AED', marginBottom: 12 }]}
+              onPress={() => router.push({
+                pathname: '/(exam)/topic-performance',
+                params: { attempt_id: params.attempt_id }
+              })}
+              activeOpacity={0.85}
+            >
+              <Text style={[styles.actionButtonText, { color: '#7C3AED' }]}>View Topic Breakdown</Text>
+            </TouchableOpacity>
 
-          <View style={{ height: 40 }} />
-        </ScrollView>
+            {/* Review Question Button */}
+            <TouchableOpacity 
+              style={styles.actionButton}
+              onPress={() => router.push({
+                pathname: '/(exam)/review-answers',
+                params: { attempt_id: params.attempt_id }
+              })}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.actionButtonText}>Review Questions</Text>
+            </TouchableOpacity>
+
+            <View style={{ height: 40 }} />
+          </ScrollView>
+        )}
       </View>
     </SafeAreaView>
   );
@@ -464,5 +474,41 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
     color: '#FFFFFF',
+  },
+  centerContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  loadingText: {
+    marginTop: 14,
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#6B7280',
+  },
+  errorTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+    marginTop: 12,
+  },
+  errorSubtitle: {
+    fontSize: 13,
+    color: '#6B7280',
+    textAlign: 'center',
+    marginTop: 6,
+    marginBottom: 20,
+  },
+  retryButton: {
+    backgroundColor: '#7C3AED',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  retryButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 14,
   },
 });

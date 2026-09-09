@@ -1,3 +1,4 @@
+import { useAuth } from '@/context/AuthContext';
 import React, { useState } from 'react';
 import { 
   View, 
@@ -7,7 +8,8 @@ import {
   ScrollView, 
   TouchableOpacity, 
   Platform,
-  Alert 
+  Alert,
+  ActivityIndicator
 } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -25,48 +27,36 @@ interface ReviewQuestion {
 }
 
 export default function ReviewAnswersScreen() {
+  const { user } = useAuth();
   const router = useRouter();
   const params = useLocalSearchParams<{ attempt_id?: string }>();
 
-  const [loading, setLoading] = useState(false);
-  const [activeSubject, setActiveSubject] = useState('Use of English');
+  const [loading, setLoading] = useState<boolean>(Boolean(params.attempt_id));
+  const [activeSubject, setActiveSubject] = useState<string>('');
   const [activeFilter, setActiveFilter] = useState<'all' | 'correct' | 'incorrect' | 'unattempted'>('all');
-  const [bookmarkedList, setBookmarkedList] = useState<number[]>([1]);
+  const [bookmarkedList, setBookmarkedList] = useState<number[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
-  const [stats, setStats] = useState({
-    total: 400,
-    correct: 205,
-    incorrect: 195,
-    unattempted: 3,
-  });
+  const [stats, setStats] = useState<{
+    total: number;
+    correct: number;
+    incorrect: number;
+    unattempted: number;
+  } | null>(null);
 
-  const [subjectsList, setSubjectsList] = useState([
-    { name: 'Use of English', icon: 'book-open-outline', count: '100 / 100' },
-    { name: 'Mathematics', icon: 'function-variant', count: '100 / 100' },
-    { name: 'Physics', icon: 'atom', count: '100 / 100' },
-    { name: 'Chemistry', icon: 'flask-outline', count: '100 / 100' },
-  ]);
-
+  const [subjectsList, setSubjectsList] = useState<Array<{ name: string; icon: string; count: string }>>([]);
   const [questionsBySubject, setQuestionsBySubject] = useState<Record<string, ReviewQuestion[]>>({});
-
-  const fallbackQuestions: ReviewQuestion[] = [
-    { id: 1, questionNumber: 1, text: 'Which of the following is a noun?', status: 'correct', userAnswer: 'C', correctAnswer: 'C' },
-    { id: 2, questionNumber: 2, text: 'Identify the misplaced modifier in the sentence.', status: 'incorrect', userAnswer: 'B', correctAnswer: 'D' },
-    { id: 3, questionNumber: 3, text: 'Choose the nearest in meaning to the italicized word.', status: 'correct', userAnswer: 'A', correctAnswer: 'A' },
-    { id: 4, questionNumber: 4, text: 'Complete the sentence with the appropriate idiom.', status: 'unattempted', correctAnswer: 'B' },
-    { id: 5, questionNumber: 5, text: 'Select the option that best completes the gap.', status: 'incorrect', userAnswer: 'C', correctAnswer: 'B' },
-    { id: 6, questionNumber: 6, text: 'What is the tone of the speaker?', status: 'correct', userAnswer: 'A', correctAnswer: 'A' },
-    { id: 7, questionNumber: 7, text: 'Which word has the same vowel sound as "seat"?', status: 'correct', userAnswer: 'D', correctAnswer: 'D' },
-    { id: 8, questionNumber: 8, text: 'Identify the antonym of the given word.', status: 'incorrect', userAnswer: 'A', correctAnswer: 'C' },
-    { id: 9, questionNumber: 9, text: 'Select the correct stress pattern.', status: 'correct', userAnswer: 'B', correctAnswer: 'B' },
-    { id: 10, questionNumber: 10, text: 'What is the central theme of the passage?', status: 'correct', userAnswer: 'C', correctAnswer: 'C' },
-  ];
 
   React.useEffect(() => {
     const loadReviewData = async () => {
-      if (!params.attempt_id) return;
+      if (!params.attempt_id) {
+        setError('No exam session ID provided.');
+        setLoading(false);
+        return;
+      }
       try {
         setLoading(true);
+        setError(null);
         const [analytics, attemptData] = await Promise.all([
           examService.getDetailedAnalytics(Number(params.attempt_id)).catch(() => null),
           examService.getAttemptReview(Number(params.attempt_id)).catch(() => null),
@@ -74,7 +64,7 @@ export default function ReviewAnswersScreen() {
 
         if (analytics) {
           setStats({
-            total: analytics.total_questions_attempted || 400,
+            total: analytics.total_questions_attempted || 0,
             correct: analytics.correct_answers || 0,
             incorrect: analytics.wrong_answers || 0,
             unattempted: analytics.skipped_questions || 0,
@@ -85,12 +75,10 @@ export default function ReviewAnswersScreen() {
             const subItems = analytics.subjects.map((s: any, idx: number) => ({
               name: s.section_name,
               icon: icons[idx % icons.length],
-              count: `${s.correct_answers} / ${s.total_questions}`,
+              count: `${s.correct_answers ?? 0} / ${s.total_questions ?? 0}`,
             }));
             setSubjectsList(subItems);
-            if (!analytics.subjects.find((s: any) => s.section_name === activeSubject)) {
-              setActiveSubject(analytics.subjects[0].section_name);
-            }
+            setActiveSubject(prev => prev || analytics.subjects[0].section_name);
           }
         }
 
@@ -124,7 +112,8 @@ export default function ReviewAnswersScreen() {
                   if (correctChoiceIdx !== -1) correctAnsText = String.fromCharCode(65 + correctChoiceIdx);
                 }
 
-                if (resp.is_bookmarked) {
+                const isBk = Boolean((resp as any).is_bookmarked);
+                if (isBk) {
                   bookmarks.push(q.id);
                 }
 
@@ -136,7 +125,7 @@ export default function ReviewAnswersScreen() {
                   userAnswer: userAnsText || undefined,
                   correctAnswer: correctAnsText,
                   aiExplanation: resp.ai_feedback,
-                  isBookmarked: resp.is_bookmarked,
+                  isBookmarked: isBk,
                 });
               });
             });
@@ -146,9 +135,14 @@ export default function ReviewAnswersScreen() {
 
           setQuestionsBySubject(grouped);
           if (bookmarks.length > 0) setBookmarkedList(bookmarks);
+          
+          if (!activeSubject && Object.keys(grouped).length > 0) {
+            setActiveSubject(Object.keys(grouped)[0]);
+          }
         }
-      } catch (err) {
+      } catch (err: any) {
         console.warn('Could not load review data:', err);
+        setError('Failed to load review answers.');
       } finally {
         setLoading(false);
       }
@@ -158,7 +152,7 @@ export default function ReviewAnswersScreen() {
   }, [params.attempt_id]);
 
   const subjects = subjectsList;
-  const questions = questionsBySubject[activeSubject] || fallbackQuestions;
+  const questions = (activeSubject && questionsBySubject[activeSubject]) || [];
 
   const toggleBookmark = async (id: number) => {
     const isBookmarked = bookmarkedList.includes(id);
@@ -178,7 +172,7 @@ export default function ReviewAnswersScreen() {
 
   const handleAIExplanation = async () => {
     if (!params.attempt_id) {
-      Alert.alert('AI Diagnosis', 'Classore AI analyzed your incorrect answers and recommends focusing on core algebraic theorems and passage inference.');
+      Alert.alert('AI Diagnosis', 'Classore AI analyzed your incorrect answers and recommends focusing on core questions.');
       return;
     }
     try {
@@ -213,195 +207,229 @@ export default function ReviewAnswersScreen() {
             activeOpacity={0.8}
           >
             <Text style={{ fontSize: 13, marginRight: 4 }}>🔥</Text>
-            <Text style={styles.streakText}>120</Text>
+            <Text style={styles.streakText}>{user?.streak || 0}</Text>
           </TouchableOpacity>
         </View>
 
-        <ScrollView 
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.scrollContent}
-        >
-          {/* 4-Metric Summary Bar Card */}
-          <View style={styles.summaryBarCard}>
-            <View style={styles.summaryBarCol}>
-              <Text style={[styles.summaryBarValue, { color: '#16A34A' }]}>{stats.correct}</Text>
-              <Text style={styles.summaryBarLabel}>Correct</Text>
-            </View>
-            <View style={styles.summaryBarDivider} />
-            <View style={styles.summaryBarCol}>
-              <Text style={[styles.summaryBarValue, { color: '#DC2626' }]}>{stats.incorrect}</Text>
-              <Text style={styles.summaryBarLabel}>Incorrect</Text>
-            </View>
-            <View style={styles.summaryBarDivider} />
-            <View style={styles.summaryBarCol}>
-              <Text style={[styles.summaryBarValue, { color: '#EA580C' }]}>{stats.unattempted}</Text>
-              <Text style={styles.summaryBarLabel}>Unattempted</Text>
-            </View>
-            <View style={styles.summaryBarDivider} />
-            <View style={styles.summaryBarCol}>
-              <Text style={[styles.summaryBarValue, { color: '#4C1D95' }]}>{stats.total}</Text>
-              <Text style={styles.summaryBarLabel}>Total Questions</Text>
-            </View>
+        {loading ? (
+          <View style={styles.centerContainer}>
+            <ActivityIndicator size="large" color="#7C3AED" />
+            <Text style={styles.loadingText}>Loading questions and review data...</Text>
           </View>
+        ) : error || (!stats && Object.keys(questionsBySubject).length === 0) ? (
+          <View style={styles.centerContainer}>
+            <MaterialCommunityIcons name="file-document-outline" size={48} color="#94A3B8" />
+            <Text style={styles.errorTitle}>No Review Available</Text>
+            <Text style={styles.errorSubtitle}>{error || 'No review data found for this session.'}</Text>
+            <TouchableOpacity 
+              style={styles.retryButton} 
+              onPress={() => router.replace('/(tabs)')}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.retryButtonText}>Go to Home</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <ScrollView 
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.scrollContent}
+          >
+            {/* 4-Metric Summary Bar Card */}
+            {stats && (
+              <View style={styles.summaryBarCard}>
+                <View style={styles.summaryBarCol}>
+                  <Text style={[styles.summaryBarValue, { color: '#16A34A' }]}>{stats.correct}</Text>
+                  <Text style={styles.summaryBarLabel}>Correct</Text>
+                </View>
+                <View style={styles.summaryBarDivider} />
+                <View style={styles.summaryBarCol}>
+                  <Text style={[styles.summaryBarValue, { color: '#DC2626' }]}>{stats.incorrect}</Text>
+                  <Text style={styles.summaryBarLabel}>Incorrect</Text>
+                </View>
+                <View style={styles.summaryBarDivider} />
+                <View style={styles.summaryBarCol}>
+                  <Text style={[styles.summaryBarValue, { color: '#EA580C' }]}>{stats.unattempted}</Text>
+                  <Text style={styles.summaryBarLabel}>Unattempted</Text>
+                </View>
+                <View style={styles.summaryBarDivider} />
+                <View style={styles.summaryBarCol}>
+                  <Text style={[styles.summaryBarValue, { color: '#4C1D95' }]}>{stats.total}</Text>
+                  <Text style={styles.summaryBarLabel}>Total Questions</Text>
+                </View>
+              </View>
+            )}
 
-          {/* Switch Subject */}
-          <Text style={styles.sectionHeading}>Switch Subject</Text>
-          <Text style={styles.sectionSubtitle}>Review your performance by subject</Text>
+            {/* Switch Subject */}
+            {subjects.length > 1 && (
+              <>
+                <Text style={styles.sectionHeading}>Switch Subject</Text>
+                <Text style={styles.sectionSubtitle}>Review your performance by subject</Text>
 
-          {/* Subject Circles Selector */}
-          <View style={styles.subjectSelectorRow}>
-            {subjects.map((sub) => {
-              const isActive = activeSubject === sub.name;
-              return (
+                {/* Subject Circles Selector */}
+                <View style={styles.subjectSelectorRow}>
+                  {subjects.map((sub) => {
+                    const isActive = activeSubject === sub.name;
+                    return (
+                      <TouchableOpacity 
+                        key={sub.name} 
+                        style={styles.subjectCircleItem}
+                        onPress={() => setActiveSubject(sub.name)}
+                        activeOpacity={0.8}
+                      >
+                        <View style={[
+                          styles.subjectCircleBg,
+                          isActive ? styles.subjectCircleActive : styles.subjectCircleInactive,
+                        ]}>
+                          <MaterialCommunityIcons 
+                            name={sub.icon as any} 
+                            size={22} 
+                            color={isActive ? '#FFFFFF' : '#7C3AED'} 
+                          />
+                        </View>
+                        <Text style={[styles.subjectCircleName, isActive && styles.subjectCircleNameActive]} numberOfLines={2}>
+                          {sub.name}
+                        </Text>
+                        <Text style={styles.subjectCircleCount}>{sub.count}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </>
+            )}
+
+            {/* Subject Breakdown Card */}
+            <View style={styles.reviewCard}>
+              <View style={styles.reviewHeaderRow}>
+                <Text style={styles.reviewSubjectTitle}>{activeSubject || 'Subject'}</Text>
+                <View style={styles.questionsPill}>
+                  <Text style={styles.questionsPillText}>{questions.length} Questions</Text>
+                </View>
+              </View>
+
+              {/* Filter Pills */}
+              <View style={styles.filterPillsRow}>
                 <TouchableOpacity 
-                  key={sub.name} 
-                  style={styles.subjectCircleItem}
-                  onPress={() => setActiveSubject(sub.name)}
-                  activeOpacity={0.8}
+                  style={[
+                    styles.filterPill, 
+                    activeFilter === 'correct' && styles.filterPillActiveGreen
+                  ]}
+                  onPress={() => setActiveFilter(activeFilter === 'correct' ? 'all' : 'correct')}
                 >
-                  <View style={[
-                    styles.subjectCircleBg,
-                    isActive ? styles.subjectCircleActive : styles.subjectCircleInactive,
-                  ]}>
-                    <MaterialCommunityIcons 
-                      name={sub.icon as any} 
-                      size={22} 
-                      color={isActive ? '#FFFFFF' : '#7C3AED'} 
-                    />
-                  </View>
-                  <Text style={[styles.subjectCircleName, isActive && styles.subjectCircleNameActive]} numberOfLines={2}>
-                    {sub.name}
-                  </Text>
-                  <Text style={styles.subjectCircleCount}>{sub.count}</Text>
+                  <Feather name="check" size={12} color="#16A34A" style={{ marginRight: 4 }} />
+                  <Text style={styles.filterPillText}>Correct ({questions.filter(q => q.status === 'correct').length})</Text>
                 </TouchableOpacity>
-              );
-            })}
-          </View>
 
-          {/* Subject Breakdown Card */}
-          <View style={styles.reviewCard}>
-            <View style={styles.reviewHeaderRow}>
-              <Text style={styles.reviewSubjectTitle}>{activeSubject}</Text>
-              <View style={styles.questionsPill}>
-                <Text style={styles.questionsPillText}>{questions.length} Questions</Text>
+                <TouchableOpacity 
+                  style={[
+                    styles.filterPill, 
+                    activeFilter === 'incorrect' && styles.filterPillActiveRed
+                  ]}
+                  onPress={() => setActiveFilter(activeFilter === 'incorrect' ? 'all' : 'incorrect')}
+                >
+                  <Feather name="x" size={12} color="#DC2626" style={{ marginRight: 4 }} />
+                  <Text style={styles.filterPillText}>Incorrect ({questions.filter(q => q.status === 'incorrect').length})</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity 
+                  style={[
+                    styles.filterPill, 
+                    activeFilter === 'unattempted' && styles.filterPillActiveOrange
+                  ]}
+                  onPress={() => setActiveFilter(activeFilter === 'unattempted' ? 'all' : 'unattempted')}
+                >
+                  <Feather name="minus" size={12} color="#EA580C" style={{ marginRight: 4 }} />
+                  <Text style={styles.filterPillText}>Unattempted ({questions.filter(q => q.status === 'unattempted').length})</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Question Items List */}
+              <View style={styles.questionsList}>
+                {filteredQuestions.length > 0 ? (
+                  filteredQuestions.map((q) => {
+                    const isBookmarked = bookmarkedList.includes(q.id);
+                    return (
+                      <View key={q.id} style={styles.questionRow}>
+                        <Text style={styles.questionIndex}>{q.questionNumber}</Text>
+
+                        {/* Status Badge */}
+                        {q.status === 'correct' && (
+                          <View style={[styles.statusIconCircle, { backgroundColor: '#10B981' }]}>
+                            <Feather name="check" size={12} color="#FFFFFF" />
+                          </View>
+                        )}
+                        {q.status === 'incorrect' && (
+                          <View style={[styles.statusIconCircle, { backgroundColor: '#EF4444' }]}>
+                            <Feather name="x" size={12} color="#FFFFFF" />
+                          </View>
+                        )}
+                        {q.status === 'unattempted' && (
+                          <View style={[styles.statusIconCircle, { backgroundColor: '#F97316' }]}>
+                            <Feather name="minus" size={12} color="#FFFFFF" />
+                          </View>
+                        )}
+
+                        {/* Answer Details */}
+                        <View style={styles.answerDetails}>
+                          {q.status === 'unattempted' ? (
+                            <Text style={styles.unattemptedText}>Unattempted</Text>
+                          ) : (
+                            <Text style={styles.answerText}>
+                              Your Answer: <Text style={styles.answerBold}>{q.userAnswer}</Text>
+                            </Text>
+                          )}
+                        </View>
+
+                        <Text style={styles.correctAnswerText}>
+                          Correct Answer: <Text style={styles.answerBold}>{q.correctAnswer}</Text>
+                        </Text>
+
+                        {/* Action: Bookmark or Chevron */}
+                        <TouchableOpacity 
+                          onPress={() => toggleBookmark(q.id)}
+                          style={styles.actionIconBtn}
+                        >
+                          {isBookmarked ? (
+                            <Feather name="bookmark" size={16} color="#7C3AED" />
+                          ) : (
+                            <Feather name="bookmark" size={16} color="#CBD5E1" />
+                          )}
+                        </TouchableOpacity>
+                      </View>
+                    );
+                  })
+                ) : (
+                  <View style={styles.emptyQuestionsCard}>
+                    <Text style={styles.emptyQuestionsText}>No questions found matching this filter.</Text>
+                  </View>
+                )}
               </View>
             </View>
 
-            {/* Filter Pills */}
-            <View style={styles.filterPillsRow}>
-              <TouchableOpacity 
-                style={[
-                  styles.filterPill, 
-                  activeFilter === 'correct' && styles.filterPillActiveGreen
-                ]}
-                onPress={() => setActiveFilter(activeFilter === 'correct' ? 'all' : 'correct')}
-              >
-                <Feather name="check" size={12} color="#16A34A" style={{ marginRight: 4 }} />
-                <Text style={styles.filterPillText}>Correct ({questions.filter(q => q.status === 'correct').length})</Text>
-              </TouchableOpacity>
+            {/* AI Explanation Callout Card */}
+            {stats && stats.incorrect > 0 && (
+              <View style={styles.aiCard}>
+                <View style={styles.aiIconBg}>
+                  <MaterialCommunityIcons name="robot" size={22} color="#FFFFFF" />
+                </View>
+                <View style={styles.aiTextContainer}>
+                  <Text style={styles.aiTitle}>{stats.incorrect} incorrect answers found.</Text>
+                  <Text style={styles.aiSubtitle}>
+                    Review your wrong answers with AI explanation.
+                  </Text>
+                </View>
+                <TouchableOpacity 
+                  style={styles.aiButton}
+                  onPress={handleAIExplanation}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.aiButtonText}>✨ AI Explanation</Text>
+                </TouchableOpacity>
+              </View>
+            )}
 
-              <TouchableOpacity 
-                style={[
-                  styles.filterPill, 
-                  activeFilter === 'incorrect' && styles.filterPillActiveRed
-                ]}
-                onPress={() => setActiveFilter(activeFilter === 'incorrect' ? 'all' : 'incorrect')}
-              >
-                <Feather name="x" size={12} color="#DC2626" style={{ marginRight: 4 }} />
-                <Text style={styles.filterPillText}>Incorrect ({questions.filter(q => q.status === 'incorrect').length})</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity 
-                style={[
-                  styles.filterPill, 
-                  activeFilter === 'unattempted' && styles.filterPillActiveOrange
-                ]}
-                onPress={() => setActiveFilter(activeFilter === 'unattempted' ? 'all' : 'unattempted')}
-              >
-                <Feather name="minus" size={12} color="#EA580C" style={{ marginRight: 4 }} />
-                <Text style={styles.filterPillText}>Unattempted ({questions.filter(q => q.status === 'unattempted').length})</Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Question Items List */}
-            <View style={styles.questionsList}>
-              {filteredQuestions.map((q) => {
-                const isBookmarked = bookmarkedList.includes(q.id);
-                return (
-                  <View key={q.id} style={styles.questionRow}>
-                    <Text style={styles.questionIndex}>{q.questionNumber}</Text>
-
-                    {/* Status Badge */}
-                    {q.status === 'correct' && (
-                      <View style={[styles.statusIconCircle, { backgroundColor: '#10B981' }]}>
-                        <Feather name="check" size={12} color="#FFFFFF" />
-                      </View>
-                    )}
-                    {q.status === 'incorrect' && (
-                      <View style={[styles.statusIconCircle, { backgroundColor: '#EF4444' }]}>
-                        <Feather name="x" size={12} color="#FFFFFF" />
-                      </View>
-                    )}
-                    {q.status === 'unattempted' && (
-                      <View style={[styles.statusIconCircle, { backgroundColor: '#F97316' }]}>
-                        <Feather name="minus" size={12} color="#FFFFFF" />
-                      </View>
-                    )}
-
-                    {/* Answer Details */}
-                    <View style={styles.answerDetails}>
-                      {q.status === 'unattempted' ? (
-                        <Text style={styles.unattemptedText}>Unattempted</Text>
-                      ) : (
-                        <Text style={styles.answerText}>
-                          Your Answer: <Text style={styles.answerBold}>{q.userAnswer}</Text>
-                        </Text>
-                      )}
-                    </View>
-
-                    <Text style={styles.correctAnswerText}>
-                      Correct Answer: <Text style={styles.answerBold}>{q.correctAnswer}</Text>
-                    </Text>
-
-                    {/* Action: Bookmark or Chevron */}
-                    <TouchableOpacity 
-                      onPress={() => toggleBookmark(q.id)}
-                      style={styles.actionIconBtn}
-                    >
-                      {isBookmarked ? (
-                        <Feather name="bookmark" size={16} color="#7C3AED" />
-                      ) : (
-                        <Feather name="bookmark" size={16} color="#CBD5E1" />
-                      )}
-                    </TouchableOpacity>
-                  </View>
-                );
-              })}
-            </View>
-          </View>
-
-          {/* AI Explanation Callout Card */}
-          <View style={styles.aiCard}>
-            <View style={styles.aiIconBg}>
-              <MaterialCommunityIcons name="robot" size={22} color="#FFFFFF" />
-            </View>
-            <View style={styles.aiTextContainer}>
-              <Text style={styles.aiTitle}>{stats.incorrect} incorrect answers found.</Text>
-              <Text style={styles.aiSubtitle}>
-                Review your wrong answers with AI explanation.
-              </Text>
-            </View>
-            <TouchableOpacity 
-              style={styles.aiButton}
-              onPress={handleAIExplanation}
-              activeOpacity={0.85}
-            >
-              <Text style={styles.aiButtonText}>✨ AI Explanation</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={{ height: 40 }} />
-        </ScrollView>
+            <View style={{ height: 40 }} />
+          </ScrollView>
+        )}
       </View>
     </SafeAreaView>
   );
@@ -706,5 +734,51 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '800',
     color: '#6D28D9',
+  },
+  emptyQuestionsCard: {
+    paddingVertical: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyQuestionsText: {
+    fontSize: 13,
+    color: '#6B7280',
+    textAlign: 'center',
+  },
+  centerContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  loadingText: {
+    marginTop: 14,
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#6B7280',
+  },
+  errorTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+    marginTop: 12,
+  },
+  errorSubtitle: {
+    fontSize: 13,
+    color: '#6B7280',
+    textAlign: 'center',
+    marginTop: 6,
+    marginBottom: 20,
+  },
+  retryButton: {
+    backgroundColor: '#7C3AED',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  retryButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 14,
   },
 });

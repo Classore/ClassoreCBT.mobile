@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   View, 
   Text, 
@@ -7,372 +7,334 @@ import {
   ScrollView, 
   TouchableOpacity, 
   Platform,
-  Dimensions,
-  Alert 
+  ActivityIndicator
 } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-
 import { useAuth } from '@/context/AuthContext';
-
-const { width } = Dimensions.get('window');
+import { api } from '@/services/api';
 
 export default function StreakScreen() {
   const router = useRouter();
   const { user, useStreakProtection } = useAuth();
-  const currentStreak = user?.streak ?? 120;
-  const bestStreak = user?.best_streak ?? 145;
-  const protectionCards = user?.protection_cards_count ?? 2;
+  
+  const [historyData, setHistoryData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
 
-  const daysRow = [
-    { day: 'Mon', date: '13 May', completed: true },
-    { day: 'Tue', date: '14 May', completed: true },
-    { day: 'Wed', date: '15 May', completed: true },
-    { day: 'Thu', date: '16 May', completed: true },
-    { day: 'Fri', date: '17 May', completed: true },
-    { day: 'Sat', date: '18 May', completed: true },
-    { day: 'Sun', date: '19 May', completed: true },
-    { day: 'Today', date: '20 May', isToday: true },
-  ];
+  useEffect(() => {
+    const fetchStreakHistory = async () => {
+      try {
+        const response = await api.get('/api/user/streak/history/');
+        setHistoryData(response.data);
+      } catch (error) {
+        console.warn('Failed to fetch streak history:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchStreakHistory();
+  }, []);
 
-  const milestones = [
-    { days: 3, achieved: true, bg: '#FEF3C7', iconColor: '#F59E0B' },
-    { days: 7, achieved: true, bg: '#FEE2E2', iconColor: '#EF4444' },
-    { days: 14, achieved: false, bg: '#F3F4F6', iconColor: '#9CA3AF' },
-    { days: 30, achieved: false, bg: '#F3F4F6', iconColor: '#9CA3AF' },
-    { days: 60, achieved: false, bg: '#F3F4F6', iconColor: '#9CA3AF' },
-    { days: 100, achieved: false, bg: '#F3F4F6', iconColor: '#9CA3AF' },
-  ];
+  const currentStreak = historyData?.streak ?? user?.streak ?? 0;
+  const bestStreak = historyData?.best_streak ?? user?.best_streak ?? 0;
+  const protectionCards = user?.protection_cards_count ?? 0;
 
-  // Calendar dates for July 2026
-  const calendarDays = [
-    // Week 1 (Starts Wed)
-    { d: null }, { d: null }, { d: 1, status: 'completed' }, { d: 2, status: 'completed' }, { d: 3, status: 'completed' }, { d: 4, status: 'completed' }, { d: 5, status: 'completed' },
-    // Week 2
-    { d: 6, status: 'completed' }, { d: 7, status: 'completed' }, { d: 8, status: 'completed' }, { d: 9, status: 'completed' }, { d: 10, status: 'missed' }, { d: 11, status: 'missed' }, { d: 12, status: 'completed' },
-    // Week 3
-    { d: 13, status: 'completed' }, { d: 14, status: 'completed' }, { d: 15, status: 'completed' }, { d: 16, status: 'completed' }, { d: 17, status: 'completed' }, { d: 18, status: 'completed' }, { d: 19, status: 'completed' },
-    // Week 4
-    { d: 20, status: 'today' }, { d: 21, status: 'inactive' }, { d: 22, status: 'inactive' }, { d: 23, status: 'inactive' }, { d: 24, status: 'inactive' }, { d: 25, status: 'inactive' }, { d: 26, status: 'inactive' },
-    // Week 5
-    { d: 27, status: 'inactive' }, { d: 28, status: 'inactive' }, { d: 29, status: 'inactive' }, { d: 30, status: 'inactive' }, { d: 31, status: 'inactive' },
-  ];
-
-  const handleUseProtection = () => {
-    if (protectionCards <= 0) {
-      Alert.alert('No Cards', 'You do not have any protection cards remaining.');
-      return;
+  const handleUseProtectionCard = async () => {
+    const success = await useStreakProtection();
+    if (success) {
+      alert("Streak protection activated successfully!");
+    } else {
+      alert("Could not activate streak protection. Do you have any cards left?");
     }
-    Alert.alert(
-      'Streak Protection',
-      `You have ${protectionCards} protection card${protectionCards > 1 ? 's' : ''} available. Use one to freeze today's streak?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Use Card', 
-          onPress: async () => {
-            try {
-              await useStreakProtection();
-              Alert.alert('Protected!', 'Your streak is protected for the day.');
-            } catch (err: any) {
-              Alert.alert('Error', err.response?.data?.message || 'Failed to activate protection card.');
-            }
-          } 
-        }
-      ]
-    );
   };
+
+  // Build calendar logic
+  const renderCalendar = () => {
+    if (!historyData) return null;
+    const { year, month, completed_dates } = historyData;
+    
+    // JS Date month is 0-indexed
+    const firstDay = new Date(year, month - 1, 1).getDay(); // 0 = Sun, 1 = Mon...
+    const daysInMonth = new Date(year, month, 0).getDate();
+    
+    // Shift so Mon is first day of grid (if desired)
+    // 0(Sun) -> 6, 1(Mon) -> 0
+    const startOffset = firstDay === 0 ? 6 : firstDay - 1;
+    
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    const grid = [];
+    for (let i = 0; i < startOffset; i++) {
+      grid.push({ d: null });
+    }
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      let status = 'missed';
+      if (completed_dates.includes(dateStr)) {
+        status = 'completed';
+      }
+      if (dateStr === todayStr && status !== 'completed') {
+        status = 'today';
+      } else if (dateStr > todayStr) {
+        status = 'inactive';
+      }
+      grid.push({ d, status });
+    }
+
+    return grid;
+  };
+
+  const calendarDays = renderCalendar();
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
         
-        {/* Top Header */}
+        {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity 
             style={styles.headerButton} 
-            onPress={() => router.canGoBack() ? router.back() : router.replace('/(tabs)')}
+            onPress={() => router.back()}
             activeOpacity={0.7}
           >
             <Feather name="chevron-left" size={24} color="#111827" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>My Streak 🔥</Text>
-          <View style={styles.streakBadge}>
-            <Text style={{ fontSize: 13, marginRight: 4 }}>🔥</Text>
-            <Text style={styles.streakText}>120</Text>
-          </View>
+          <Text style={styles.headerTitle}>My Streak</Text>
+          <View style={{ width: 40 }} />
         </View>
 
-        <ScrollView 
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.scrollContent}
-        >
-          {/* Hero Banner Card */}
-          <LinearGradient
-            colors={['#4C1D95', '#6D28D9']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.heroCard}
+        {loading ? (
+          <View style={{flex: 1, justifyContent: 'center', alignItems: 'center'}}>
+            <ActivityIndicator size="large" color="#6D28D9" />
+          </View>
+        ) : (
+          <ScrollView 
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.scrollContent}
           >
-            <View style={styles.heroLeft}>
-              <Text style={styles.heroHeading}>Keep the fire alive!</Text>
-              <Text style={styles.heroSubText}>Consistency today, success tomorrow.</Text>
-
-              {/* 3 Stats Row */}
-              <View style={styles.statsRow}>
-                {/* Current Streak */}
-                <View style={styles.statItem}>
-                  <View style={styles.statNumberRow}>
-                    <Text style={styles.statEmoji}>🔥</Text>
-                    <Text style={styles.statNumber}>7</Text>
-                  </View>
-                  <Text style={styles.statLabel}>Current Streak</Text>
-                </View>
-
-                {/* Best Streak */}
-                <View style={styles.statItem}>
-                  <View style={styles.statNumberRow}>
-                    <Text style={styles.statEmoji}>🏆</Text>
-                    <Text style={styles.statNumber}>21</Text>
-                  </View>
-                  <Text style={styles.statLabel}>Best Streak</Text>
-                </View>
-
-                {/* Days Active */}
-                <View style={styles.statItem}>
-                  <View style={styles.statNumberRow}>
-                    <Text style={styles.statEmoji}>📅</Text>
-                    <Text style={styles.statNumber}>28</Text>
-                  </View>
-                  <Text style={styles.statLabel}>Days Active</Text>
-                </View>
-              </View>
-            </View>
-
-            {/* Right Candle Stand / Flame Illustration */}
-            <View style={styles.candleContainer}>
-              <View style={styles.candleFlame}>
-                <Text style={{ fontSize: 44 }}>🔥</Text>
-              </View>
-              <View style={styles.candleStand} />
-            </View>
-          </LinearGradient>
-
-          {/* Card 2: Your Daily Streak */}
-          <View style={styles.card}>
-            <View style={styles.cardHeaderRow}>
-              <Text style={styles.cardTitle}>Your Daily Streak</Text>
-              <View style={styles.pillBadge}>
-                <Text style={styles.pillBadgeText}>7 Days in a Row</Text>
-              </View>
-            </View>
-
-            <Text style={styles.greenSubText}>You're on fire! 🔥</Text>
-
-            {/* 8 Days Timeline */}
-            <ScrollView 
-              horizontal 
-              showsHorizontalScrollIndicator={false} 
-              contentContainerStyle={styles.daysTimeline}
+            {/* Hero Gradient Card */}
+            <LinearGradient
+              colors={['#4C1D95', '#6D28D9', '#7C3AED']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.heroCard}
             >
-              {daysRow.map((item, idx) => (
-                <View key={idx} style={styles.dayCol}>
-                  <Text style={[styles.dayName, item.isToday && styles.dayNameToday]}>
-                    {item.day}
-                  </Text>
-                  
-                  {item.completed ? (
-                    <View style={styles.checkCircleGreen}>
-                      <Feather name="check" size={16} color="#FFFFFF" />
+              <View style={styles.heroContent}>
+                <View style={styles.heroTextCol}>
+                  <Text style={styles.heroTitle}>You're on fire! 🔥</Text>
+                  <Text style={styles.heroSubText}>Practice today to keep it going.</Text>
+
+                  <View style={styles.statsRow}>
+                    <View style={styles.statItem}>
+                      <View style={styles.statNumberRow}>
+                        <Text style={styles.statEmoji}>🔥</Text>
+                        <Text style={styles.statNumber}>{currentStreak}</Text>
+                      </View>
+                      <Text style={styles.statLabel}>Day Streak</Text>
                     </View>
-                  ) : (
-                    <View style={styles.todayFlameCircle}>
-                      <Text style={{ fontSize: 18 }}>🔥</Text>
+                    <View style={styles.statItem}>
+                      <View style={styles.statNumberRow}>
+                        <Text style={styles.statEmoji}>👑</Text>
+                        <Text style={styles.statNumber}>{bestStreak}</Text>
+                      </View>
+                      <Text style={styles.statLabel}>Best Streak</Text>
                     </View>
-                  )}
-
-                  <Text style={[styles.dayDate, item.isToday && styles.dayDateToday]}>
-                    {item.date}
-                  </Text>
-                </View>
-              ))}
-            </ScrollView>
-
-            {/* Motivation Callout Box */}
-            <View style={styles.calloutBox}>
-              <View style={styles.calloutTextContainer}>
-                <Text style={styles.calloutTitle}>⭐ Amazing! You've built a strong habit.</Text>
-                <Text style={styles.calloutSub}>Complete today's practice to keep your streak going.</Text>
-              </View>
-              <TouchableOpacity 
-                style={styles.practiceNowButton}
-                onPress={() => router.push('/(tabs)/practice')}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.practiceNowText}>Start Practicing</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* Card 3: Streak Milestones */}
-          <View style={styles.card}>
-            <View style={styles.cardHeaderRow}>
-              <Text style={styles.cardTitle}>Streak Milestones</Text>
-              <TouchableOpacity activeOpacity={0.7}>
-                <Text style={styles.seeAllText}>See All ›</Text>
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView 
-              horizontal 
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.milestonesRow}
-            >
-              {milestones.map((m, idx) => (
-                <View key={idx} style={styles.milestoneItem}>
-                  <View style={[styles.milestoneCircle, { backgroundColor: m.bg }]}>
-                    <MaterialCommunityIcons 
-                      name="fire" 
-                      size={24} 
-                      color={m.iconColor} 
-                    />
                   </View>
-                  <Text style={styles.milestoneLabel}>{m.days} Days</Text>
-                  <Text style={styles.milestoneStatus}>
-                    {m.achieved ? 'Achieved' : 'Locked'}
-                  </Text>
-                  {m.achieved && (
-                    <View style={styles.miniCheckCircle}>
-                      <Feather name="check" size={10} color="#FFFFFF" />
-                    </View>
-                  )}
                 </View>
-              ))}
-            </ScrollView>
-          </View>
 
-          {/* Split Row: Streak Calendar & Streak Protection */}
-          <View style={styles.splitRow}>
-            
-            {/* Left: Streak Calendar */}
-            <View style={[styles.card, styles.splitCard]}>
-              <Text style={styles.splitCardTitle}>Streak Calendar</Text>
-              <Text style={styles.splitCardSub}>July 2026</Text>
+                {/* 3D Flame Illustration */}
+                <View style={styles.candleContainer}>
+                  <Ionicons name="flame" size={56} color="#FBBF24" style={styles.candleFlame} />
+                  <View style={styles.candleStand} />
+                </View>
+              </View>
+            </LinearGradient>
 
-              {/* Day Headers */}
-              <View style={styles.calHeaderRow}>
-                {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => (
-                  <Text key={d} style={styles.calDayHeader}>{d}</Text>
+            {/* This Week Activity */}
+            <View style={styles.card}>
+              <View style={styles.cardHeaderRow}>
+                <Text style={styles.cardTitle}>This Week</Text>
+                <View style={styles.pillBadge}>
+                  <Text style={styles.pillBadgeText}>
+                    {historyData?.weekly?.filter((w: any) => w.completed).length || 0}/7 Days
+                  </Text>
+                </View>
+              </View>
+              <Text style={styles.greenSubText}>Keep up the momentum!</Text>
+
+              <View style={styles.daysTimeline}>
+                {historyData?.weekly?.map((w: any, idx: number) => (
+                  <View key={idx} style={styles.dayCol}>
+                    <Text style={[styles.dayName, w.is_today && styles.dayNameToday]}>
+                      {w.day}
+                    </Text>
+                    {w.completed ? (
+                      <View style={styles.checkCircleGreen}>
+                        <Feather name="check" size={16} color="#FFFFFF" />
+                      </View>
+                    ) : w.is_today ? (
+                      <View style={styles.todayFlameCircle}>
+                        <Ionicons name="flame" size={14} color="#F97316" />
+                      </View>
+                    ) : (
+                      <View style={[styles.checkCircleGreen, { backgroundColor: '#F1F5F9' }]}>
+                        <Feather name="minus" size={16} color="#9CA3AF" />
+                      </View>
+                    )}
+                  </View>
                 ))}
               </View>
 
-              {/* Calendar Grid */}
-              <View style={styles.calGrid}>
-                {calendarDays.map((c, idx) => {
-                  if (!c.d) {
-                    return <View key={idx} style={styles.calCellEmpty} />;
-                  }
+              <View style={styles.calloutBox}>
+                <View style={styles.calloutTextContainer}>
+                  <Text style={styles.calloutTitle}>Don't break the chain!</Text>
+                  <Text style={styles.calloutSub}>Complete a quiz today to extend your streak.</Text>
+                </View>
+                <TouchableOpacity 
+                  style={styles.practiceNowButton}
+                  onPress={() => router.push('/(tabs)')}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.practiceNowText}>Practice</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
 
-                  let cellStyle = styles.calCellDefault;
-                  let textStyle = styles.calTextDefault;
+            {/* Milestones Horizontal List */}
+            <View style={styles.card}>
+              <View style={styles.cardHeaderRow}>
+                <Text style={styles.cardTitle}>Milestones</Text>
+                <TouchableOpacity>
+                  <Text style={styles.seeAllText}>See all</Text>
+                </TouchableOpacity>
+              </View>
 
-                  if (c.status === 'completed') {
-                    cellStyle = styles.calCellCompleted;
-                    textStyle = styles.calTextCompleted;
-                  } else if (c.status === 'today') {
-                    cellStyle = styles.calCellToday;
-                    textStyle = styles.calTextToday;
-                  } else if (c.status === 'missed') {
-                    cellStyle = styles.calCellMissed;
-                    textStyle = styles.calTextMissed;
-                  } else if (c.status === 'inactive') {
-                    cellStyle = styles.calCellInactive;
-                    textStyle = styles.calTextInactive;
-                  }
-
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.milestonesRow}>
+                {historyData?.milestones?.map((m: any, idx: number) => {
+                  const bg = m.achieved ? '#FEF3C7' : '#F3F4F6';
+                  const iconColor = m.achieved ? '#F59E0B' : '#9CA3AF';
                   return (
-                    <View key={idx} style={[styles.calCell, cellStyle]}>
-                      <Text style={[styles.calDayText, textStyle]}>{c.d}</Text>
+                    <View key={idx} style={styles.milestoneItem}>
+                      <View style={[styles.milestoneCircle, { backgroundColor: bg }]}>
+                        <MaterialCommunityIcons name="star-shooting" size={24} color={iconColor} />
+                      </View>
+                      <Text style={styles.milestoneLabel}>{m.days} Days</Text>
+                      <Text style={styles.milestoneStatus}>{m.achieved ? 'Achieved' : 'Locked'}</Text>
+                      
+                      {m.achieved && (
+                        <View style={styles.miniCheckCircle}>
+                          <Feather name="check" size={10} color="#FFFFFF" />
+                        </View>
+                      )}
                     </View>
-                  );
+                  )
                 })}
-              </View>
+              </ScrollView>
+            </View>
 
-              {/* Calendar Legend */}
-              <View style={styles.legendContainer}>
-                <View style={styles.legendRow}>
-                  <View style={styles.legendItem}>
-                    <View style={[styles.legendDot, { backgroundColor: '#10B981' }]} />
-                    <Text style={styles.legendText}>Completed</Text>
-                  </View>
-                  <View style={styles.legendItem}>
-                    <View style={[styles.legendDot, { backgroundColor: '#F97316' }]} />
-                    <Text style={styles.legendText}>Today</Text>
+            {/* Split Row: Streak Calendar & Streak Protection */}
+            <View style={styles.splitRow}>
+              
+              {/* Left: Streak Calendar */}
+              <View style={[styles.card, styles.splitCard]}>
+                <Text style={styles.splitCardTitle}>Streak Calendar</Text>
+                <Text style={styles.splitCardSub}>{historyData?.current_month || 'Loading'}</Text>
+
+                <View style={styles.calHeaderRow}>
+                  {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => (
+                    <Text key={d} style={styles.calDayHeader}>{d}</Text>
+                  ))}
+                </View>
+
+                {/* Calendar Grid */}
+                <View style={styles.calGrid}>
+                  {calendarDays?.map((c, idx) => {
+                    if (!c.d) {
+                      return <View key={idx} style={styles.calCellEmpty} />;
+                    }
+
+                    let cellStyle = styles.calCellMissed;
+                    let textStyle = styles.calTextMissed;
+
+                    if (c.status === 'completed') {
+                      cellStyle = styles.calCellCompleted;
+                      textStyle = styles.calTextCompleted;
+                    } else if (c.status === 'today') {
+                      cellStyle = styles.calCellToday;
+                      textStyle = styles.calTextToday;
+                    } else if (c.status === 'inactive') {
+                      cellStyle = styles.calCellInactive;
+                      textStyle = styles.calTextInactive;
+                    }
+
+                    return (
+                      <View key={idx} style={[styles.calCell, cellStyle]}>
+                        <Text style={[styles.calDayText, textStyle]}>{c.d}</Text>
+                      </View>
+                    );
+                  })}
+                </View>
+
+                {/* Calendar Legend */}
+                <View style={styles.legendContainer}>
+                  <View style={styles.legendRow}>
+                    <View style={styles.legendItem}>
+                      <View style={[styles.legendDot, { backgroundColor: '#10B981' }]} />
+                      <Text style={styles.legendText}>Completed</Text>
+                    </View>
+                    <View style={styles.legendItem}>
+                      <View style={[styles.legendDot, { backgroundColor: '#F97316' }]} />
+                      <Text style={styles.legendText}>Today</Text>
+                    </View>
                   </View>
                 </View>
-                <View style={[styles.legendRow, { marginTop: 4 }]}>
-                  <View style={styles.legendItem}>
-                    <View style={[styles.legendDot, { backgroundColor: '#E2E8F0' }]} />
-                    <Text style={styles.legendText}>Not completed</Text>
-                  </View>
-                  <View style={styles.legendItem}>
-                    <View style={[styles.legendDot, { backgroundColor: '#F8FAFC' }]} />
-                    <Text style={styles.legendText}>Inactive</Text>
-                  </View>
-                </View>
               </View>
-            </View>
 
-            {/* Right: Streak Protection */}
-            <View style={[styles.card, styles.splitCard]}>
-              <Text style={styles.splitCardTitle}>Streak Protection</Text>
-              <Text style={styles.splitCardSub}>Don't lose your streak!</Text>
-
-              {/* 3D Shield Icon Graphic */}
-              <View style={styles.shieldContainer}>
-                <View style={styles.shieldBg}>
-                  <Feather name="shield" size={48} color="#7C3AED" />
-                  <View style={styles.shieldCheck}>
-                    <Feather name="check" size={18} color="#FFFFFF" />
+              {/* Right: Streak Protection */}
+              <View style={[styles.card, styles.splitCard]}>
+                <Text style={styles.splitCardTitle}>Streak Protection</Text>
+                
+                <View style={styles.shieldContainer}>
+                  <View style={styles.shieldBg}>
+                    <Ionicons name="shield" size={48} color="#C4B5FD" />
+                    <Ionicons name="checkmark-circle" size={20} color="#10B981" style={styles.shieldCheck} />
                   </View>
                 </View>
+
+                <View style={styles.protectionStatsRow}>
+                  <Text style={styles.protectionCardsLabel}>Cards Left:</Text>
+                  <Text style={styles.protectionCardsValue}>{protectionCards}</Text>
+                </View>
+
+                <Text style={styles.protectionDesc}>
+                  Use a card to freeze your streak if you miss a day.
+                </Text>
+
+                <TouchableOpacity 
+                  style={styles.useCardButton}
+                  onPress={handleUseProtectionCard}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.useCardButtonText}>Use Card</Text>
+                </TouchableOpacity>
               </View>
+            </View>
 
-              <View style={styles.protectionStatsRow}>
-                <Text style={styles.protectionCardsLabel}>Protection Cards</Text>
-                <Text style={styles.protectionCardsValue}>{protectionCards}</Text>
+            {/* Motivation Banner */}
+            <View style={styles.rocketCard}>
+              <View style={styles.rocketIconWrapper}>
+                <MaterialCommunityIcons name="rocket-launch-outline" size={22} color="#7C3AED" />
               </View>
-
-              <Text style={styles.protectionDesc}>
-                Use a protection card to save your streak if you miss a day.
-              </Text>
-
-              <TouchableOpacity 
-                style={styles.useCardButton}
-                onPress={handleUseProtection}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.useCardButtonText}>Use a Card</Text>
-              </TouchableOpacity>
+              <View style={styles.rocketTextContainer}>
+                <Text style={styles.rocketTitle}>Build a habit!</Text>
+                <Text style={styles.rocketSub}>Learners with a 7+ day streak are 3x more likely to pass their exams.</Text>
+              </View>
             </View>
-          </View>
 
-          {/* Bottom Motivation Card */}
-          <View style={styles.rocketCard}>
-            <View style={styles.rocketIconWrapper}>
-              <MaterialCommunityIcons name="rocket-launch-outline" size={26} color="#7C3AED" />
-            </View>
-            <View style={styles.rocketTextContainer}>
-              <Text style={styles.rocketTitle}>You're doing great! 🚀</Text>
-              <Text style={styles.rocketSub}>
-                You are more consistent than 78% of Classore learners.
-              </Text>
-            </View>
-          </View>
-
-          <View style={{ height: 40 }} />
-        </ScrollView>
+            <View style={{ height: 40 }} />
+          </ScrollView>
+        )}
       </View>
     </SafeAreaView>
   );
@@ -411,38 +373,31 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#111827',
   },
-  streakBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F3E8FF',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-  },
-  streakText: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#7C3AED',
-  },
   scrollContent: {
     paddingHorizontal: 16,
-    paddingTop: 14,
+    paddingTop: 10,
   },
 
-  // Hero Card
   heroCard: {
-    borderRadius: 22,
-    padding: 18,
+    borderRadius: 24,
+    padding: 24,
+    marginBottom: 20,
+    shadowColor: '#7C3AED',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  heroContent: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
   },
-  heroLeft: {
+  heroTextCol: {
     flex: 1,
   },
-  heroHeading: {
-    fontSize: 18,
+  heroTitle: {
+    fontSize: 22,
     fontWeight: '800',
     color: '#FFFFFF',
     marginBottom: 4,
@@ -499,7 +454,6 @@ const styles = StyleSheet.create({
     borderColor: '#7C3AED',
   },
 
-  // General Card
   card: {
     backgroundColor: '#FFFFFF',
     borderRadius: 20,
@@ -542,7 +496,6 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
 
-  // Days Timeline
   daysTimeline: {
     flexDirection: 'row',
     gap: 8,
@@ -582,17 +535,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 6,
   },
-  dayDate: {
-    fontSize: 10,
-    color: '#9CA3AF',
-    fontWeight: '500',
-  },
-  dayDateToday: {
-    color: '#F97316',
-    fontWeight: '800',
-  },
 
-  // Motivation Callout
   calloutBox: {
     backgroundColor: '#F8FAFC',
     borderRadius: 16,
@@ -630,7 +573,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
 
-  // Milestones
   seeAllText: {
     fontSize: 12.5,
     fontWeight: '700',
@@ -679,7 +621,6 @@ const styles = StyleSheet.create({
     borderColor: '#FFFFFF',
   },
 
-  // Split Row
   splitRow: {
     flexDirection: 'row',
     gap: 12,
@@ -698,7 +639,6 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
 
-  // Calendar
   calHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -783,7 +723,6 @@ const styles = StyleSheet.create({
     color: '#6B7280',
   },
 
-  // Protection Card
   shieldContainer: {
     alignItems: 'center',
     marginVertical: 8,
@@ -834,7 +773,6 @@ const styles = StyleSheet.create({
     color: '#4C1D95',
   },
 
-  // Rocket Motivation Card
   rocketCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 18,

@@ -16,7 +16,7 @@ export default function ExploreScreen() {
   // Search Results State
   const [searchResults, setSearchResults] = useState<SearchResults | null>(null);
   const [isSearching, setIsSearching] = useState(false);
-  const typingTimer = useRef<NodeJS.Timeout | null>(null);
+  const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     fetchInitialData();

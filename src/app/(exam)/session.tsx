@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { examService, UserAttempt, UserResponseItem } from '@/services/exam';
+import { examService, UserAttempt, UserResponseItem, isSectionBasedExam } from '@/services/exam';
 
 export default function ExamSessionScreen() {
   const router = useRouter();
@@ -23,6 +23,7 @@ export default function ExamSessionScreen() {
     exam_type_id?: string;
     mode?: string;
     sections?: string;
+    time_limit?: string;
   }>();
 
   const [isLoading, setIsLoading] = useState(true);
@@ -39,6 +40,7 @@ export default function ExamSessionScreen() {
   const [showCalculator, setShowCalculator] = useState(false);
   const [showPalette, setShowPalette] = useState(false);
   const [showExit, setShowExit] = useState(false);
+  const [showSubmitModal, setShowSubmitModal] = useState(false);
 
   // Calculator States
   const [calcExpression, setCalcExpression] = useState('');
@@ -57,34 +59,73 @@ export default function ExamSessionScreen() {
         let currentAttempt: UserAttempt | null = null;
 
         if (params.attempt_id) {
-          // If attempt ID passed
-          const history = await examService.getExamHistory();
-          const found = Array.isArray(history) ? history.find((a: any) => String(a.id) === params.attempt_id) : null;
-          if (found) currentAttempt = found;
+          try {
+            const res = await examService.resumeExam(Number(params.attempt_id));
+            currentAttempt = res;
+            if (res.timer_info?.remaining_seconds !== undefined) {
+              setSecondsRemaining(res.timer_info.remaining_seconds);
+            }
+          } catch (e) {
+            console.warn('Failed to resume attempt:', e);
+          }
+        }
+
+        // Check if this exam is a section/language proficiency exam (IELTS, TOEFL, etc.)
+        const allExams = await examService.getExams();
+        let targetExamId = currentAttempt?.exam_type || (params.exam_type_id ? Number(params.exam_type_id) : null);
+        if (!targetExamId && allExams && allExams.length > 0) {
+          targetExamId = allExams[0].id;
+        }
+        const targetExamObj = allExams.find(e => e.id === targetExamId);
+        const isSectionExam = isSectionBasedExam(targetExamObj?.name, currentAttempt?.sections);
+
+        if (isSectionExam) {
+          router.replace({
+            pathname: '/(exam)/ielts-session',
+            params: {
+              attempt_id: currentAttempt ? String(currentAttempt.id) : params.attempt_id,
+              exam: String(targetExamId || 42),
+              exam_type_id: String(targetExamId || 42),
+              mode: params.mode || 'Standard',
+              sections: params.sections,
+            }
+          });
+          return;
         }
 
         if (!currentAttempt) {
-          // Start a new attempt
-          let examTypeId = params.exam_type_id ? Number(params.exam_type_id) : null;
-          if (!examTypeId) {
-            const allExams = await examService.getExams();
-            if (allExams && allExams.length > 0) {
-              examTypeId = allExams[0].id;
-            } else {
-              examTypeId = 41; // Default to JAMB Mock Simulation
+          let selectedSectionIds: number[] | undefined;
+          if (params.sections) {
+            try {
+              selectedSectionIds = typeof params.sections === 'string' ? JSON.parse(params.sections) : params.sections;
+            } catch {
+              selectedSectionIds = undefined;
             }
           }
+          const timeLimitOverride = params.time_limit ? Number(params.time_limit) : undefined;
 
-          const selectedSectionIds = params.sections ? JSON.parse(params.sections) : undefined;
-          
           try {
-            currentAttempt = await examService.startExam({
-              exam_type_id: examTypeId,
+            const newAttempt = await examService.startExam({
+              exam_type_id: targetExamId || 41,
               mode: (params.mode as any) || 'Standard',
               selected_section_ids: selectedSectionIds,
+              time_limit_override: params.mode === 'Practice' && timeLimitOverride ? timeLimitOverride : undefined,
             });
-          } catch (err) {
-            console.warn('Backend start exam call failed, falling back to mock state for preview:', err);
+            const res = await examService.resumeExam(newAttempt.id);
+            currentAttempt = res;
+            if (res.timer_info?.remaining_seconds !== undefined) {
+              setSecondsRemaining(res.timer_info.remaining_seconds);
+            }
+          } catch (err: any) {
+            console.error('Backend start exam call failed:', err);
+            const errorMsg = err?.response?.data?.error 
+              || err?.response?.data?.detail 
+              || err?.message 
+              || 'Failed to start exam session.';
+            Alert.alert('Unable to Start Exam', errorMsg, [
+              { text: 'Go Back', onPress: () => router.canGoBack() ? router.back() : router.replace('/') }
+            ]);
+            return;
           }
         }
 
@@ -104,8 +145,8 @@ export default function ExamSessionScreen() {
           });
           setUserAnswers(initialAnswers);
 
-          // Time limit
-          if (currentAttempt.time_limit_override) {
+          // Time limit fallback if not set by resume timer_info
+          if (!currentAttempt.time_limit_override && currentAttempt.time_limit_override) {
             setSecondsRemaining(currentAttempt.time_limit_override * 60);
           }
         }
@@ -226,31 +267,22 @@ export default function ExamSessionScreen() {
         }));
         await examService.submitExam(attempt.id, { responses: responsesPayload });
       }
+      setShowSubmitModal(false);
       router.replace({
         pathname: '/(exam)/test-result',
-        params: { attempt_id: attempt?.id }
+        params: { attempt_id: attempt?.id ? String(attempt.id) : undefined }
       });
     } catch (err: any) {
       console.error('Submit error:', err);
-      Alert.alert('Submit Failed', err.response?.data?.message || 'Could not submit test. Please try again.');
+      const errorMsg = err?.response?.data?.error || err?.response?.data?.message || err?.message || 'Could not submit test. Please try again.';
+      Alert.alert('Submit Failed', errorMsg);
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const handleSubmitPrompt = () => {
-    Alert.alert(
-      'Submit Test',
-      'Are you sure you want to submit your test? Your answers will be graded and ranked.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Submit', 
-          style: 'destructive',
-          onPress: executeSubmit
-        }
-      ]
-    );
+    setShowSubmitModal(true);
   };
 
   // Calculator Logic
@@ -555,33 +587,41 @@ export default function ExamSessionScreen() {
                   const isAnswered = qId ? !!userAnswers[qId] : false;
                   const isCurrent = i === activeQuestionIndex;
 
-                  let btnStyle = styles.paletteBtnDefault;
-                  let textStyle = styles.paletteBtnTextDefault;
-
-                  if (isAnswered) {
-                    btnStyle = styles.paletteBtnAnswered;
-                    textStyle = styles.paletteBtnTextAnswered;
-                  }
-                  if (isCurrent) {
-                    btnStyle = styles.paletteBtnCurrent;
-                    textStyle = styles.paletteBtnTextAnswered;
-                  }
-
                   return (
                     <TouchableOpacity 
                       key={num} 
-                      style={[styles.paletteBtn, btnStyle]}
+                      style={[
+                        styles.paletteBtn, 
+                        styles.paletteBtnDefault,
+                        isAnswered && styles.paletteBtnAnswered,
+                        isCurrent && styles.paletteBtnCurrent
+                      ]}
                       onPress={() => {
                         setActiveQuestionIndex(i);
                         setShowPalette(false);
                       }}
                     >
-                      <AppText style={[styles.paletteBtnText, textStyle]}>{num}</AppText>
+                      <AppText style={[
+                        styles.paletteBtnText, 
+                        styles.paletteBtnTextDefault,
+                        (isAnswered || isCurrent) && styles.paletteBtnTextAnswered
+                      ]}>{num}</AppText>
                     </TouchableOpacity>
                   );
                 })}
               </View>
             </ScrollView>
+            
+            <TouchableOpacity 
+              style={styles.paletteSubmitBtn} 
+              onPress={() => {
+                setShowPalette(false);
+                setShowSubmitModal(true);
+              }}
+            >
+              <Feather name="flag" size={16} color="#FFF" style={{ marginRight: 8 }} />
+              <AppText style={styles.paletteSubmitBtnText}>Submit Examination</AppText>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -608,6 +648,75 @@ export default function ExamSessionScreen() {
               </TouchableOpacity>
               <TouchableOpacity style={styles.exitBtn} onPress={() => { setShowExit(false); router.replace('/(tabs)'); }}>
                 <AppText style={styles.exitBtnText}>Exit Test</AppText>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Submit Test Confirmation Modal */}
+      <Modal visible={showSubmitModal} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.submitModalCard}>
+            <View style={styles.submitModalHeader}>
+              <View style={styles.submitIconBg}>
+                <Feather name="check-circle" size={26} color="#6D28D9" />
+              </View>
+              <TouchableOpacity 
+                onPress={() => !isSubmitting && setShowSubmitModal(false)} 
+                style={styles.closeExitBtn}
+                disabled={isSubmitting}
+              >
+                <Feather name="x" size={20} color="#6B7280" />
+              </TouchableOpacity>
+            </View>
+            <AppText style={styles.submitModalTitle}>Submit Examination?</AppText>
+            <AppText style={styles.submitModalSubtitle}>
+              Are you sure you want to finalize and submit your test?
+            </AppText>
+            
+            {/* Quick Stats Summary */}
+            <View style={styles.submitStatsBox}>
+              <View style={styles.submitStatItem}>
+                <AppText style={styles.submitStatValue}>{Object.keys(userAnswers).length}</AppText>
+                <AppText style={styles.submitStatLabel}>Answered</AppText>
+              </View>
+              <View style={styles.submitStatDivider} />
+              <View style={styles.submitStatItem}>
+                <AppText style={styles.submitStatValue}>
+                  {Math.max(0, (sectionQuestions.length || 40) - Object.keys(userAnswers).length)}
+                </AppText>
+                <AppText style={styles.submitStatLabel}>Unanswered</AppText>
+              </View>
+              <View style={styles.submitStatDivider} />
+              <View style={styles.submitStatItem}>
+                <AppText style={styles.submitStatValue}>{bookmarkedQuestions.length}</AppText>
+                <AppText style={styles.submitStatLabel}>Bookmarked</AppText>
+              </View>
+            </View>
+
+            <AppText style={styles.submitModalDesc}>
+              Once submitted, your responses will be evaluated and graded immediately.
+            </AppText>
+            
+            <View style={styles.submitModalActions}>
+              <TouchableOpacity 
+                style={styles.cancelSubmitBtn} 
+                onPress={() => setShowSubmitModal(false)}
+                disabled={isSubmitting}
+              >
+                <AppText style={styles.cancelSubmitBtnText}>Keep Practicing</AppText>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.confirmSubmitBtn, isSubmitting && { opacity: 0.7 }]} 
+                onPress={executeSubmit}
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? (
+                  <ActivityIndicator color="#FFF" size="small" />
+                ) : (
+                  <AppText style={styles.confirmSubmitBtnText}>Yes, Submit</AppText>
+                )}
               </TouchableOpacity>
             </View>
           </View>
@@ -954,6 +1063,20 @@ const styles = StyleSheet.create({
   paletteBtnTextAnswered: {
     color: '#FFFFFF',
   },
+  paletteSubmitBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#6D28D9',
+    paddingVertical: 14,
+    borderRadius: 14,
+    marginTop: 16,
+  },
+  paletteSubmitBtnText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+  },
   exitCard: {
     width: '100%',
     maxWidth: 340,
@@ -1023,6 +1146,109 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   exitBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+
+  // Submit Confirmation Modal Styles
+  submitModalCard: {
+    width: '100%',
+    maxWidth: 380,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    padding: 22,
+  },
+  submitModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  submitIconBg: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: '#F3E8FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  submitModalTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#111827',
+    marginBottom: 6,
+  },
+  submitModalSubtitle: {
+    fontSize: 13,
+    color: '#4B5563',
+    marginBottom: 14,
+    lineHeight: 18,
+  },
+  submitStatsBox: {
+    flexDirection: 'row',
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+  },
+  submitStatItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  submitStatValue: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#6D28D9',
+  },
+  submitStatLabel: {
+    fontSize: 11,
+    color: '#6B7280',
+    marginTop: 2,
+    fontWeight: '600',
+  },
+  submitStatDivider: {
+    width: 1,
+    height: 24,
+    backgroundColor: '#E5E7EB',
+  },
+  submitModalDesc: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    marginBottom: 20,
+    lineHeight: 16,
+  },
+  submitModalActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  cancelSubmitBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cancelSubmitBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#4B5563',
+  },
+  confirmSubmitBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: '#6D28D9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  confirmSubmitBtnText: {
     fontSize: 14,
     fontWeight: '700',
     color: '#FFFFFF',

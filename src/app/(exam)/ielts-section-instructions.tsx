@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { 
   View, 
   Text, 
@@ -6,13 +6,103 @@ import {
   SafeAreaView, 
   ScrollView, 
   TouchableOpacity, 
-  Platform 
+  Platform,
+  Alert,
+  ActivityIndicator
 } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import { examService } from '@/services/exam';
 
 export default function IELTSSectionInstructionsScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ 
+    exam?: string; 
+    exam_type_id?: string; 
+    section_name?: string;
+    sections?: string;
+    section_order?: string;
+    mode?: string;
+    time_limit?: string;
+    question_count?: string;
+    difficulty?: string;
+  }>();
+  const [examName, setExamName] = useState('Test');
+  const [isStarting, setIsStarting] = useState(false);
+
+  const handleBeginTest = async () => {
+    if (isStarting) return;
+    setIsStarting(true);
+    try {
+      const examId = params.exam ? Number(params.exam) : (params.exam_type_id ? Number(params.exam_type_id) : 42);
+      const order = params.section_order ? params.section_order.split(',').map(Number) : (params.sections ? (typeof params.sections === 'string' ? JSON.parse(params.sections) : params.sections) : undefined);
+      const mode = (params.mode as any) || 'Standard';
+      const timeLimitOverride = params.time_limit ? Number(params.time_limit) : undefined;
+      const targetQuestionCount = params.question_count ? Number(params.question_count) : undefined;
+      const targetDifficulty = params.difficulty ? String(params.difficulty) : undefined;
+
+      let practiceConfig: Record<string, any> | undefined;
+      if (mode === 'Practice') {
+        practiceConfig = {
+          question_count: targetQuestionCount || 40,
+          difficulty: targetDifficulty || 'Medium',
+        };
+        if (order && order.length > 0) {
+          order.forEach((id: number) => {
+            practiceConfig![String(id)] = {
+              question_count: targetQuestionCount || 40,
+              difficulty: targetDifficulty || 'Medium',
+            };
+          });
+        }
+      }
+
+      const newAttempt = await examService.startExam({
+        exam_type_id: examId,
+        mode: mode,
+        selected_section_ids: order,
+        time_limit_override: mode === 'Practice' && timeLimitOverride ? timeLimitOverride : undefined,
+        question_count: targetQuestionCount,
+        difficulty: targetDifficulty,
+        practice_config: practiceConfig,
+      });
+
+      router.push({
+        pathname: '/(exam)/ielts-session',
+        params: {
+          ...params,
+          attempt_id: String(newAttempt.id),
+        }
+      });
+    } catch (error: any) {
+      console.error('Failed to start section exam:', error);
+      const errorMsg = error?.response?.data?.error 
+        || error?.response?.data?.detail 
+        || error?.message 
+        || 'Failed to start exam. Please check your connection and try again.';
+      Alert.alert('Unable to Start Exam', errorMsg);
+    } finally {
+      setIsStarting(false);
+    }
+  };
+
+  React.useEffect(() => {
+    const fetchExam = async () => {
+      try {
+        const examId = params.exam ? Number(params.exam) : (params.exam_type_id ? Number(params.exam_type_id) : null);
+        if (examId) {
+          const allExams = await examService.getExams();
+          const current = allExams.find(e => e.id === examId);
+          if (current) setExamName(current.name);
+        }
+      } catch (e) {
+        console.warn('Failed to load exam details for section instructions:', e);
+      }
+    };
+    fetchExam();
+  }, [params.exam, params.exam_type_id]);
+
+  const currentSection = params.section_name || 'Reading';
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -27,7 +117,7 @@ export default function IELTSSectionInstructionsScreen() {
           >
             <Feather name="chevron-left" size={24} color="#111827" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Reading Instructions</Text>
+          <Text style={styles.headerTitle}>{currentSection} Instructions</Text>
           <View style={styles.streakBadge}>
             <Text style={{ fontSize: 13, marginRight: 4 }}>🔥</Text>
             <Text style={styles.streakText}>120</Text>
@@ -59,9 +149,9 @@ export default function IELTSSectionInstructionsScreen() {
 
           {/* Section Headline */}
           <View style={styles.headlineContainer}>
-            <Text style={styles.mainTitle}>IELTS Reading</Text>
+            <Text style={styles.mainTitle}>{examName} {currentSection}</Text>
             <Text style={styles.mainSubtitle}>
-              You will have 60 minutes to complete 40 questions based on 3–4 passages.
+              Complete all questions carefully based on the provided passages and instructions.
             </Text>
           </View>
 
@@ -124,15 +214,19 @@ export default function IELTSSectionInstructionsScreen() {
 
           {/* Begin Test Button */}
           <TouchableOpacity 
-            style={styles.beginTestButton}
-            onPress={() => router.push({
-              pathname: '/(exam)/ielts-session',
-              params: params
-            })}
+            style={[styles.beginTestButton, isStarting && { opacity: 0.7 }]}
+            onPress={handleBeginTest}
+            disabled={isStarting}
             activeOpacity={0.85}
           >
-            <Text style={styles.beginTestButtonText}>Begin Test</Text>
-            <Feather name="arrow-right" size={18} color="#FFFFFF" style={{ marginLeft: 8 }} />
+            {isStarting ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <>
+                <Text style={styles.beginTestButtonText}>Begin Test</Text>
+                <Feather name="arrow-right" size={18} color="#FFFFFF" style={{ marginLeft: 8 }} />
+              </>
+            )}
           </TouchableOpacity>
 
           <View style={{ height: 40 }} />

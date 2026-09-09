@@ -1,4 +1,5 @@
 import { AppText } from '@/components/AppText';
+import { useAuth } from '@/context/AuthContext';
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, ScrollView, Dimensions, Platform } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -8,9 +9,10 @@ import { Feather } from '@expo/vector-icons';
 const { width } = Dimensions.get('window');
 const cardWidth = width * 0.36;
 
-import { examService, ExamType } from '@/services/exam';
+import { examService, ExamType, isSectionBasedExam } from '@/services/exam';
 
 export default function ExamSetupScreen() {
+  const { user } = useAuth();
   const router = useRouter();
   const params = useLocalSearchParams<{ exam?: string }>();
   
@@ -81,7 +83,6 @@ export default function ExamSetupScreen() {
   const handleContinue = () => {
     if (!selectedExam) return;
     const examObj = exams.find(e => e.id === selectedExam);
-    const examNameLower = examObj?.name.toLowerCase() || '';
     
     if (selectedMode === 'practice') {
       router.push({
@@ -89,7 +90,7 @@ export default function ExamSetupScreen() {
         params: { exam: selectedExam }
       });
     } else {
-      if (examNameLower.includes('ielts')) {
+      if (isSectionBasedExam(examObj?.name)) {
         router.push({
           pathname: '/(exam)/ielts-setup',
           params: { exam: selectedExam }
@@ -121,7 +122,7 @@ export default function ExamSetupScreen() {
         <View style={styles.headerRight}>
           <View style={styles.fireBadge}>
             <AppText style={styles.fireEmoji}>🔥</AppText>
-            <AppText style={styles.fireText}>120</AppText>
+            <AppText style={styles.fireText}>{user?.streak || 0}</AppText>
           </View>
           <TouchableOpacity style={styles.notifButton}>
             <Feather name="bell" size={20} color="#000" />

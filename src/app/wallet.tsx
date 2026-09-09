@@ -98,7 +98,7 @@ export default function WalletScreen() {
             <View style={styles.heroDivider} />
 
             <View style={styles.heroBottomRow}>
-              <Text style={styles.walletIdText}>Wallet ID: CT-983726</Text>
+              <Text style={styles.walletIdText}>Wallet ID: CT-{(user?.id || 0).toString().padStart(6, '0')}</Text>
               <TouchableOpacity 
                 style={styles.addTokensButton}
                 onPress={() => router.push('/buy-tokens')}

@@ -19,6 +19,33 @@ export interface ExamType {
   generation_rules: ExamGenerationRules;
 }
 
+export const isSectionBasedExam = (
+  examName?: string | null,
+  sections?: { name?: string; section_name?: string }[]
+): boolean => {
+  if (!examName && !sections) return false;
+  const nameLower = (examName || '').toLowerCase();
+  if (
+    nameLower.includes('ielts') ||
+    nameLower.includes('toefl') ||
+    nameLower.includes('pte') ||
+    nameLower.includes('duolingo') ||
+    nameLower.includes('english')
+  ) {
+    return true;
+  }
+  if (
+    sections &&
+    sections.some(s => {
+      const sName = (s.name || s.section_name || '').toLowerCase();
+      return ['reading', 'listening', 'writing', 'speaking'].includes(sName);
+    })
+  ) {
+    return true;
+  }
+  return false;
+};
+
 export interface ExamSection {
   id: number;
   exam_type: number;
@@ -35,6 +62,10 @@ export interface ExamTierConfig {
   has_free_tier: boolean;
   freemium_daily_attempts_per_section: number;
   freemium_max_questions_per_section: number;
+  total_questions?: number;
+  duration_minutes?: number;
+  difficulty?: string;
+  reward_xp?: number;
 }
 
 export interface ChoiceItem {
@@ -101,6 +132,9 @@ export interface ExamStartRequest {
   mode?: 'Standard' | 'Practice';
   selected_section_ids?: number[];
   time_limit_override?: number;
+  question_count?: number;
+  difficulty?: string;
+  topics?: string[];
   practice_config?: Record<string, any>;
 }
 
@@ -128,6 +162,12 @@ export interface SubmitExamPayload {
 
 const EXAMS_CACHE_KEY = '@classore_cached_exams';
 let memoryCachedExams: ExamType[] | null = null;
+
+const SECTIONS_CACHE_KEY_PREFIX = '@classore_cached_sections_';
+const memoryCachedSections: Record<number, ExamSection[]> = {};
+
+const TIER_CONFIGS_CACHE_KEY = '@classore_cached_tier_configs';
+let memoryCachedTierConfigs: ExamTierConfig[] | null = null;
 
 export const examService = {
   getCachedExamsSync: (): ExamType[] | null => {
@@ -166,14 +206,74 @@ export const examService = {
     }
   },
 
-  getSections: async (examTypeId: number): Promise<ExamSection[]> => {
-    const response = await api.get(`/api/admin/sections/?exam_type_id=${examTypeId}&is_published=true`);
-    return response.data.results ? response.data.results : response.data;
+  getCachedSectionsSync: (examTypeId: number): ExamSection[] | null => {
+    return memoryCachedSections[examTypeId] || null;
   },
 
-  getExamTierConfigs: async (): Promise<ExamTierConfig[]> => {
-    const response = await api.get('/api/admin/exam-tier-configs/');
-    return response.data.results ? response.data.results : response.data;
+  getCachedSections: async (examTypeId: number): Promise<ExamSection[] | null> => {
+    if (memoryCachedSections[examTypeId] && memoryCachedSections[examTypeId].length > 0) {
+      return memoryCachedSections[examTypeId];
+    }
+    const stored = await storage.get<ExamSection[]>(`${SECTIONS_CACHE_KEY_PREFIX}${examTypeId}`);
+    if (stored && stored.length > 0) {
+      memoryCachedSections[examTypeId] = stored;
+      return stored;
+    }
+    return null;
+  },
+
+  getSections: async (examTypeId: number, options?: { forceRefresh?: boolean }): Promise<ExamSection[]> => {
+    try {
+      const response = await api.get(`/api/admin/sections/?exam_type_id=${examTypeId}&is_published=true`);
+      const freshSections: ExamSection[] = response.data.results ? response.data.results : response.data;
+      if (Array.isArray(freshSections) && freshSections.length > 0) {
+        memoryCachedSections[examTypeId] = freshSections;
+        await storage.set(`${SECTIONS_CACHE_KEY_PREFIX}${examTypeId}`, freshSections);
+      }
+      return freshSections;
+    } catch (error) {
+      const cached = await examService.getCachedSections(examTypeId);
+      if (cached && cached.length > 0) {
+        console.warn(`[examService] Network failed, falling back to cached sections for exam ${examTypeId}`);
+        return cached;
+      }
+      throw error;
+    }
+  },
+
+  getCachedTierConfigsSync: (): ExamTierConfig[] | null => {
+    return memoryCachedTierConfigs;
+  },
+
+  getCachedTierConfigs: async (): Promise<ExamTierConfig[] | null> => {
+    if (memoryCachedTierConfigs && memoryCachedTierConfigs.length > 0) {
+      return memoryCachedTierConfigs;
+    }
+    const stored = await storage.get<ExamTierConfig[]>(TIER_CONFIGS_CACHE_KEY);
+    if (stored && stored.length > 0) {
+      memoryCachedTierConfigs = stored;
+      return stored;
+    }
+    return null;
+  },
+
+  getExamTierConfigs: async (options?: { forceRefresh?: boolean }): Promise<ExamTierConfig[]> => {
+    try {
+      const response = await api.get('/api/admin/exam-tier-configs/');
+      const freshConfigs: ExamTierConfig[] = response.data.results ? response.data.results : response.data;
+      if (Array.isArray(freshConfigs) && freshConfigs.length > 0) {
+        memoryCachedTierConfigs = freshConfigs;
+        await storage.set(TIER_CONFIGS_CACHE_KEY, freshConfigs);
+      }
+      return freshConfigs;
+    } catch (error) {
+      const cached = await examService.getCachedTierConfigs();
+      if (cached && cached.length > 0) {
+        console.warn('[examService] Network failed, falling back to cached tier configs');
+        return cached;
+      }
+      throw error;
+    }
   },
 
   startExam: async (payload: ExamStartRequest): Promise<UserAttempt> => {
@@ -253,8 +353,9 @@ export const examService = {
     return response.data;
   },
 
-  getGlobalWeakTopics: async (): Promise<any> => {
-    const response = await api.get(`/api/user/exam/weak-topics/`);
+  getGlobalWeakTopics: async (params?: { exam?: string; subject?: string; sort?: string }): Promise<any> => {
+    const query = new URLSearchParams(params as any).toString();
+    const response = await api.get(`/api/user/exam/weak-topics/?${query}`);
     return response.data;
   },
 

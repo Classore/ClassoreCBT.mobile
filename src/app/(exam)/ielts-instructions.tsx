@@ -9,10 +9,11 @@ import {
   Platform 
 } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 
 export default function IELTSInstructionsScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams();
 
   const instructions = [
     {

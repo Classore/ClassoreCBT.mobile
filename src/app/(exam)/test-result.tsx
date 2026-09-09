@@ -1,3 +1,4 @@
+import { useAuth } from '@/context/AuthContext';
 import React from 'react';
 import { 
   View, 
@@ -6,7 +7,8 @@ import {
   SafeAreaView, 
   ScrollView, 
   TouchableOpacity, 
-  Platform 
+  Platform,
+  ActivityIndicator
 } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import Svg, { Circle } from 'react-native-svg';
@@ -14,44 +16,64 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { examService } from '@/services/exam';
 
 export default function TestResultScreen() {
+  const { user } = useAuth();
   const router = useRouter();
   const params = useLocalSearchParams<{ attempt_id?: string }>();
 
-  const [loading, setLoading] = React.useState(false);
-  const [score, setScore] = React.useState(205);
-  const [totalScore, setTotalScore] = React.useState(400);
-  const [correctAnswers, setCorrectAnswers] = React.useState(205);
-  const [wrongAnswers, setWrongAnswers] = React.useState(195);
-  const [skippedQuestions, setSkippedQuestions] = React.useState(3);
-  const [timeUsedFormatted, setTimeUsedFormatted] = React.useState('2h 28m');
-  const [performanceTag, setPerformanceTag] = React.useState('Good Performance');
+  const [loading, setLoading] = React.useState<boolean>(Boolean(params.attempt_id));
+  const [score, setScore] = React.useState<number | null>(null);
+  const [totalScore, setTotalScore] = React.useState<number | null>(null);
+  const [correctAnswers, setCorrectAnswers] = React.useState<number | null>(null);
+  const [wrongAnswers, setWrongAnswers] = React.useState<number | null>(null);
+  const [skippedQuestions, setSkippedQuestions] = React.useState<number | null>(null);
+  const [timeUsedFormatted, setTimeUsedFormatted] = React.useState<string>('-');
+  const [performanceTag, setPerformanceTag] = React.useState<string>('Good Performance');
+  const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     const fetchResults = async () => {
-      if (!params.attempt_id) return;
+      if (!params.attempt_id) {
+        setError('No exam session ID provided.');
+        setLoading(false);
+        return;
+      }
       try {
         setLoading(true);
+        setError(null);
         const data = await examService.getDetailedAnalytics(Number(params.attempt_id));
         if (data) {
-          if (data.total_score !== undefined) setScore(Math.round(data.total_score));
-          if (data.max_total_score) setTotalScore(Math.round(data.max_total_score));
-          if (data.correct_answers !== undefined) setCorrectAnswers(data.correct_answers);
-          if (data.wrong_answers !== undefined) setWrongAnswers(data.wrong_answers);
-          if (data.skipped_questions !== undefined) setSkippedQuestions(data.skipped_questions);
+          const s = data.total_score !== undefined ? Math.round(data.total_score) : 0;
+          const maxS = data.max_total_score ? Math.round(data.max_total_score) : (data.total_questions_attempted || 400);
+          setScore(s);
+          setTotalScore(maxS);
+          setCorrectAnswers(data.correct_answers ?? 0);
+          setWrongAnswers(data.wrong_answers ?? 0);
+          setSkippedQuestions(data.skipped_questions ?? 0);
           
-          if (data.total_time_taken) {
-            const h = Math.floor(data.total_time_taken / 3600);
-            const m = Math.floor((data.total_time_taken % 3600) / 60);
-            setTimeUsedFormatted(`${h > 0 ? `${h}h ` : ''}${m}m`);
+          if (data.total_time_taken !== undefined) {
+            const totalSec = Math.round(data.total_time_taken);
+            const h = Math.floor(totalSec / 3600);
+            const m = Math.floor((totalSec % 3600) / 60);
+            const sec = totalSec % 60;
+            if (h > 0) {
+              setTimeUsedFormatted(`${h}h ${m}m`);
+            } else if (m > 0) {
+              setTimeUsedFormatted(`${m}m ${sec}s`);
+            } else {
+              setTimeUsedFormatted(`${sec}s`);
+            }
           }
 
-          const pct = data.max_total_score ? (data.total_score / data.max_total_score) * 100 : 50;
+          const pct = maxS > 0 ? (s / maxS) * 100 : 0;
           if (pct >= 70) setPerformanceTag('Excellent Performance');
           else if (pct >= 50) setPerformanceTag('Good Performance');
           else setPerformanceTag('Needs Improvement');
+        } else {
+          setError('Could not retrieve result data.');
         }
-      } catch (err) {
-        console.warn('Failed to load detailed analytics, using defaults:', err);
+      } catch (err: any) {
+        console.warn('Failed to load detailed analytics:', err);
+        setError('Failed to load test results.');
       } finally {
         setLoading(false);
       }
@@ -60,10 +82,10 @@ export default function TestResultScreen() {
     fetchResults();
   }, [params.attempt_id]);
 
-  const percentage = Math.round((score / (totalScore || 1)) * 100);
-  const correctPct = Math.round((correctAnswers / (totalScore || 1)) * 100);
-  const wrongPct = Math.round((wrongAnswers / (totalScore || 1)) * 100);
-  const skippedPct = Math.round((skippedQuestions / (totalScore || 1)) * 100);
+  const percentage = totalScore && totalScore > 0 ? Math.round(((score ?? 0) / totalScore) * 100) : 0;
+  const correctPct = totalScore && totalScore > 0 ? Math.round(((correctAnswers ?? 0) / totalScore) * 100) : 0;
+  const wrongPct = totalScore && totalScore > 0 ? Math.round(((wrongAnswers ?? 0) / totalScore) * 100) : 0;
+  const skippedPct = totalScore && totalScore > 0 ? Math.round(((skippedQuestions ?? 0) / totalScore) * 100) : 0;
 
   // SVG Circular progress
   const size = 190;
@@ -92,141 +114,163 @@ export default function TestResultScreen() {
             activeOpacity={0.8}
           >
             <Text style={{ fontSize: 13, marginRight: 4 }}>🔥</Text>
-            <Text style={styles.streakText}>120</Text>
+            <Text style={styles.streakText}>{user?.streak || 0}</Text>
           </TouchableOpacity>
         </View>
 
-        <ScrollView 
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.scrollContent}
-        >
-          {/* Headline */}
-          <View style={styles.headlineContainer}>
-            <Text style={styles.mainTitle}>Great Job! 🎉</Text>
-            <Text style={styles.mainSubtitle}>
-              You've completed the JAMB practice test
-            </Text>
+        {loading ? (
+          <View style={styles.centerContainer}>
+            <ActivityIndicator size="large" color="#7C3AED" />
+            <Text style={styles.loadingText}>Analyzing test results...</Text>
           </View>
-
-          {/* Score Donut */}
-          <View style={styles.donutContainer}>
-            <Svg width={size} height={size} style={{ transform: [{ rotate: '-90deg' }] }}>
-              {/* Background Track */}
-              <Circle
-                cx={size / 2}
-                cy={size / 2}
-                r={radius}
-                stroke="#F1F5F9"
-                strokeWidth={strokeWidth}
-                fill="none"
-              />
-              {/* Progress Stroke */}
-              <Circle
-                cx={size / 2}
-                cy={size / 2}
-                r={radius}
-                stroke="#7C3AED"
-                strokeWidth={strokeWidth}
-                strokeDasharray={`${circumference} ${circumference}`}
-                strokeDashoffset={strokeDashoffset}
-                strokeLinecap="round"
-                fill="none"
-              />
-            </Svg>
-
-            {/* Inner Content */}
-            <View style={styles.donutInner}>
-              <Text style={styles.donutLabel}>Your Score</Text>
-              <Text style={styles.donutScore}>{score}</Text>
-              <Text style={styles.donutTotal}>{score} / {totalScore}</Text>
-              <View style={styles.performanceBadge}>
-                <Text style={styles.performanceBadgeText}>{performanceTag}</Text>
-              </View>
-            </View>
+        ) : error || score === null ? (
+          <View style={styles.centerContainer}>
+            <MaterialCommunityIcons name="alert-circle-outline" size={48} color="#94A3B8" />
+            <Text style={styles.errorTitle}>Result Unavailable</Text>
+            <Text style={styles.errorSubtitle}>{error || 'Could not load results for this session.'}</Text>
+            <TouchableOpacity 
+              style={styles.retryButton} 
+              onPress={() => router.replace('/(tabs)')}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.retryButtonText}>Go to Home</Text>
+            </TouchableOpacity>
           </View>
-
-          {/* 4-Metric Grid */}
-          <View style={styles.metricsGrid}>
-            {/* Correct Answers */}
-            <View style={styles.metricCard}>
-              <View style={styles.metricHeaderRow}>
-                <View style={[styles.metricIconBg, { backgroundColor: '#DCFCE7' }]}>
-                  <Feather name="check" size={14} color="#16A34A" />
-                </View>
-                <Text style={styles.metricLabel}>Correct Answers</Text>
-              </View>
-              <Text style={styles.metricValue}>{correctAnswers}</Text>
-              <Text style={[styles.metricSub, { color: '#16A34A' }]}>{correctPct}%</Text>
-            </View>
-
-            {/* Incorrect Answers */}
-            <View style={styles.metricCard}>
-              <View style={styles.metricHeaderRow}>
-                <View style={[styles.metricIconBg, { backgroundColor: '#FEE2E2' }]}>
-                  <Feather name="x" size={14} color="#DC2626" />
-                </View>
-                <Text style={styles.metricLabel}>Incorrect Answers</Text>
-              </View>
-              <Text style={styles.metricValue}>{wrongAnswers}</Text>
-              <Text style={[styles.metricSub, { color: '#DC2626' }]}>{wrongPct}%</Text>
-            </View>
-
-            {/* Unattempted */}
-            <View style={styles.metricCard}>
-              <View style={styles.metricHeaderRow}>
-                <View style={[styles.metricIconBg, { backgroundColor: '#FFEDD5' }]}>
-                  <Feather name="minus" size={14} color="#EA580C" />
-                </View>
-                <Text style={styles.metricLabel}>Unattempted</Text>
-              </View>
-              <Text style={styles.metricValue}>{skippedQuestions}</Text>
-              <Text style={[styles.metricSub, { color: '#EA580C' }]}>{skippedPct}%</Text>
-            </View>
-
-            {/* Time Used */}
-            <View style={styles.metricCard}>
-              <View style={styles.metricHeaderRow}>
-                <View style={[styles.metricIconBg, { backgroundColor: '#F1F5F9' }]}>
-                  <Feather name="clock" size={14} color="#64748B" />
-                </View>
-                <Text style={styles.metricLabel}>Time Used</Text>
-              </View>
-              <Text style={styles.metricValue}>{timeUsedFormatted}</Text>
-              <Text style={[styles.metricSub, { color: '#94A3B8' }]}>of 3h 0m</Text>
-            </View>
-          </View>
-
-          {/* Rank Banner */}
-          <TouchableOpacity 
-            style={styles.rankCard}
-            onPress={() => router.push('/(exam)/leaderboard')}
-            activeOpacity={0.8}
+        ) : (
+          <ScrollView 
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.scrollContent}
           >
-            <View style={styles.rankIconBg}>
-              <Ionicons name="bar-chart" size={18} color="#7C3AED" />
+            {/* Headline */}
+            <View style={styles.headlineContainer}>
+              <Text style={styles.mainTitle}>
+                {percentage >= 70 ? 'Great Job! 🎉' : percentage >= 50 ? 'Good Effort! 👏' : 'Keep Practicing! 💪'}
+              </Text>
+              <Text style={styles.mainSubtitle}>
+                You've completed the JAMB practice test
+              </Text>
             </View>
-            <View style={styles.rankInfo}>
-              <Text style={styles.rankLabel}>Your Rank</Text>
-              <Text style={styles.rankValue}>Top 0.02%</Text>
-              <Text style={styles.rankSub}>Among all test takers</Text>
+
+            {/* Score Donut */}
+            <View style={styles.donutContainer}>
+              <Svg width={size} height={size} style={{ transform: [{ rotate: '-90deg' }] }}>
+                {/* Background Track */}
+                <Circle
+                  cx={size / 2}
+                  cy={size / 2}
+                  r={radius}
+                  stroke="#F1F5F9"
+                  strokeWidth={strokeWidth}
+                  fill="none"
+                />
+                {/* Progress Stroke */}
+                <Circle
+                  cx={size / 2}
+                  cy={size / 2}
+                  r={radius}
+                  stroke="#7C3AED"
+                  strokeWidth={strokeWidth}
+                  strokeDasharray={`${circumference} ${circumference}`}
+                  strokeDashoffset={strokeDashoffset}
+                  strokeLinecap="round"
+                  fill="none"
+                />
+              </Svg>
+
+              {/* Inner Content */}
+              <View style={styles.donutInner}>
+                <Text style={styles.donutLabel}>Your Score</Text>
+                <Text style={styles.donutScore}>{score}</Text>
+                <Text style={styles.donutTotal}>{score} / {totalScore}</Text>
+                <View style={styles.performanceBadge}>
+                  <Text style={styles.performanceBadgeText}>{performanceTag}</Text>
+                </View>
+              </View>
             </View>
-            <Feather name="chevron-right" size={20} color="#9CA3AF" />
-          </TouchableOpacity>
 
-          {/* View Subject Performance Button */}
-          <TouchableOpacity 
-            style={styles.actionButton}
-            onPress={() => router.push({
-              pathname: '/(exam)/subject-performance',
-              params: { attempt_id: params.attempt_id }
-            })}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.actionButtonText}>View Subject Performance</Text>
-          </TouchableOpacity>
+            {/* 4-Metric Grid */}
+            <View style={styles.metricsGrid}>
+              {/* Correct Answers */}
+              <View style={styles.metricCard}>
+                <View style={styles.metricHeaderRow}>
+                  <View style={[styles.metricIconBg, { backgroundColor: '#DCFCE7' }]}>
+                    <Feather name="check" size={14} color="#16A34A" />
+                  </View>
+                  <Text style={styles.metricLabel}>Correct Answers</Text>
+                </View>
+                <Text style={styles.metricValue}>{correctAnswers}</Text>
+                <Text style={[styles.metricSub, { color: '#16A34A' }]}>{correctPct}%</Text>
+              </View>
 
-          <View style={{ height: 40 }} />
-        </ScrollView>
+              {/* Incorrect Answers */}
+              <View style={styles.metricCard}>
+                <View style={styles.metricHeaderRow}>
+                  <View style={[styles.metricIconBg, { backgroundColor: '#FEE2E2' }]}>
+                    <Feather name="x" size={14} color="#DC2626" />
+                  </View>
+                  <Text style={styles.metricLabel}>Incorrect Answers</Text>
+                </View>
+                <Text style={styles.metricValue}>{wrongAnswers}</Text>
+                <Text style={[styles.metricSub, { color: '#DC2626' }]}>{wrongPct}%</Text>
+              </View>
+
+              {/* Unattempted */}
+              <View style={styles.metricCard}>
+                <View style={styles.metricHeaderRow}>
+                  <View style={[styles.metricIconBg, { backgroundColor: '#FFEDD5' }]}>
+                    <Feather name="minus" size={14} color="#EA580C" />
+                  </View>
+                  <Text style={styles.metricLabel}>Unattempted</Text>
+                </View>
+                <Text style={styles.metricValue}>{skippedQuestions}</Text>
+                <Text style={[styles.metricSub, { color: '#EA580C' }]}>{skippedPct}%</Text>
+              </View>
+
+              {/* Time Used */}
+              <View style={styles.metricCard}>
+                <View style={styles.metricHeaderRow}>
+                  <View style={[styles.metricIconBg, { backgroundColor: '#F1F5F9' }]}>
+                    <Feather name="clock" size={14} color="#64748B" />
+                  </View>
+                  <Text style={styles.metricLabel}>Time Used</Text>
+                </View>
+                <Text style={styles.metricValue}>{timeUsedFormatted}</Text>
+                <Text style={[styles.metricSub, { color: '#94A3B8' }]}>total duration</Text>
+              </View>
+            </View>
+
+            {/* Rank Banner */}
+            <TouchableOpacity 
+              style={styles.rankCard}
+              onPress={() => router.push('/(exam)/leaderboard')}
+              activeOpacity={0.8}
+            >
+              <View style={styles.rankIconBg}>
+                <Ionicons name="bar-chart" size={18} color="#7C3AED" />
+              </View>
+              <View style={styles.rankInfo}>
+                <Text style={styles.rankLabel}>Your Rank</Text>
+                <Text style={styles.rankValue}>Top {Math.max(1, 100 - percentage)}%</Text>
+                <Text style={styles.rankSub}>Based on your score</Text>
+              </View>
+              <Feather name="chevron-right" size={20} color="#9CA3AF" />
+            </TouchableOpacity>
+
+            {/* View Subject Performance Button */}
+            <TouchableOpacity 
+              style={styles.actionButton}
+              onPress={() => router.push({
+                pathname: '/(exam)/subject-performance',
+                params: { attempt_id: params.attempt_id }
+              })}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.actionButtonText}>View Subject Performance</Text>
+            </TouchableOpacity>
+
+            <View style={{ height: 40 }} />
+          </ScrollView>
+        )}
       </View>
     </SafeAreaView>
   );
@@ -438,5 +482,41 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
     color: '#FFFFFF',
+  },
+  centerContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  loadingText: {
+    marginTop: 14,
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#6B7280',
+  },
+  errorTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+    marginTop: 12,
+  },
+  errorSubtitle: {
+    fontSize: 13,
+    color: '#6B7280',
+    textAlign: 'center',
+    marginTop: 6,
+    marginBottom: 20,
+  },
+  retryButton: {
+    backgroundColor: '#7C3AED',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  retryButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 14,
   },
 });

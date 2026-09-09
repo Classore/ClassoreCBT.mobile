@@ -1,40 +1,84 @@
 import { AppText } from '@/components/AppText';
+import { useAuth } from '@/context/AuthContext';
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, Platform, ActivityIndicator } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { examService, ExamSection, ExamTierConfig } from '@/services/exam';
+import { examService, ExamSection, ExamTierConfig, isSectionBasedExam } from '@/services/exam';
 
 export default function StandardSetupScreen() {
+  const { user } = useAuth();
   const router = useRouter();
   const params = useLocalSearchParams<{ exam?: string }>();
 
-  const [subjects, setSubjects] = useState<ExamSection[]>([]);
-  const [tierConfig, setTierConfig] = useState<ExamTierConfig | null>(null);
-  const [loading, setLoading] = useState(true);
+  const examIdStr = Array.isArray(params.exam) ? params.exam[0] : params.exam;
+  const examId = examIdStr ? parseInt(examIdStr, 10) : 1;
+
+  // Instant synchronous memory cache
+  const initialSections = examService.getCachedSectionsSync(examId);
+  const initialTierConfigs = examService.getCachedTierConfigsSync();
+  const initialTierConfig = initialTierConfigs?.find(t => t.exam_type === examId) || null;
+
+  const [subjects, setSubjects] = useState<ExamSection[]>(initialSections || []);
+  const [tierConfig, setTierConfig] = useState<ExamTierConfig | null>(initialTierConfig);
+  const [loading, setLoading] = useState<boolean>(!initialSections || initialSections.length === 0);
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const examIdStr = Array.isArray(params.exam) ? params.exam[0] : params.exam;
-        const examId = examIdStr ? parseInt(examIdStr, 10) : 1;
+    let isMounted = true;
+    const currentExamIdStr = Array.isArray(params.exam) ? params.exam[0] : params.exam;
+    const currentExamId = currentExamIdStr ? parseInt(currentExamIdStr, 10) : 1;
 
+    const loadData = async () => {
+      const memSections = examService.getCachedSectionsSync(currentExamId);
+      if (memSections && memSections.length > 0) {
+        if (isMounted) {
+          setSubjects(memSections);
+          setLoading(false);
+        }
+      } else {
+        const storedSections = await examService.getCachedSections(currentExamId);
+        if (isMounted && storedSections && storedSections.length > 0) {
+          setSubjects(storedSections);
+          setLoading(false);
+        }
+      }
+
+      const memTiers = examService.getCachedTierConfigsSync();
+      if (memTiers && memTiers.length > 0) {
+        const cfg = memTiers.find(t => t.exam_type === currentExamId);
+        if (isMounted && cfg) setTierConfig(cfg);
+      } else {
+        const storedTiers = await examService.getCachedTierConfigs();
+        const cfg = storedTiers?.find(t => t.exam_type === currentExamId);
+        if (isMounted && cfg) setTierConfig(cfg);
+      }
+
+      try {
         const [fetchedSections, fetchedTiers] = await Promise.all([
-          examService.getSections(examId),
+          examService.getSections(currentExamId),
           examService.getExamTierConfigs()
         ]);
-        setSubjects(fetchedSections);
-        const config = fetchedTiers.find(t => t.exam_type === examId);
-        if (config) setTierConfig(config);
+        if (isMounted && Array.isArray(fetchedSections) && fetchedSections.length > 0) {
+          setSubjects(fetchedSections);
+        }
+        const config = fetchedTiers.find(t => t.exam_type === currentExamId);
+        if (isMounted && config) setTierConfig(config);
       } catch (error) {
         console.error('Error fetching standard setup data:', error);
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     };
-    fetchData();
+
+    loadData();
+
+    return () => {
+      isMounted = false;
+    };
   }, [params.exam]);
 
   return (
@@ -53,7 +97,7 @@ export default function StandardSetupScreen() {
             activeOpacity={0.8}
           >
             <AppText style={styles.streakEmoji}>🔥</AppText>
-            <AppText style={styles.streakText}>120</AppText>
+            <AppText style={styles.streakText}>{user?.streak || 0}</AppText>
           </TouchableOpacity>
         </View>
 
@@ -65,7 +109,7 @@ export default function StandardSetupScreen() {
                 <Ionicons name="school-outline" size={24} color="#FFF" />
               </View>
               <View style={{ marginLeft: 12 }}>
-                <AppText style={styles.heroTitle}>2025 Official Mock</AppText>
+                <AppText style={styles.heroTitle}>2025 {tierConfig?.difficulty || 'Official'} Mock</AppText>
                 <AppText style={styles.heroSubtitle}>JAMB UTME</AppText>
               </View>
             </View>
@@ -74,13 +118,13 @@ export default function StandardSetupScreen() {
               <View style={styles.heroTagRow}>
                 <View style={styles.tag}>
                   <Feather name="check-square" size={14} color="#FFF" />
-                  <AppText style={styles.tagText}>400 Questions</AppText>
+                  <AppText style={styles.tagText}>{tierConfig?.total_questions || 400} Questions</AppText>
                 </View>
               </View>
               <View style={styles.heroTagRow}>
                 <View style={styles.tag}>
                   <Feather name="clock" size={14} color="#FFF" />
-                  <AppText style={styles.tagText}>2 Hours</AppText>
+                  <AppText style={styles.tagText}>{tierConfig?.duration_minutes ? Math.floor(tierConfig.duration_minutes / 60) + ' Hours' : '2 Hours'}</AppText>
                 </View>
                 <View style={styles.tag}>
                   <Ionicons name="star" size={14} color="#FBBF24" />
@@ -101,7 +145,7 @@ export default function StandardSetupScreen() {
           
           <View style={styles.overviewRow}>
             <AppText style={styles.rowLabel}>Questions</AppText>
-            <AppText style={styles.rowValue}>400</AppText>
+            <AppText style={styles.rowValue}>{tierConfig?.total_questions || 400}</AppText>
           </View>
           <View style={styles.divider} />
 
@@ -126,13 +170,13 @@ export default function StandardSetupScreen() {
 
           <View style={styles.overviewRow}>
             <AppText style={styles.rowLabel}>Duration</AppText>
-            <AppText style={styles.rowValue}>2 Hours</AppText>
+            <AppText style={styles.rowValue}>{tierConfig?.duration_minutes ? Math.floor(tierConfig.duration_minutes / 60) + ' Hours' : '2 Hours'}</AppText>
           </View>
           <View style={styles.divider} />
 
           <View style={styles.overviewRow}>
             <AppText style={styles.rowLabel}>Difficulty</AppText>
-            <AppText style={styles.rowValue}>Official</AppText>
+            <AppText style={styles.rowValue}>{tierConfig?.difficulty || 'Official'}</AppText>
           </View>
           <View style={styles.divider} />
 
@@ -146,7 +190,7 @@ export default function StandardSetupScreen() {
             <AppText style={styles.rowLabel}>Rewards</AppText>
             <View style={{flexDirection: 'row', alignItems: 'center'}}>
               <MaterialCommunityIcons name="medal" size={16} color="#F59E0B" style={{marginRight: 4}} />
-              <AppText style={[styles.rowValue, { color: '#D97706' }]}>250 XP</AppText>
+              <AppText style={[styles.rowValue, { color: '#D97706' }]}>{tierConfig?.reward_xp || 250} XP</AppText>
             </View>
           </View>
           <View style={styles.divider} />
@@ -174,9 +218,23 @@ export default function StandardSetupScreen() {
         {/* Begin Button */}
         <TouchableOpacity 
           style={styles.beginButton}
-          onPress={() => {
+          onPress={async () => {
             const examIdStr = Array.isArray(params.exam) ? params.exam[0] : params.exam;
             const examId = examIdStr ? parseInt(examIdStr, 10) : 41;
+
+            try {
+              const allExams = await examService.getExams();
+              const currentExam = allExams.find(e => e.id === examId);
+              if (isSectionBasedExam(currentExam?.name)) {
+                router.push({
+                  pathname: '/(exam)/ielts-setup',
+                  params: { exam: examId }
+                });
+                return;
+              }
+            } catch (e) {
+              console.warn('Failed to resolve exam in standard-setup:', e);
+            }
 
             router.push({
               pathname: '/(exam)/instructions',

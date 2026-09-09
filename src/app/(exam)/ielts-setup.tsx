@@ -35,40 +35,85 @@ export default function IELTSSetupScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ exam?: string }>();
 
-  const [sections, setSections] = useState<SectionItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const examIdStr = Array.isArray(params.exam) ? params.exam[0] : params.exam;
+  const examId = examIdStr ? parseInt(examIdStr, 10) : 42; // Default to 42
+
+  const mapSections = (fetchedSections: any[]) => {
+    return fetchedSections.map(s => {
+      const defaultSec = DEFAULT_SECTIONS[s.name] || {
+        name: s.name,
+        subtitle: `${s.default_time_minutes} min`,
+        iconName: 'book-outline',
+        iconFamily: 'ionicons'
+      };
+      return {
+        id: String(s.id),
+        name: defaultSec.name,
+        subtitle: defaultSec.subtitle,
+        iconName: defaultSec.iconName,
+        iconFamily: defaultSec.iconFamily
+      };
+    });
+  };
+
+  const initialSections = examService.getCachedSectionsSync(examId);
+  const initialMapped = initialSections ? mapSections(initialSections) : [];
+
+  const [sections, setSections] = useState<SectionItem[]>(initialMapped);
+  const [examName, setExamName] = useState('Language Proficiency');
+  const [examDesc, setExamDesc] = useState('Standard English Proficiency Test');
+  const [loading, setLoading] = useState(!initialSections || initialSections.length === 0);
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const examIdStr = Array.isArray(params.exam) ? params.exam[0] : params.exam;
-        const examId = examIdStr ? parseInt(examIdStr, 10) : 1; // Default to 1
-        const fetchedSections = await examService.getSections(examId);
+    let isMounted = true;
+    const currentExamIdStr = Array.isArray(params.exam) ? params.exam[0] : params.exam;
+    const currentExamId = currentExamIdStr ? parseInt(currentExamIdStr, 10) : 42;
 
-        const mappedSections = fetchedSections.map(s => {
-          const defaultSec = DEFAULT_SECTIONS[s.name] || {
-            name: s.name,
-            subtitle: `${s.default_time_minutes} min`,
-            iconName: 'book-outline',
-            iconFamily: 'ionicons'
-          };
-          return {
-            id: String(s.id),
-            name: defaultSec.name,
-            subtitle: defaultSec.subtitle,
-            iconName: defaultSec.iconName,
-            iconFamily: defaultSec.iconFamily
-          };
-        });
-        setSections(mappedSections.length ? mappedSections : Object.values(DEFAULT_SECTIONS));
+    const loadData = async () => {
+      // 1. Check stored cache if memory was empty
+      if (!initialSections || initialSections.length === 0) {
+        const storedSections = await examService.getCachedSections(currentExamId);
+        if (isMounted && storedSections && storedSections.length > 0) {
+          const mapped = mapSections(storedSections);
+          setSections(mapped.length ? mapped : Object.values(DEFAULT_SECTIONS));
+          setLoading(false);
+        }
+      }
+
+      // 2. Fetch fresh updated data
+      try {
+        const [fetchedSections, allExams] = await Promise.all([
+          examService.getSections(currentExamId),
+          examService.getExams()
+        ]);
+
+        if (isMounted) {
+          const currentExam = allExams.find(e => e.id === currentExamId);
+          if (currentExam) {
+            setExamName(currentExam.name);
+            if (currentExam.description) setExamDesc(currentExam.description);
+          }
+
+          const mappedSections = mapSections(fetchedSections);
+          setSections(mappedSections.length ? mappedSections : Object.values(DEFAULT_SECTIONS));
+        }
       } catch (error) {
-        console.error('Failed to fetch IELTS sections:', error);
-        setSections(Object.values(DEFAULT_SECTIONS)); // Fallback
+        console.error('Failed to fetch sections:', error);
+        if (isMounted && sections.length === 0) {
+          setSections(Object.values(DEFAULT_SECTIONS)); // Fallback
+        }
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     };
-    fetchData();
+
+    loadData();
+
+    return () => {
+      isMounted = false;
+    };
   }, [params.exam]);
 
   const moveUp = (index: number) => {
@@ -134,9 +179,9 @@ export default function IELTSSetupScreen() {
                     <Ionicons name="school-outline" size={20} color="#FFFFFF" />
                   </View>
                   <View style={styles.heroTitleContainer}>
-                    <Text style={styles.heroTitle}>IELTS Test</Text>
+                    <Text style={styles.heroTitle}>{examName}</Text>
                     <Text style={styles.heroSubtitle}>
-                      International English Language Testing System
+                      {examDesc}
                     </Text>
                   </View>
                 </View>
@@ -145,14 +190,14 @@ export default function IELTSSetupScreen() {
                 <View style={styles.badgesRow}>
                   <View style={styles.tagBadge}>
                     <Feather name="check-square" size={12} color="#FFFFFF" style={{ marginRight: 4 }} />
-                    <Text style={styles.tagBadgeText}>4 Section</Text>
+                    <Text style={styles.tagBadgeText}>{sections.length || 4} Sections</Text>
                   </View>
                 </View>
 
                 <View style={styles.badgesRow}>
                   <View style={styles.tagBadge}>
                     <Feather name="clock" size={12} color="#FFFFFF" style={{ marginRight: 4 }} />
-                    <Text style={styles.tagBadgeText}>60 Minutes</Text>
+                    <Text style={styles.tagBadgeText}>Timed Test</Text>
                   </View>
                   <View style={styles.tagBadge}>
                     <Ionicons name="star" size={12} color="#FBBF24" style={{ marginRight: 4 }} />
@@ -161,10 +206,14 @@ export default function IELTSSetupScreen() {
                 </View>
               </View>
 
-              {/* Right IELTS Logo */}
+              {/* Right Exam Logo */}
               <View style={styles.logoCircle}>
                 <Image 
-                  source={require('../../../assets/images/ielts-logo.png')} 
+                  source={
+                    examName.toLowerCase().includes('toefl')
+                      ? require('../../../assets/images/toefl-logo.png')
+                      : require('../../../assets/images/ielts-logo.png')
+                  } 
                   style={styles.ieltsLogo} 
                   contentFit="contain" 
                 />
@@ -172,11 +221,11 @@ export default function IELTSSetupScreen() {
             </View>
           </LinearGradient>
 
-          {/* Section: Organize Your IELTS Test */}
+          {/* Section: Organize Your Test */}
           <View style={styles.sectionHeader}>
-            <Text style={styles.organizeTitle}>Organize Your IELTS Test</Text>
+            <Text style={styles.organizeTitle}>Organize Your {examName} Test</Text>
             <Text style={styles.organizeSubtitle}>
-              Drag and arrange the 4 sections in the order you want to take them.
+              Drag and arrange the {sections.length || 4} sections in the order you want to take them.
             </Text>
           </View>
 

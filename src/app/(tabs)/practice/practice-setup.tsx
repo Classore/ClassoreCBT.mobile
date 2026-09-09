@@ -1,25 +1,41 @@
 import { AppText } from '@/components/AppText';
+import { useAuth } from '@/context/AuthContext';
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, TextInput, Platform, Modal, ActivityIndicator } from 'react-native';
+import { View, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, TextInput, Platform, Modal, ActivityIndicator, Alert } from 'react-native';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { examService, ExamSection, ExamTierConfig } from '@/services/exam';
+import { examService, ExamSection, ExamTierConfig, isSectionBasedExam } from '@/services/exam';
 
 export default function PracticeSetupScreen() {
+  const { user } = useAuth();
   const router = useRouter();
-  const params = useLocalSearchParams<{ exam?: string }>();
+  const params = useLocalSearchParams<{ exam?: string; subject?: string; topic_id?: string }>();
   
+  const examIdStr = Array.isArray(params.exam) ? params.exam[0] : params.exam;
+  const examId = examIdStr ? parseInt(examIdStr, 10) : 1; // Default to 1 if missing
+
+  // Instant synchronous memory cache
+  const initialSections = examService.getCachedSectionsSync(examId);
+  const initialTierConfigs = examService.getCachedTierConfigsSync();
+  const initialTierConfig = initialTierConfigs?.find(t => t.exam_type === examId) || null;
+
   // Data State
-  const [subjects, setSubjects] = useState<ExamSection[]>([]);
-  const [tierConfig, setTierConfig] = useState<ExamTierConfig | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [subjects, setSubjects] = useState<ExamSection[]>(initialSections || []);
+  const [tierConfig, setTierConfig] = useState<ExamTierConfig | null>(initialTierConfig);
+  const [loading, setLoading] = useState<boolean>(!initialSections || initialSections.length === 0);
 
   // Form State
   const [selectedSubjects, setSelectedSubjects] = useState<number[]>([]);
-  const [difficulty, setDifficulty] = useState<string>('');
-  const [questionCount, setQuestionCount] = useState<number | null>(null);
+  const [difficulty, setDifficulty] = useState<string>('Medium');
+  const [questionCount, setQuestionCount] = useState<number | null>(40);
+  const [isCustomQuestions, setIsCustomQuestions] = useState<boolean>(false);
+  const [customQuestionInput, setCustomQuestionInput] = useState<string>('');
   const [isTimed, setIsTimed] = useState<boolean>(true);
+  const [timeMinutes, setTimeMinutes] = useState<number>(20);
+  const [showTimeDropdown, setShowTimeDropdown] = useState<boolean>(false);
+  const [isStarting, setIsStarting] = useState<boolean>(false);
+  const [isCustomInputFocused, setIsCustomInputFocused] = useState<boolean>(false);
   
   // Modals
   const [showSubjects, setShowSubjects] = useState(false);
@@ -29,26 +45,70 @@ export default function PracticeSetupScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const examIdStr = Array.isArray(params.exam) ? params.exam[0] : params.exam;
-        const examId = examIdStr ? parseInt(examIdStr, 10) : 1; // Default to 1 if missing
+    let isMounted = true;
+    const currentExamIdStr = Array.isArray(params.exam) ? params.exam[0] : params.exam;
+    const currentExamId = currentExamIdStr ? parseInt(currentExamIdStr, 10) : 1;
 
+    const loadData = async () => {
+      // 1. If we don't have cached subjects from memory, try persistent storage
+      const memSections = examService.getCachedSectionsSync(currentExamId);
+      if (memSections && memSections.length > 0) {
+        if (isMounted) {
+          setSubjects(memSections);
+          setLoading(false);
+        }
+      } else {
+        const storedSections = await examService.getCachedSections(currentExamId);
+        if (isMounted && storedSections && storedSections.length > 0) {
+          setSubjects(storedSections);
+          setLoading(false);
+        }
+      }
+
+      const memTiers = examService.getCachedTierConfigsSync();
+      if (memTiers && memTiers.length > 0) {
+        const cfg = memTiers.find(t => t.exam_type === currentExamId);
+        if (isMounted && cfg) setTierConfig(cfg);
+      } else {
+        const storedTiers = await examService.getCachedTierConfigs();
+        const cfg = storedTiers?.find(t => t.exam_type === currentExamId);
+        if (isMounted && cfg) setTierConfig(cfg);
+      }
+
+      // 2. Fetch fresh sections and tier configs from backend in background
+      try {
         const [fetchedSections, fetchedTiers] = await Promise.all([
-          examService.getSections(examId),
+          examService.getSections(currentExamId),
           examService.getExamTierConfigs()
         ]);
-        setSubjects(fetchedSections);
-        const config = fetchedTiers.find(t => t.exam_type === examId);
-        if (config) setTierConfig(config);
+        if (isMounted && Array.isArray(fetchedSections) && fetchedSections.length > 0) {
+          setSubjects(fetchedSections);
+          setSelectedSubjects(prev => {
+            if (prev.length > 0) return prev;
+            if (params.subject) {
+              const match = fetchedSections.find(s => s.name.toLowerCase().includes(String(params.subject).toLowerCase()));
+              if (match) return [match.id];
+            }
+            return [fetchedSections[0].id];
+          });
+        }
+        const config = fetchedTiers.find(t => t.exam_type === currentExamId);
+        if (isMounted && config) setTierConfig(config);
       } catch (error) {
         console.error('Error fetching practice setup data:', error);
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     };
-    fetchData();
-  }, [params.exam]);
+
+    loadData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [params.exam, params.subject]);
 
   const filteredSubjects = subjects.filter(s => s.name.toLowerCase().includes(searchQuery.toLowerCase()));
 
@@ -62,7 +122,108 @@ export default function PracticeSetupScreen() {
     }
   };
 
-  const isComplete = selectedSubjects.length > 0 && difficulty && questionCount;
+  const isComplete = selectedSubjects.length > 0 && !!difficulty && !!questionCount;
+
+  const handleStartOrContinue = async () => {
+    if (selectedSubjects.length === 0) {
+      setShowSubjects(true);
+      return;
+    }
+    if (!difficulty) {
+      setShowDifficulty(true);
+      return;
+    }
+    if (!questionCount) {
+      setShowTime(true);
+      return;
+    }
+
+    if (isStarting) return;
+    setIsStarting(true);
+
+    try {
+      const examIdStr = Array.isArray(params.exam) ? params.exam[0] : params.exam;
+      const examId = examIdStr ? parseInt(examIdStr, 10) : 41;
+
+      const cachedExams = examService.getCachedExamsSync() || [];
+      let currentExam = cachedExams.find(e => e.id === examId);
+      if (!currentExam) {
+        try {
+          const allExams = await examService.getExams();
+          currentExam = allExams.find(e => e.id === examId);
+        } catch {}
+      }
+
+      const isSectionExam = isSectionBasedExam(currentExam?.name);
+
+      const targetQuestionCount = questionCount || 40;
+      const targetDifficulty = difficulty || 'Medium';
+
+      const practiceConfig: Record<string, any> = {
+        question_count: targetQuestionCount,
+        difficulty: targetDifficulty,
+      };
+
+      selectedSubjects.forEach(subId => {
+        practiceConfig[String(subId)] = {
+          question_count: targetQuestionCount,
+          difficulty: targetDifficulty,
+          topics: params.topic_id ? [params.topic_id] : [],
+        };
+      });
+
+      const newAttempt = await examService.startExam({
+        exam_type_id: examId,
+        mode: 'Practice',
+        selected_section_ids: selectedSubjects,
+        time_limit_override: isTimed ? timeMinutes : undefined,
+        question_count: targetQuestionCount,
+        difficulty: targetDifficulty,
+        practice_config: practiceConfig,
+      });
+
+      if (isSectionExam) {
+        router.push({
+          pathname: '/(exam)/ielts-session',
+          params: {
+            attempt_id: String(newAttempt.id),
+            exam: String(examId),
+            exam_type_id: String(examId),
+            mode: 'Practice',
+            sections: JSON.stringify(selectedSubjects),
+            section_order: selectedSubjects.join(','),
+            difficulty: difficulty,
+            question_count: String(questionCount),
+            time_limit: isTimed ? String(timeMinutes) : '0',
+            is_timed: isTimed ? 'true' : 'false',
+          }
+        });
+      } else {
+        router.push({
+          pathname: '/(exam)/session',
+          params: {
+            attempt_id: String(newAttempt.id),
+            exam_type_id: String(examId),
+            mode: 'Practice',
+            sections: JSON.stringify(selectedSubjects),
+            difficulty: difficulty,
+            question_count: String(questionCount),
+            time_limit: isTimed ? String(timeMinutes) : '0',
+            is_timed: isTimed ? 'true' : 'false',
+          }
+        });
+      }
+    } catch (error: any) {
+      console.error('Failed to start practice session:', error);
+      const errorMsg = error?.response?.data?.error 
+        || error?.response?.data?.detail 
+        || error?.message 
+        || 'Failed to start practice session. Please check your connection and try again.';
+      Alert.alert('Unable to Start Practice', errorMsg);
+    } finally {
+      setIsStarting(false);
+    }
+  };
 
   // Render subject names for the card subtitle
   const selectedSubjectNames = selectedSubjects.map(id => subjects.find(s => s.id === id)?.name).filter(Boolean).join(', ');
@@ -83,7 +244,7 @@ export default function PracticeSetupScreen() {
             activeOpacity={0.8}
           >
             <AppText style={styles.streakEmoji}>🔥</AppText>
-            <AppText style={styles.streakText}>120</AppText>
+            <AppText style={styles.streakText}>{user?.streak || 0}</AppText>
           </TouchableOpacity>
         </View>
 
@@ -127,7 +288,7 @@ export default function PracticeSetupScreen() {
           <View style={styles.setupCardContent}>
             <AppText style={styles.setupCardTitle}>Set time & question count</AppText>
             <AppText style={styles.setupCardSubtitle}>
-              {questionCount ? `${isTimed ? '2 hours' : 'Untimed'} & ${questionCount} questions` : 'Timed or Untimed'}
+              {questionCount ? `${isTimed ? `${timeMinutes} mins` : 'Untimed'} & ${questionCount} questions` : 'Timed or Untimed'}
             </AppText>
           </View>
           <Feather name="chevron-right" size={20} color="#D1D5DB" />
@@ -153,29 +314,21 @@ export default function PracticeSetupScreen() {
           <AppText style={styles.xpBannerText}>✨ Earn XP, maintain streaks and unlock rewards as you practice.</AppText>
         </View>
 
-        {/* Continue Button */}
+        {/* Start / Continue Button */}
         <TouchableOpacity 
-          style={[styles.mainContinueButton, !isComplete && styles.mainContinueButtonDisabled]}
-          disabled={!isComplete}
-          onPress={() => {
-            const examIdStr = Array.isArray(params.exam) ? params.exam[0] : params.exam;
-            const examId = examIdStr ? parseInt(examIdStr, 10) : 41;
-
-            router.push({
-              pathname: '/(exam)/instructions',
-              params: {
-                exam_type_id: examId,
-                mode: 'Practice',
-                sections: JSON.stringify(selectedSubjects),
-                difficulty: difficulty,
-                question_count: questionCount,
-                is_timed: isTimed ? 'true' : 'false',
-              }
-            });
-          }}
+          style={[styles.mainContinueButton, isStarting && { opacity: 0.8 }]}
+          disabled={isStarting}
+          onPress={handleStartOrContinue}
+          activeOpacity={0.85}
         >
-          <AppText style={styles.mainContinueButtonText}>{isComplete ? 'Start Test' : 'Continue'}</AppText>
-          <Feather name="arrow-right" size={20} color="#FFF" style={{ marginLeft: 8 }} />
+          {isStarting ? (
+            <ActivityIndicator color="#FFF" />
+          ) : (
+            <>
+              <AppText style={styles.mainContinueButtonText}>{isComplete ? 'Start Test' : 'Continue'}</AppText>
+              <Feather name="arrow-right" size={20} color="#FFF" style={{ marginLeft: 8 }} />
+            </>
+          )}
         </TouchableOpacity>
         
         <View style={styles.progressSavedRow}>
@@ -316,19 +469,70 @@ export default function PracticeSetupScreen() {
                 {[100, 200, 400, 600].map(num => (
                   <TouchableOpacity 
                     key={num} 
-                    style={[styles.questionPill, questionCount === num && styles.questionPillSelected]}
-                    onPress={() => setQuestionCount(num)}
+                    style={[styles.questionPill, !isCustomQuestions && questionCount === num && styles.questionPillSelected]}
+                    onPress={() => {
+                      setIsCustomQuestions(false);
+                      setQuestionCount(num);
+                    }}
+                    activeOpacity={0.7}
                   >
-                    <AppText style={[styles.questionPillText, questionCount === num && styles.questionPillTextSelected]}>{num}</AppText>
+                    <AppText style={[styles.questionPillText, !isCustomQuestions && questionCount === num && styles.questionPillTextSelected]}>{num}</AppText>
                   </TouchableOpacity>
                 ))}
-              </View>
-              <TouchableOpacity style={styles.customPill}>
-                <AppText style={styles.customPillText}>Custom </AppText>
-                <Feather name="edit-2" size={12} color="#111827" />
-              </TouchableOpacity>
 
-              <AppText style={[styles.sectionLabel, { marginTop: 24 }]}>Timer</AppText>
+                <TouchableOpacity 
+                  style={[styles.customPill, isCustomQuestions && styles.customPillSelected]}
+                  onPress={() => {
+                    setIsCustomQuestions(true);
+                    if (customQuestionInput) {
+                      const val = parseInt(customQuestionInput, 10);
+                      if (!isNaN(val) && val > 0) {
+                        setQuestionCount(val);
+                      }
+                    }
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <AppText style={[styles.customPillText, isCustomQuestions && styles.customPillTextSelected]}>
+                    {isCustomQuestions && questionCount ? `Custom (${questionCount}) ` : 'Custom '}
+                  </AppText>
+                  <Feather name="edit-2" size={12} color={isCustomQuestions ? '#FFF' : '#111827'} />
+                </TouchableOpacity>
+              </View>
+
+              {isCustomQuestions && (
+                <View style={styles.customInputContainer}>
+                  <AppText style={styles.customInputLabel}>Enter custom question count (1 - 1000):</AppText>
+                  <View style={[styles.customInputRow, isCustomInputFocused && styles.customInputRowFocused]}>
+                    <TextInput
+                      style={styles.customTextInput}
+                      keyboardType="number-pad"
+                      placeholder="e.g. 50"
+                      placeholderTextColor="#9CA3AF"
+                      value={customQuestionInput}
+                      onFocus={() => setIsCustomInputFocused(true)}
+                      onBlur={() => setIsCustomInputFocused(false)}
+                      selectionColor="#7C3AED"
+                      underlineColorAndroid="transparent"
+                      onChangeText={(text) => {
+                        const cleaned = text.replace(/[^0-9]/g, '');
+                        setCustomQuestionInput(cleaned);
+                        const val = parseInt(cleaned, 10);
+                        if (!isNaN(val) && val > 0) {
+                          setQuestionCount(val);
+                        } else {
+                          setQuestionCount(null);
+                        }
+                      }}
+                      maxLength={4}
+                      autoFocus
+                    />
+                    <AppText style={styles.customInputUnit}>questions</AppText>
+                  </View>
+                </View>
+              )}
+
+              <AppText style={[styles.sectionLabel, { marginTop: isCustomQuestions ? 8 : 20 }]}>Timer</AppText>
               <View style={styles.timerRow}>
                 <TouchableOpacity style={[styles.timerCard, isTimed && styles.timerCardSelected]} onPress={() => setIsTimed(true)} activeOpacity={0.8}>
                   <View style={styles.timerCardHeader}>
@@ -339,13 +543,42 @@ export default function PracticeSetupScreen() {
                   </View>
                   <AppText style={styles.timerTitle}>Timed</AppText>
                   <AppText style={styles.timerDesc}>Answer within the set time</AppText>
-                  <View style={styles.timeDropdown}>
-                    <AppText style={styles.timeDropdownText}>20 Minutes</AppText>
-                    <Feather name="chevron-down" size={16} color="#4C1D95" />
-                  </View>
+                  <TouchableOpacity 
+                    style={styles.timeDropdown}
+                    onPress={() => setShowTimeDropdown(!showTimeDropdown)}
+                    activeOpacity={0.8}
+                  >
+                    <AppText style={styles.timeDropdownText}>{timeMinutes} Minutes</AppText>
+                    <Feather name={showTimeDropdown ? "chevron-up" : "chevron-down"} size={16} color="#4C1D95" />
+                  </TouchableOpacity>
+                  {showTimeDropdown && (
+                    <View style={styles.timeOptionsContainer}>
+                      {[10, 15, 20, 30, 45, 60, 90, 120].map((mins) => (
+                        <TouchableOpacity
+                          key={mins}
+                          style={[styles.timeOptionPill, timeMinutes === mins && styles.timeOptionPillSelected]}
+                          onPress={() => {
+                            setTimeMinutes(mins);
+                            setShowTimeDropdown(false);
+                          }}
+                        >
+                          <AppText style={[styles.timeOptionText, timeMinutes === mins && styles.timeOptionTextSelected]}>
+                            {mins}m
+                          </AppText>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
                 </TouchableOpacity>
                 
-                <TouchableOpacity style={[styles.timerCard, !isTimed && styles.timerCardSelected]} onPress={() => setIsTimed(false)} activeOpacity={0.8}>
+                <TouchableOpacity 
+                  style={[styles.timerCard, !isTimed && styles.timerCardSelected]} 
+                  onPress={() => {
+                    setIsTimed(false);
+                    setShowTimeDropdown(false);
+                  }} 
+                  activeOpacity={0.8}
+                >
                   <View style={styles.timerCardHeader}>
                     <Feather name="clock" size={20} color={!isTimed ? '#4C1D95' : '#10B981'} />
                     <View style={[styles.radioOuter, !isTimed && styles.radioOuterSelected]}>
@@ -416,7 +649,14 @@ const styles = StyleSheet.create({
   sheetSubtitle: { fontSize: 14, color: '#6B7280' },
   
   searchContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F9FAFB', marginHorizontal: 24, paddingHorizontal: 16, paddingVertical: 12, borderRadius: 12, marginBottom: 16 },
-  searchInput: { flex: 1, marginLeft: 12, fontSize: 16, color: '#111827' },
+  searchInput: { 
+    flex: 1, 
+    marginLeft: 12, 
+    fontSize: 16, 
+    color: '#111827',
+    padding: 0,
+    ...(Platform.OS === 'web' ? ({ outlineStyle: 'none', outlineWidth: 0 } as any) : {}),
+  },
   scrollArea: { paddingHorizontal: 24 },
   subjectRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
   iconContainer: { width: 40, height: 40, borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginRight: 16 },
@@ -448,14 +688,60 @@ const styles = StyleSheet.create({
   recommendedText: { fontSize: 10, color: '#4338CA', fontWeight: 'bold' },
 
   sectionLabel: { fontSize: 16, fontWeight: 'bold', color: '#111827', marginBottom: 12 },
-  questionsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 16 },
+  questionsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 12 },
   questionPill: { paddingVertical: 12, paddingHorizontal: 20, borderRadius: 12, borderWidth: 1, borderColor: '#E5E7EB' },
   questionPillSelected: { backgroundColor: '#6D28D9', borderColor: '#6D28D9' },
   questionPillText: { fontSize: 14, fontWeight: 'bold', color: '#111827' },
   questionPillTextSelected: { color: '#FFF' },
   customPill: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', paddingVertical: 10, paddingHorizontal: 16, borderRadius: 12, borderWidth: 1, borderColor: '#E5E7EB' },
+  customPillSelected: { backgroundColor: '#6D28D9', borderColor: '#6D28D9' },
   customPillText: { fontSize: 14, fontWeight: '600', color: '#111827' },
+  customPillTextSelected: { color: '#FFF' },
   
+  customInputContainer: {
+    backgroundColor: '#F5F3FF',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
+  },
+  customInputLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#6D28D9',
+    marginBottom: 8,
+  },
+  customInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF',
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: '#E5E7EB',
+    paddingHorizontal: 12,
+    paddingVertical: Platform.OS === 'ios' ? 10 : 6,
+  },
+  customInputRowFocused: {
+    borderColor: '#7C3AED',
+  },
+  customTextInput: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#111827',
+    padding: 0,
+    backgroundColor: 'transparent',
+    borderWidth: 0,
+    ...(Platform.OS === 'web' ? ({ outlineStyle: 'none', outlineWidth: 0 } as any) : {}),
+  },
+  customInputUnit: {
+    fontSize: 13,
+    color: '#6B7280',
+    fontWeight: '500',
+    marginLeft: 8,
+  },
+
   timerRow: { flexDirection: 'row', gap: 12 },
   timerCard: { flex: 1, padding: 16, borderRadius: 16, borderWidth: 1, borderColor: '#E5E7EB' },
   timerCardSelected: { borderColor: '#7E57C2', backgroundColor: '#F5F3FF', borderWidth: 1.5 },
@@ -463,5 +749,37 @@ const styles = StyleSheet.create({
   timerTitle: { fontSize: 16, fontWeight: 'bold', color: '#111827', marginBottom: 4 },
   timerDesc: { fontSize: 12, color: '#6B7280', marginBottom: 16, lineHeight: 18 },
   timeDropdown: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12, backgroundColor: '#FFF', borderRadius: 8, borderWidth: 1, borderColor: '#E5E7EB' },
-  timeDropdownText: { fontSize: 13, fontWeight: '600', color: '#111827' }
+  timeDropdownText: { fontSize: 13, fontWeight: '600', color: '#111827' },
+  
+  timeOptionsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 8,
+    padding: 8,
+    backgroundColor: '#FFF',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
+  },
+  timeOptionPill: {
+    paddingVertical: 5,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  timeOptionPillSelected: {
+    backgroundColor: '#6D28D9',
+    borderColor: '#6D28D9',
+  },
+  timeOptionText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#374151',
+  },
+  timeOptionTextSelected: {
+    color: '#FFF',
+  },
 });

@@ -9,10 +9,11 @@ import {
   Platform 
 } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 
 export default function IELTSSpeakingInstructionsScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams();
 
   const instructions = [
     {
@@ -136,7 +137,10 @@ export default function IELTSSpeakingInstructionsScreen() {
           {/* Begin Test Button */}
           <TouchableOpacity 
             style={styles.beginButton}
-            onPress={() => router.push('/(exam)/ielts-speaking-session')}
+            onPress={() => router.push({
+              pathname: '/(exam)/ielts-speaking-session',
+              params: params
+            })}
             activeOpacity={0.85}
           >
             <Text style={styles.beginButtonText}>Begin Test</Text>

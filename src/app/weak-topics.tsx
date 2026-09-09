@@ -7,7 +7,8 @@ import {
   ScrollView, 
   TouchableOpacity, 
   Platform,
-  ActivityIndicator
+  ActivityIndicator,
+  Alert
 } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
@@ -30,13 +31,50 @@ interface WeakTopicItem {
 
 export default function WeakTopicsScreen() {
   const router = useRouter();
+  
   const [weakTopics, setWeakTopics] = useState<WeakTopicItem[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const [examFilter, setExamFilter] = useState('All Exams');
+  const [subjectFilter, setSubjectFilter] = useState('All Subjects');
+  const [sortFilter, setSortFilter] = useState('Worst First');
+
+  const handleFilterExams = () => {
+    Alert.alert('Select Exam', 'Filter by exam type', [
+      { text: 'All Exams', onPress: () => setExamFilter('All Exams') },
+      { text: 'JAMB', onPress: () => setExamFilter('JAMB') },
+      { text: 'WAEC', onPress: () => setExamFilter('WAEC') },
+      { text: 'Cancel', style: 'cancel' }
+    ]);
+  };
+
+  const handleFilterSubjects = () => {
+    Alert.alert('Select Subject', 'Filter by subject', [
+      { text: 'All Subjects', onPress: () => setSubjectFilter('All Subjects') },
+      { text: 'Mathematics', onPress: () => setSubjectFilter('Mathematics') },
+      { text: 'English', onPress: () => setSubjectFilter('English') },
+      { text: 'Cancel', style: 'cancel' }
+    ]);
+  };
+
+  const handleSort = () => {
+    Alert.alert('Sort By', 'Sort weak topics', [
+      { text: 'Worst First', onPress: () => setSortFilter('Worst First') },
+      { text: 'Best First', onPress: () => setSortFilter('Best First') },
+      { text: 'Recent', onPress: () => setSortFilter('Recent') },
+      { text: 'Cancel', style: 'cancel' }
+    ]);
+  };
 
   useEffect(() => {
     const fetchWeakTopics = async () => {
       try {
-        const response = await examService.getGlobalWeakTopics();
+        setLoading(true);
+        const response = await examService.getGlobalWeakTopics({
+          exam: examFilter,
+          subject: subjectFilter,
+          sort: sortFilter
+        });
         const mappedTopics = response.weak_topics.map((t: any) => {
           let barColor = '#EF4444';
           let iconBg = '#FFE4E6';
@@ -89,17 +127,18 @@ export default function WeakTopicsScreen() {
         setLoading(false);
       }
     };
+
     fetchWeakTopics();
-  }, []);
+  }, [examFilter, subjectFilter, sortFilter]);
 
   const renderIcon = (item: WeakTopicItem) => {
     if (item.iconFamily === 'material') {
-      return <MaterialCommunityIcons name={item.iconName as any} size={18} color={item.iconColor} />;
+      return <MaterialCommunityIcons name={item.iconName as any} size={20} color={item.iconColor} />;
     }
     if (item.iconFamily === 'ionicons') {
-      return <Ionicons name={item.iconName as any} size={18} color={item.iconColor} />;
+      return <Ionicons name={item.iconName as any} size={20} color={item.iconColor} />;
     }
-    return <Feather name={item.iconName as any} size={18} color={item.iconColor} />;
+    return <Feather name={item.iconName as any} size={20} color={item.iconColor} />;
   };
 
   return (
@@ -110,7 +149,7 @@ export default function WeakTopicsScreen() {
         <View style={styles.header}>
           <TouchableOpacity 
             style={styles.headerButton} 
-            onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}
+            onPress={() => router.back()}
             activeOpacity={0.7}
           >
             <Feather name="chevron-left" size={24} color="#111827" />
@@ -125,41 +164,39 @@ export default function WeakTopicsScreen() {
         >
           {/* Hero Banner Card */}
           <LinearGradient
-            colors={['#4C1D95', '#6D28D9']}
+            colors={['#4C1D95', '#6D28D9', '#7C3AED']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={styles.heroCard}
           >
             <View style={styles.heroLeft}>
-              <Text style={styles.heroTitle}>Focus on Improvement</Text>
-              <Text style={styles.heroSubtitle}>
-                These are the topics you need to practice more.
-              </Text>
+              <Text style={styles.heroTitle}>Target Your Weaknesses</Text>
+              <Text style={styles.heroSubtitle}>Practicing these topics will give you the biggest score boost.</Text>
             </View>
             <View style={styles.heroRight}>
               <Image 
-                source={require('../../assets/images/qa-target.png')} 
-                style={styles.targetImage} 
-                contentFit="contain" 
+                source={require('@/assets/images/qa-target.png')} 
+                style={styles.targetImage}
+                contentFit="contain"
               />
             </View>
           </LinearGradient>
 
           {/* Filter Pills */}
           <View style={styles.filterRow}>
-            <TouchableOpacity style={styles.filterPill} activeOpacity={0.7}>
-              <Text style={styles.filterPillText}>All Exams</Text>
+            <TouchableOpacity style={styles.filterPill} activeOpacity={0.7} onPress={handleFilterExams}>
+              <Text style={styles.filterPillText}>{examFilter}</Text>
               <Feather name="chevron-down" size={12} color="#6B7280" style={{ marginLeft: 4 }} />
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.filterPill} activeOpacity={0.7}>
-              <Text style={styles.filterPillText}>All Subjects</Text>
+            <TouchableOpacity style={styles.filterPill} activeOpacity={0.7} onPress={handleFilterSubjects}>
+              <Text style={styles.filterPillText}>{subjectFilter}</Text>
               <Feather name="chevron-down" size={12} color="#6B7280" style={{ marginLeft: 4 }} />
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.filterPill} activeOpacity={0.7}>
+            <TouchableOpacity style={styles.filterPill} activeOpacity={0.7} onPress={handleSort}>
               <MaterialCommunityIcons name="swap-vertical" size={14} color="#6B7280" style={{ marginRight: 2 }} />
-              <Text style={styles.filterPillText}>Worst First</Text>
+              <Text style={styles.filterPillText}>{sortFilter}</Text>
               <Feather name="chevron-down" size={12} color="#6B7280" style={{ marginLeft: 4 }} />
             </TouchableOpacity>
           </View>
@@ -203,7 +240,7 @@ export default function WeakTopicsScreen() {
                     <Text style={styles.questionsText}>{item.questionsCount} Questions</Text>
                     <TouchableOpacity 
                       style={styles.practiceButton}
-                      onPress={() => router.push('/(tabs)/practice')}
+                      onPress={() => router.push(`/(tabs)/practice/practice-setup?topic_id=${item.id}&subject=${item.subject}`)}
                       activeOpacity={0.8}
                     >
                       <Text style={styles.practiceButtonText}>Practice</Text>

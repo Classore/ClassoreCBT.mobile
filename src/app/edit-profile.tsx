@@ -1,19 +1,21 @@
-import React, { useState } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  SafeAreaView, 
-  ScrollView, 
-  TouchableOpacity, 
-  TextInput, 
-  Platform,
-  Alert 
-} from 'react-native';
-import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { useAuth } from '@/context/AuthContext';
+import { Feather } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import { useAuth } from '@/context/AuthContext';
+import { useState } from 'react';
+import {
+  Alert,
+  Platform,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+  Modal,
+  FlatList
+} from 'react-native';
 
 export default function EditProfileScreen() {
   const router = useRouter();
@@ -32,7 +34,41 @@ export default function EditProfileScreen() {
   const [school, setSchool] = useState(user?.school || '');
   const [classLevel, setClassLevel] = useState(user?.class_level || '');
 
+
   const [isSaving, setIsSaving] = useState(false);
+
+  const [modalVisible, setModalVisible] = useState(false);
+  const [modalType, setModalType] = useState<'gender' | 'state' | 'classLevel' | null>(null);
+
+  const GENDER_OPTIONS = ['Male', 'Female', 'Prefer not to say'];
+  const STATE_OPTIONS = [
+    'Abia', 'Adamawa', 'Akwa Ibom', 'Anambra', 'Bauchi', 'Bayelsa', 'Benue', 'Borno',
+    'Cross River', 'Delta', 'Ebonyi', 'Edo', 'Ekiti', 'Enugu', 'FCT - Abuja', 'Gombe',
+    'Imo', 'Jigawa', 'Kaduna', 'Kano', 'Katsina', 'Kebbi', 'Kogi', 'Kwara', 'Lagos',
+    'Nasarawa', 'Niger', 'Ogun', 'Ondo', 'Osun', 'Oyo', 'Plateau', 'Rivers', 'Sokoto',
+    'Taraba', 'Yobe', 'Zamfara'
+  ];
+  const CLASS_OPTIONS = ['SS 1', 'SS 2', 'SS 3', 'UTME', 'Undergraduate', 'Graduate', 'Other'];
+
+  const openModal = (type: 'gender' | 'state' | 'classLevel') => {
+    setModalType(type);
+    setModalVisible(true);
+  };
+
+  const handleSelectOption = (item: string) => {
+    if (modalType === 'gender') setGender(item);
+    else if (modalType === 'state') setState(item);
+    else if (modalType === 'classLevel') setClassLevel(item);
+    setModalVisible(false);
+  };
+
+  const getOptions = () => {
+    if (modalType === 'gender') return GENDER_OPTIONS;
+    if (modalType === 'state') return STATE_OPTIONS;
+    if (modalType === 'classLevel') return CLASS_OPTIONS;
+    return [];
+  };
+
 
   const handleSave = async () => {
     try {
@@ -177,7 +213,7 @@ export default function EditProfileScreen() {
                   style={styles.textInput}
                   value={dateOfBirth}
                   onChangeText={setDateOfBirth}
-                  placeholder="DD Month YYYY"
+                  placeholder="DD/MM/YYYY"
                   placeholderTextColor="#9CA3AF"
                 />
                 <Feather name="calendar" size={16} color="#9CA3AF" />
@@ -187,7 +223,7 @@ export default function EditProfileScreen() {
             {/* Gender */}
             <View style={styles.fieldGroup}>
               <Text style={styles.fieldLabel}>Gender</Text>
-              <TouchableOpacity style={[styles.inputContainer, styles.dropdownContainer]} activeOpacity={0.7}>
+              <TouchableOpacity style={[styles.inputContainer, styles.dropdownContainer]} activeOpacity={0.7} onPress={() => openModal('gender')}>
                 <Text style={styles.dropdownValueText}>{gender}</Text>
                 <Feather name="chevron-down" size={16} color="#9CA3AF" />
               </TouchableOpacity>
@@ -196,7 +232,7 @@ export default function EditProfileScreen() {
             {/* State */}
             <View style={styles.fieldGroup}>
               <Text style={styles.fieldLabel}>State</Text>
-              <TouchableOpacity style={[styles.inputContainer, styles.dropdownContainer]} activeOpacity={0.7}>
+              <TouchableOpacity style={[styles.inputContainer, styles.dropdownContainer]} activeOpacity={0.7} onPress={() => openModal('state')}>
                 <Text style={styles.dropdownValueText}>{state}</Text>
                 <Feather name="chevron-down" size={16} color="#9CA3AF" />
               </TouchableOpacity>
@@ -219,7 +255,7 @@ export default function EditProfileScreen() {
             {/* Class / Level */}
             <View style={styles.fieldGroup}>
               <Text style={styles.fieldLabel}>Class / Level</Text>
-              <TouchableOpacity style={[styles.inputContainer, styles.dropdownContainer]} activeOpacity={0.7}>
+              <TouchableOpacity style={[styles.inputContainer, styles.dropdownContainer]} activeOpacity={0.7} onPress={() => openModal('classLevel')}>
                 <Text style={styles.dropdownValueText}>{classLevel}</Text>
                 <Feather name="chevron-down" size={16} color="#9CA3AF" />
               </TouchableOpacity>
@@ -252,8 +288,53 @@ export default function EditProfileScreen() {
 
           <View style={{ height: 60 }} />
         </ScrollView>
+
+        {/* Selection Modal */}
+        <Modal
+          visible={modalVisible}
+          animationType="slide"
+          transparent={true}
+          onRequestClose={() => setModalVisible(false)}
+        >
+          <TouchableOpacity 
+            style={styles.modalOverlay}
+            activeOpacity={1}
+            onPress={() => setModalVisible(false)}
+          >
+            <View style={styles.modalContainer}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>
+                  {modalType === 'gender' ? 'Select Gender' : modalType === 'state' ? 'Select State' : 'Select Class/Level'}
+                </Text>
+                <TouchableOpacity onPress={() => setModalVisible(false)}>
+                  <Feather name="x" size={24} color="#6B7280" />
+                </TouchableOpacity>
+              </View>
+              <FlatList
+                data={getOptions()}
+                keyExtractor={(item) => item}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={styles.modalItem}
+                    onPress={() => handleSelectOption(item)}
+                  >
+                    <Text style={styles.modalItemText}>{item}</Text>
+                    {((modalType === 'gender' && gender === item) ||
+                      (modalType === 'state' && state === item) ||
+                      (modalType === 'classLevel' && classLevel === item)) && (
+                      <Feather name="check" size={20} color="#6D28D9" />
+                    )}
+                  </TouchableOpacity>
+                )}
+                contentContainerStyle={{ paddingBottom: 20 }}
+                showsVerticalScrollIndicator={false}
+              />
+            </View>
+          </TouchableOpacity>
+        </Modal>
       </View>
     </SafeAreaView>
+
   );
 }
 
@@ -401,6 +482,7 @@ const styles = StyleSheet.create({
     color: '#111827',
   },
 
+
   // Log Out
   logoutCard: {
     flexDirection: 'row',
@@ -422,5 +504,44 @@ const styles = StyleSheet.create({
     fontSize: 11.5,
     color: '#F87171',
     marginTop: 1,
+  },
+
+  // Modal
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'flex-end',
+  },
+  modalContainer: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: '70%',
+    paddingHorizontal: 20,
+    paddingTop: 20,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  modalItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  modalItemText: {
+    fontSize: 16,
+    color: '#374151',
+    fontWeight: '500',
   },
 });

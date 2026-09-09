@@ -17,7 +17,15 @@ import { examService, UserAttempt, AttemptSection, QuestionGroupItem, UserRespon
 
 export default function IELTSSessionScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ attempt_id?: string; exam?: string; exam_type_id?: string; section_order?: string }>();
+  const params = useLocalSearchParams<{ 
+    attempt_id?: string; 
+    exam?: string; 
+    exam_type_id?: string; 
+    section_order?: string;
+    sections?: string;
+    mode?: string;
+    time_limit?: string;
+  }>();
   
   const [attempt, setAttempt] = useState<UserAttempt | null>(null);
   const [loading, setLoading] = useState(true);
@@ -29,26 +37,47 @@ export default function IELTSSessionScreen() {
   const [timeLeft, setTimeLeft] = useState(3600);
   const [isPaletteVisible, setIsPaletteVisible] = useState(false);
   const [isBookmarked, setIsBookmarked] = useState(false);
+  const [showSubmitModal, setShowSubmitModal] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
+    let isMounted = true;
+
     const initIelts = async () => {
       try {
         let currentAttempt: UserAttempt;
         if (params.attempt_id) {
           const res = await examService.resumeExam(Number(params.attempt_id));
           currentAttempt = res;
-          setTimeLeft(res.timer_info.remaining_seconds);
+          if (res.timer_info?.remaining_seconds !== undefined) {
+            setTimeLeft(res.timer_info.remaining_seconds);
+          }
         } else {
           const examId = params.exam ? Number(params.exam) : (params.exam_type_id ? Number(params.exam_type_id) : 42);
-          const order = params.section_order ? params.section_order.split(',').map(Number) : undefined;
+          let order: number[] | undefined;
+          if (params.section_order) {
+            order = params.section_order.split(',').map(Number);
+          } else if (params.sections) {
+            try {
+              order = typeof params.sections === 'string' ? JSON.parse(params.sections) : params.sections;
+            } catch {
+              order = undefined;
+            }
+          }
+          const mode = (params.mode as any) || 'Standard';
+          const timeLimitOverride = params.time_limit ? Number(params.time_limit) : undefined;
+
           const newAttempt = await examService.startExam({
             exam_type_id: examId,
-            mode: 'Standard',
+            mode: mode,
             selected_section_ids: order,
+            time_limit_override: mode === 'Practice' && timeLimitOverride ? timeLimitOverride : undefined,
           });
           const res = await examService.resumeExam(newAttempt.id);
           currentAttempt = res;
-          setTimeLeft(res.timer_info.remaining_seconds);
+          if (res.timer_info?.remaining_seconds !== undefined) {
+            setTimeLeft(res.timer_info.remaining_seconds);
+          }
         }
 
         // Sort sections according to section_order if available
@@ -61,21 +90,43 @@ export default function IELTSSessionScreen() {
           });
         }
         
-        setAttempt(currentAttempt);
-      } catch (e) {
-        console.warn('Could not initialize live IELTS attempt:', e);
+        if (isMounted) {
+          setAttempt(currentAttempt);
+        }
+      } catch (e: any) {
+        console.error('Could not initialize live IELTS attempt:', e);
+        const errorMsg = e?.response?.data?.error 
+          || e?.response?.data?.detail 
+          || e?.message 
+          || 'Could not initialize exam session.';
+        Alert.alert('Error', errorMsg, [
+          { text: 'Go Back', onPress: () => router.canGoBack() ? router.back() : router.replace('/') }
+        ]);
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     };
     initIelts();
+
+    return () => {
+      isMounted = false;
+    };
   }, [params.attempt_id, params.exam, params.exam_type_id, params.section_order]);
 
   // Timer Countdown Effect
   useEffect(() => {
     if (!loading && attempt) {
       const timer = setInterval(() => {
-        setTimeLeft((prev) => (prev > 0 ? prev - 1 : 0));
+        setTimeLeft((prev) => {
+          if (prev <= 1) {
+            clearInterval(timer);
+            executeSubmit();
+            return 0;
+          }
+          return prev - 1;
+        });
       }, 1000);
       return () => clearInterval(timer);
     }
@@ -96,6 +147,35 @@ export default function IELTSSessionScreen() {
     if (!activeSection) return [];
     return activeSection.question_groups.flatMap(g => g.responses);
   }, [activeSection]);
+
+  // Exam stats across all sections for submit confirmation modal
+  const examStats = useMemo(() => {
+    if (!attempt?.sections) return { total: 0, answered: 0, unanswered: 0, bookmarked: 0 };
+    let total = 0;
+    let answered = 0;
+    let bookmarked = 0;
+    attempt.sections.forEach(sec => {
+      sec.question_groups?.forEach(grp => {
+        grp.responses?.forEach(resp => {
+          total += 1;
+          if (resp.selected_choice !== null && resp.selected_choice !== undefined) {
+            answered += 1;
+          } else if (resp.written_response || resp.audio_response) {
+            answered += 1;
+          }
+          if ((resp as any).is_bookmarked) {
+            bookmarked += 1;
+          }
+        });
+      });
+    });
+    return {
+      total,
+      answered,
+      unanswered: Math.max(0, total - answered),
+      bookmarked,
+    };
+  }, [attempt]);
 
   const handleSelectOption = async (choiceId: number) => {
     if (!attempt || !currentResponse) return;
@@ -128,6 +208,20 @@ export default function IELTSSessionScreen() {
     } else if (activeGroupIndex < activeSection.question_groups.length - 1) {
       setActiveGroupIndex(prev => prev + 1);
       setCurrentResponseIndex(0);
+    } else if (attempt && activeSectionIndex < attempt.sections.length - 1) {
+      const nextSection = attempt.sections[activeSectionIndex + 1];
+      if (nextSection.section_name.toLowerCase().includes('speaking')) {
+        router.replace({
+          pathname: '/(exam)/ielts-speaking-instructions',
+          params: { attempt_id: attempt.id }
+        });
+      } else {
+        setActiveSectionIndex(prev => prev + 1);
+        setActiveGroupIndex(0);
+        setCurrentResponseIndex(0);
+      }
+    } else {
+      setShowSubmitModal(true);
     }
   };
 
@@ -141,39 +235,46 @@ export default function IELTSSessionScreen() {
     }
   };
 
-  const handleFinishSection = () => {
+  const executeSubmit = async () => {
     if (!attempt) return;
-    Alert.alert(
-      `Complete ${activeSection?.section_name} Section`,
-      `Are you sure you want to finish the ${activeSection?.section_name} section and proceed?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Proceed',
-          onPress: () => {
-            if (activeSectionIndex < attempt.sections.length - 1) {
-              const nextSection = attempt.sections[activeSectionIndex + 1];
-              if (nextSection.section_name.toLowerCase().includes('speaking')) {
-                 router.replace({
-                   pathname: '/(exam)/ielts-speaking-instructions',
-                   params: { attempt_id: attempt.id }
-                 });
-              } else {
-                 setActiveSectionIndex(prev => prev + 1);
-                 setActiveGroupIndex(0);
-                 setCurrentResponseIndex(0);
-              }
-            } else {
-              // Submit exam
-              examService.submitExam(attempt.id, { responses: [] }).then(() => {
-                Alert.alert("Exam Submitted", "You have completed the test!");
-                router.replace('/');
-              }).catch(e => console.error(e));
+    try {
+      setIsSubmitting(true);
+      const responsesPayload: any[] = [];
+      attempt.sections?.forEach(sec => {
+        sec.question_groups?.forEach(grp => {
+          grp.responses?.forEach(resp => {
+            if (resp.selected_choice !== null && resp.selected_choice !== undefined) {
+              responsesPayload.push({
+                question_id: resp.question.id,
+                choice_id: resp.selected_choice,
+              });
+            } else if (resp.written_response) {
+              responsesPayload.push({
+                question_id: resp.question.id,
+                written_response: resp.written_response,
+              });
             }
-          },
-        },
-      ]
-    );
+          });
+        });
+      });
+
+      await examService.submitExam(attempt.id, { responses: responsesPayload });
+      setShowSubmitModal(false);
+      router.replace({
+        pathname: '/(exam)/test-result',
+        params: { attempt_id: String(attempt.id) }
+      });
+    } catch (err: any) {
+      console.error('Submit error:', err);
+      const errorMsg = err?.response?.data?.error || err?.response?.data?.message || err?.message || 'Could not submit test. Please try again.';
+      Alert.alert('Submit Failed', errorMsg);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleSubmitPrompt = () => {
+    setShowSubmitModal(true);
   };
 
   if (loading || !attempt) {
@@ -192,7 +293,7 @@ export default function IELTSSessionScreen() {
       <SafeAreaView style={styles.safeArea}>
         <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
           <Text style={{ color: '#6B7280' }}>No content available for this section.</Text>
-          <TouchableOpacity onPress={handleFinishSection} style={[styles.nextButton, { marginTop: 20 }]}>
+          <TouchableOpacity onPress={handleNext} style={[styles.nextButton, { marginTop: 20 }]}>
             <Text style={styles.nextButtonText}>Next Section</Text>
           </TouchableOpacity>
         </View>
@@ -350,11 +451,11 @@ export default function IELTSSessionScreen() {
           {/* Submit Test */}
           <TouchableOpacity 
             style={styles.bottomBarAction}
-            onPress={handleFinishSection}
+            onPress={() => setShowSubmitModal(true)}
             activeOpacity={0.7}
           >
-            <Feather name="flag" size={18} color="#EF4444" />
-            <Text style={[styles.bottomBarActionText, { color: '#EF4444' }]}>Finish Section</Text>
+            <Feather name="check-circle" size={18} color="#EF4444" />
+            <Text style={[styles.bottomBarActionText, { color: '#EF4444', fontWeight: '700' }]}>Submit Test</Text>
           </TouchableOpacity>
 
           {/* Contact Support */}
@@ -363,6 +464,78 @@ export default function IELTSSessionScreen() {
             <Text style={styles.bottomBarActionText}>Support</Text>
           </TouchableOpacity>
         </View>
+
+        {/* Submit Test Confirmation Modal */}
+        <Modal 
+          visible={showSubmitModal} 
+          transparent 
+          animationType="fade"
+          onRequestClose={() => !isSubmitting && setShowSubmitModal(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.submitModalCard}>
+              <View style={styles.submitModalHeader}>
+                <View style={styles.submitIconBg}>
+                  <Feather name="check-circle" size={26} color="#6D28D9" />
+                </View>
+                <TouchableOpacity 
+                  onPress={() => !isSubmitting && setShowSubmitModal(false)} 
+                  style={styles.closeExitBtn}
+                  disabled={isSubmitting}
+                >
+                  <Feather name="x" size={20} color="#6B7280" />
+                </TouchableOpacity>
+              </View>
+              <Text style={styles.submitModalTitle}>Submit IELTS Test?</Text>
+              <Text style={styles.submitModalSubtitle}>
+                Are you sure you want to finalize and submit your test?
+              </Text>
+              
+              {/* Quick Stats Summary */}
+              <View style={styles.submitStatsBox}>
+                <View style={styles.submitStatItem}>
+                  <Text style={styles.submitStatValue}>{examStats.answered}</Text>
+                  <Text style={styles.submitStatLabel}>Answered</Text>
+                </View>
+                <View style={styles.submitStatDivider} />
+                <View style={styles.submitStatItem}>
+                  <Text style={styles.submitStatValue}>{examStats.unanswered}</Text>
+                  <Text style={styles.submitStatLabel}>Unanswered</Text>
+                </View>
+                <View style={styles.submitStatDivider} />
+                <View style={styles.submitStatItem}>
+                  <Text style={styles.submitStatValue}>{examStats.total}</Text>
+                  <Text style={styles.submitStatLabel}>Total Qs</Text>
+                </View>
+              </View>
+
+              <Text style={styles.submitModalDesc}>
+                Once submitted, your responses will be evaluated and graded immediately.
+              </Text>
+              
+              <View style={styles.submitModalActions}>
+                <TouchableOpacity 
+                  style={styles.cancelSubmitBtn} 
+                  onPress={() => setShowSubmitModal(false)}
+                  disabled={isSubmitting}
+                >
+                  <Text style={styles.cancelSubmitBtnText}>Keep Practicing</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={[styles.confirmSubmitBtn, isSubmitting && { opacity: 0.7 }]} 
+                  onPress={executeSubmit}
+                  disabled={isSubmitting}
+                >
+                  {isSubmitting ? (
+                    <ActivityIndicator color="#FFF" size="small" />
+                  ) : (
+                    <Text style={styles.confirmSubmitBtnText}>Yes, Submit</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
 
         {/* Question Palette Modal */}
         <Modal
@@ -835,5 +1008,123 @@ const styles = StyleSheet.create({
   },
   gridCircleTextCurrent: {
     color: '#F59E0B',
-  }
+  },
+
+  // Submit Confirmation Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  submitModalCard: {
+    width: '100%',
+    maxWidth: 380,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    padding: 22,
+  },
+  submitModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  submitIconBg: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: '#F3E8FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  closeExitBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F3F4F6',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  submitModalTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#111827',
+    marginBottom: 6,
+  },
+  submitModalSubtitle: {
+    fontSize: 13,
+    color: '#4B5563',
+    marginBottom: 14,
+    lineHeight: 18,
+  },
+  submitStatsBox: {
+    flexDirection: 'row',
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+  },
+  submitStatItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  submitStatValue: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#6D28D9',
+  },
+  submitStatLabel: {
+    fontSize: 11,
+    color: '#6B7280',
+    marginTop: 2,
+    fontWeight: '600',
+  },
+  submitStatDivider: {
+    width: 1,
+    height: 24,
+    backgroundColor: '#E5E7EB',
+  },
+  submitModalDesc: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    marginBottom: 20,
+    lineHeight: 16,
+  },
+  submitModalActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  cancelSubmitBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cancelSubmitBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#4B5563',
+  },
+  confirmSubmitBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: '#6D28D9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  confirmSubmitBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
 });

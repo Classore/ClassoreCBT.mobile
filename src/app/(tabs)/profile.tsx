@@ -150,60 +150,73 @@ export default function ProfileScreen() {
 
           {/* Overview Section */}
           <Text style={styles.sectionTitle}>Overview</Text>
-          <View style={styles.overviewGrid}>
-            {/* Tests Taken */}
-            <View style={styles.overviewCard}>
-              <View style={[styles.overviewIconBg, { backgroundColor: '#EFF6FF' }]}>
-                <Feather name="file-text" size={18} color="#3B82F6" />
+            {/* Performance Overview Cards */}
+            <View style={styles.overviewGrid}>
+              {/* Tests Taken */}
+              <View style={styles.overviewCard}>
+                <View style={[styles.overviewIconBg, { backgroundColor: '#F0F9FF' }]}>
+                  <Feather name="file-text" size={18} color="#0EA5E9" />
+                </View>
+                <Text style={styles.overviewValue}>{user?.tests_taken || 0}</Text>
+                <Text style={styles.overviewLabel}>Tests Taken</Text>
               </View>
-              <Text style={styles.overviewValue}>{user?.tests_taken || 0}</Text>
-              <Text style={styles.overviewLabel}>Tests Taken</Text>
-            </View>
 
-            {/* Average Score */}
-            <View style={styles.overviewCard}>
-              <View style={[styles.overviewIconBg, { backgroundColor: '#EFF6FF' }]}>
-                <Feather name="activity" size={18} color="#3B82F6" />
+              {/* Average Score */}
+              <View style={styles.overviewCard}>
+                <View style={[styles.overviewIconBg, { backgroundColor: '#FEF2F2' }]}>
+                  <Feather name="target" size={18} color="#EF4444" />
+                </View>
+                <Text style={styles.overviewValue}>{user?.average_score || 0}%</Text>
+                <Text style={styles.overviewLabel}>Average Score</Text>
               </View>
-              <Text style={styles.overviewValue}>{user?.average_score || 0}%</Text>
-              <Text style={styles.overviewLabel}>Average Score</Text>
-            </View>
 
-            {/* Accuracy */}
-            <View style={styles.overviewCard}>
-              <View style={[styles.overviewIconBg, { backgroundColor: '#ECFDF5' }]}>
-                <Feather name="check-circle" size={18} color="#10B981" />
+              {/* Accuracy */}
+              <View style={styles.overviewCard}>
+                <View style={[styles.overviewIconBg, { backgroundColor: '#ECFDF5' }]}>
+                  <Feather name="check-circle" size={18} color="#10B981" />
+                </View>
+                <Text style={styles.overviewValue}>{user?.accuracy !== undefined ? `${user.accuracy}%` : '--%'}</Text>
+                <Text style={styles.overviewLabel}>Accuracy</Text>
               </View>
-              <Text style={styles.overviewValue}>--%</Text>
-              <Text style={styles.overviewLabel}>Accuracy</Text>
-            </View>
 
-            {/* Study Time */}
-            <View style={styles.overviewCard}>
-              <View style={[styles.overviewIconBg, { backgroundColor: '#FFF1F2' }]}>
-                <Feather name="clock" size={18} color="#F43F5E" />
+              {/* Study Time */}
+              <View style={styles.overviewCard}>
+                <View style={[styles.overviewIconBg, { backgroundColor: '#FFF1F2' }]}>
+                  <Feather name="clock" size={18} color="#F43F5E" />
+                </View>
+                <Text style={styles.overviewValue}>
+                  {user?.study_time_hours !== undefined 
+                    ? `${user.study_time_hours}h ${user.study_time_minutes}m`
+                    : '--h --m'}
+                </Text>
+                <Text style={styles.overviewLabel}>Study Time</Text>
               </View>
-              <Text style={styles.overviewValue}>--h --m</Text>
-              <Text style={styles.overviewLabel}>Study Time</Text>
             </View>
-          </View>
 
           {/* Menu Options */}
           <View style={styles.menuContainer}>
             {/* My Certificates */}
-            <TouchableOpacity style={styles.menuItem} activeOpacity={0.7}>
+            <TouchableOpacity 
+              style={styles.menuItem} 
+              activeOpacity={0.7}
+              onPress={() => router.push('/certificates')}
+            >
               <View style={[styles.menuIconBg, { backgroundColor: '#EDE9FE' }]}>
                 <MaterialCommunityIcons name="ribbon" size={20} color="#7C3AED" />
               </View>
               <View style={styles.menuTextContainer}>
                 <Text style={styles.menuTitle}>My Certificates</Text>
-                <Text style={styles.menuSubtitle}>View and download your certificat...</Text>
+                <Text style={styles.menuSubtitle}>View and download your certificates</Text>
               </View>
               <Feather name="chevron-right" size={18} color="#9CA3AF" />
             </TouchableOpacity>
 
             {/* Achievements & Badges */}
-            <TouchableOpacity style={styles.menuItem} activeOpacity={0.7}>
+            <TouchableOpacity 
+              style={styles.menuItem} 
+              activeOpacity={0.7}
+              onPress={() => router.push('/achievements')}
+            >
               <View style={[styles.menuIconBg, { backgroundColor: '#FEF3C7' }]}>
                 <Feather name="star" size={20} color="#F59E0B" />
               </View>

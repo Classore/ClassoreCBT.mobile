@@ -4,11 +4,16 @@ import { Platform } from 'react-native';
 import { api } from '@/services/api';
 
 export interface UserProfile {
+  id: number;
   username: string;
   email: string;
   first_name?: string;
   last_name?: string;
   is_admin?: boolean;
+  scholar_tier?: string;
+  accuracy?: number;
+  study_time_hours?: number;
+  study_time_minutes?: number;
   phone_number?: string;
   date_of_birth?: string;
   gender?: string;
