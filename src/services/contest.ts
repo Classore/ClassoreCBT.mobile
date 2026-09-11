@@ -229,7 +229,7 @@ export const contestService = {
     } catch {
       // ignore
     }
-    return [1]; // By default, Science Genius Contest has registered = true in mock
+    return [];
   },
 
   markAsRegistered: async (contestId: number): Promise<void> => {

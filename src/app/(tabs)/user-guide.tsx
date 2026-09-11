@@ -13,6 +13,8 @@ import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useLocalSearchParams } from 'expo-router';
 import { handleHelpBack, navigateWithFrom } from '@/utils/helpNavigation';
 
+import { getUserGuides, UserGuideItem } from '@/services/support';
+
 interface GuideItem {
   id: string;
   title: string;
@@ -107,7 +109,31 @@ const GUIDE_ITEMS: GuideItem[] = [
 
 export default function UserGuideScreen() {
   const params = useLocalSearchParams<{ from?: string }>();
+  const [guideItems, setGuideItems] = useState<GuideItem[]>(GUIDE_ITEMS);
   const [activeModal, setActiveModal] = useState<GuideItem | null>(null);
+
+  React.useEffect(() => {
+    getUserGuides()
+      .then((fetched) => {
+        if (fetched && fetched.length > 0) {
+          const mapped: GuideItem[] = fetched.map((f, i) => ({
+            id: String(f.id),
+            title: f.title,
+            subtitle: `${f.category} • ${f.read_time}`,
+            iconName: i % 2 === 0 ? 'book-open' : 'file-text',
+            iconType: 'feather',
+            bgColor: i % 3 === 0 ? '#EFF6FF' : i % 3 === 1 ? '#F3E8FF' : '#ECFDF5',
+            iconColor: i % 3 === 0 ? '#3B82F6' : i % 3 === 1 ? '#7C3AED' : '#10B981',
+            modalContent: {
+              title: f.title,
+              points: [f.content || 'Read this article to master your exam preparation on Classore.'],
+            },
+          }));
+          setGuideItems(mapped);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const handleItemPress = (item: GuideItem) => {
     if (item.route) {
@@ -162,8 +188,8 @@ export default function UserGuideScreen() {
 
           {/* Guide Menu List */}
           <View style={styles.menuCardGroup}>
-            {GUIDE_ITEMS.map((item, index) => {
-              const isLast = index === GUIDE_ITEMS.length - 1;
+            {guideItems.map((item, index) => {
+              const isLast = index === guideItems.length - 1;
 
               return (
                 <TouchableOpacity

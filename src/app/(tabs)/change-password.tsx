@@ -29,6 +29,8 @@ export default function ChangePasswordScreen() {
   const [showConfirm, setShowConfirm] = useState(false);
 
   const [updating, setUpdating] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   // Criteria validation
   const hasMinLength = newPassword.length >= 8;
@@ -54,21 +56,41 @@ export default function ChangePasswordScreen() {
     return { label: 'Very Strong', color: '#059669' };
   }, [newPassword, strengthScore]);
 
+  const showAlert = (title: string, message: string, onOk?: () => void) => {
+    if (Platform.OS === 'web') {
+      alert(`${title}: ${message}`);
+      if (onOk) onOk();
+    } else {
+      Alert.alert(title, message, onOk ? [{ text: 'OK', onPress: onOk }] : undefined);
+    }
+  };
+
   const handleUpdatePassword = async () => {
+    setErrorMessage(null);
+    setSuccessMessage(null);
+
     if (!currentPassword) {
-      Alert.alert('Required', 'Please enter your current password.');
+      const msg = 'Please enter your current password.';
+      setErrorMessage(msg);
+      showAlert('Required', msg);
       return;
     }
     if (!newPassword) {
-      Alert.alert('Required', 'Please enter your new password.');
+      const msg = 'Please enter your new password.';
+      setErrorMessage(msg);
+      showAlert('Required', msg);
       return;
     }
     if (!hasMinLength || !hasUppercase || !hasNumber || !hasSpecial) {
-      Alert.alert('Password Criteria', 'Please meet all the required password security conditions.');
+      const msg = 'Please satisfy all required password security conditions (8+ characters, 1 uppercase, 1 number, 1 special character).';
+      setErrorMessage(msg);
+      showAlert('Password Criteria', msg);
       return;
     }
     if (newPassword !== confirmPassword) {
-      Alert.alert('Mismatch', 'New password and confirmation do not match.');
+      const msg = 'New password and confirmation do not match.';
+      setErrorMessage(msg);
+      showAlert('Mismatch', msg);
       return;
     }
 
@@ -79,22 +101,29 @@ export default function ChangePasswordScreen() {
         new_password: newPassword,
       });
 
-      Alert.alert(
-        'Password Changed',
-        'Your password has been successfully updated.',
-        [
-          {
-            text: 'OK',
-            onPress: () => handleHelpBack(params.from, '/settings'),
-          },
-        ]
-      );
+      const msg = 'Your password has been successfully updated.';
+      setSuccessMessage(msg);
+      showAlert('Password Changed', msg, () => handleHelpBack(params.from, '/settings'));
     } catch (error: any) {
-      const errMsg =
-        error?.response?.data?.message ||
-        error?.response?.data?.detail ||
-        'Failed to change password. Please check your current password and try again.';
-      Alert.alert('Update Failed', errMsg);
+      const data = error?.response?.data;
+      let errMsg = 'Failed to change password. Please check your current password and try again.';
+      if (data) {
+        if (typeof data === 'string') {
+          errMsg = data;
+        } else if (data.message) {
+          errMsg = typeof data.message === 'string' ? data.message : JSON.stringify(data.message);
+        } else if (data.detail) {
+          errMsg = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail);
+        } else if (data.old_password && Array.isArray(data.old_password)) {
+          errMsg = data.old_password[0];
+        } else if (data.new_password && Array.isArray(data.new_password)) {
+          errMsg = data.new_password[0];
+        } else if (error.message) {
+          errMsg = error.message;
+        }
+      }
+      setErrorMessage(errMsg);
+      showAlert('Update Failed', errMsg);
     } finally {
       setUpdating(false);
     }
@@ -285,6 +314,21 @@ export default function ChangePasswordScreen() {
             </View>
           </View>
 
+          {/* Error & Success Banners */}
+          {errorMessage ? (
+            <View style={styles.errorBanner}>
+              <Feather name="alert-circle" size={16} color="#EF4444" style={{ marginRight: 8 }} />
+              <Text style={styles.errorBannerText}>{errorMessage}</Text>
+            </View>
+          ) : null}
+
+          {successMessage ? (
+            <View style={styles.successBanner}>
+              <Feather name="check-circle" size={16} color="#10B981" style={{ marginRight: 8 }} />
+              <Text style={styles.successBannerText}>{successMessage}</Text>
+            </View>
+          ) : null}
+
           {/* Update Button */}
           <TouchableOpacity
             style={[styles.updateButton, updating && { opacity: 0.8 }]}
@@ -465,6 +509,39 @@ const styles = StyleSheet.create({
   },
   checklistTextSuccess: {
     color: '#111827',
+    fontWeight: '600',
+  },
+
+  errorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FCA5A5',
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 14,
+    marginTop: 20,
+  },
+  errorBannerText: {
+    flex: 1,
+    color: '#991B1B',
+    fontSize: 13.5,
+    fontWeight: '600',
+  },
+  successBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ECFDF5',
+    borderColor: '#6EE7B7',
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 14,
+    marginTop: 20,
+  },
+  successBannerText: {
+    flex: 1,
+    color: '#065F46',
+    fontSize: 13.5,
     fontWeight: '600',
   },
 

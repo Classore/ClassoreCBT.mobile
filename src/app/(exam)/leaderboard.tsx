@@ -286,7 +286,7 @@ export default function LeaderboardScreen() {
                         key={item.rank} 
                         style={styles.topCard1}
                         activeOpacity={0.8}
-                        onPress={() => router.push('/leadership-profile' as any)}
+                        onPress={() => router.push('/leaderboard-profile' as any)}
                       >
                         <View style={styles.rank1Badge}>
                           <Text style={styles.rankBadgeText}>1</Text>
@@ -311,7 +311,7 @@ export default function LeaderboardScreen() {
                         key={item.rank} 
                         style={styles.topCard2}
                         activeOpacity={0.8}
-                        onPress={() => router.push('/leadership-profile' as any)}
+                        onPress={() => router.push('/leaderboard-profile' as any)}
                       >
                         <View style={styles.rank2Badge}>
                           <Text style={styles.rankBadgeText}>2</Text>
@@ -336,7 +336,7 @@ export default function LeaderboardScreen() {
                         key={item.rank} 
                         style={styles.topCard3}
                         activeOpacity={0.8}
-                        onPress={() => router.push('/leadership-profile' as any)}
+                        onPress={() => router.push('/leaderboard-profile' as any)}
                       >
                         <View style={styles.rank3Badge}>
                           <Text style={styles.rankBadgeText}>3</Text>
@@ -360,7 +360,7 @@ export default function LeaderboardScreen() {
                       key={item.rank} 
                       style={styles.regularRow}
                       activeOpacity={0.8}
-                      onPress={() => router.push('/leadership-profile' as any)}
+                      onPress={() => router.push('/leaderboard-profile' as any)}
                     >
                       <Text style={styles.regularRankText}>{item.rank}</Text>
                       <View style={[styles.avatarCircle, { backgroundColor: item.avatarBg }]}>

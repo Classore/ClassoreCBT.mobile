@@ -31,7 +31,7 @@ export default function ContestSuccessScreen() {
     fetchContest();
   }, [params.id]);
 
-  const contestName = contest?.title || 'Science Genius Contest';
+  const contestName = contest?.title || 'Contest';
 
   const handleBackToContest = () => {
     router.replace({
@@ -102,7 +102,7 @@ export default function ContestSuccessScreen() {
               <View style={styles.statusValueRow}>
                 <View style={styles.greenDot} />
                 <AppText style={styles.statusValueBold}>
-                  {contest?.starts_in || '6d 09h 30m'}
+                  {contest?.starts_in || '--'}
                 </AppText>
               </View>
             </View>

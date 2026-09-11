@@ -6,3 +6,4 @@ export { MatchingQuestion } from './MatchingQuestion';
 export { DiagramLabelingQuestion } from './DiagramLabelingQuestion';
 export { IELTSChartCard } from './IELTSChartCard';
 export { IELTSWritingEditor } from './IELTSWritingEditor';
+export { AudioResponseQuestion } from './AudioResponseQuestion';

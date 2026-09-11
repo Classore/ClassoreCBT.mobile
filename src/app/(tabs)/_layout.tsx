@@ -35,10 +35,9 @@ export default function TabsLayout() {
     pathname?.includes('change-password') ||
     pathname?.includes('add-password') ||
     pathname?.includes('profile-settings') ||
-    pathname?.includes('appearance') ||
-    pathname?.includes('language') ||
-    pathname?.includes('notification-preferences') ||
-    pathname?.includes('security');
+    pathname?.includes('security') ||
+    pathname?.includes('leaderboard-profile');
+
 
   return (
     <Tabs
@@ -243,7 +242,15 @@ export default function TabsLayout() {
           href: null,
         }}
       />
+
+      <Tabs.Screen
+        name="leaderboard-profile"
+        options={{
+          href: null,
+        }}
+      />
     </Tabs>
+
   );
 }
 

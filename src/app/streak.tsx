@@ -169,7 +169,11 @@ export default function StreakScreen() {
               </View>
               <Text style={styles.greenSubText}>Keep up the momentum!</Text>
 
-              <View style={styles.daysTimeline}>
+              <ScrollView 
+                horizontal 
+                showsHorizontalScrollIndicator={false} 
+                contentContainerStyle={styles.daysTimeline}
+              >
                 {historyData?.weekly?.map((w: any, idx: number) => (
                   <View key={idx} style={styles.dayCol}>
                     <Text style={[styles.dayName, w.is_today && styles.dayNameToday]}>
@@ -190,7 +194,7 @@ export default function StreakScreen() {
                     )}
                   </View>
                 ))}
-              </View>
+              </ScrollView>
 
               <View style={styles.calloutBox}>
                 <View style={styles.calloutTextContainer}>
@@ -498,6 +502,8 @@ const styles = StyleSheet.create({
 
   daysTimeline: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
+    minWidth: '100%',
     gap: 8,
     paddingBottom: 14,
   },

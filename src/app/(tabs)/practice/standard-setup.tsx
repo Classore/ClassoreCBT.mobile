@@ -322,7 +322,7 @@ export default function StandardSetupScreen() {
       <SubscriptionRequiredModal
         visible={showSubscriptionModal}
         onClose={() => setShowSubscriptionModal(false)}
-        message={subscriptionMessage}
+        customMessage={subscriptionMessage}
       />
     </SafeAreaView>
   );

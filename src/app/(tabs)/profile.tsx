@@ -310,8 +310,9 @@ export default function ProfileScreen() {
             <TouchableOpacity 
               style={styles.menuItem} 
               activeOpacity={0.7}
-              onPress={() => router.push('/(exam)/leaderboard')}
+              onPress={() => navigateWithFrom('/(tabs)/leaderboard-profile', '/(tabs)/profile')}
             >
+
               <View style={[styles.menuIconBg, { backgroundColor: '#E0F2FE' }]}>
                 <Ionicons name="trophy-outline" size={20} color="#0284C7" />
               </View>

@@ -12,7 +12,7 @@ import {
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams } from 'expo-router';
 import { handleHelpBack } from '@/utils/helpNavigation';
-import { LinearGradient } from 'expo-linear-gradient';
+import { getVideoTutorials, VideoTutorialItem } from '@/services/support';
 
 interface VideoItem {
   id: string;
@@ -63,11 +63,28 @@ const VIDEOS_DATA: VideoItem[] = [
 export default function VideoTutorialsScreen() {
   const params = useLocalSearchParams<{ from?: string }>();
 
-  // Active expanded video ID (null means default compact list, or set to '1' when selected)
+  const [videos, setVideos] = useState<VideoItem[]>(VIDEOS_DATA);
   const [activeVideoId, setActiveVideoId] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
 
-  const activeVideo = VIDEOS_DATA.find((v) => v.id === activeVideoId);
+  React.useEffect(() => {
+    getVideoTutorials()
+      .then((fetched) => {
+        if (fetched && fetched.length > 0) {
+          const mapped: VideoItem[] = fetched.map((f) => ({
+            id: String(f.id),
+            title: f.title,
+            duration: f.duration,
+            category: f.category,
+            description: `Official tutorial for ${f.title}`,
+          }));
+          setVideos(mapped);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const activeVideo = videos.find((v) => v.id === activeVideoId);
 
   const handleSelectVideo = (id: string) => {
     if (activeVideoId === id) {
@@ -213,7 +230,7 @@ export default function VideoTutorialsScreen() {
 
           {/* Video List */}
           <View style={styles.videosListContainer}>
-            {VIDEOS_DATA.filter((v) => v.id !== activeVideoId).map((video) => (
+            {videos.filter((v) => v.id !== activeVideoId).map((video) => (
               <TouchableOpacity
                 key={video.id}
                 style={styles.videoRowItem}

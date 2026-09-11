@@ -124,3 +124,96 @@ export const getUserIssueReports = async (): Promise<AppIssueReport[]> => {
   const res = await api.get<AppIssueReport[]>('/api/user/issue-reports/');
   return res.data;
 };
+
+export interface VideoTutorialItem {
+  id: number;
+  title: string;
+  duration: string;
+  category: string;
+  thumbnail_url?: string;
+  video_url: string;
+}
+
+export interface UserGuideItem {
+  id: number;
+  title: string;
+  category: string;
+  read_time: string;
+  content?: string;
+  article_url?: string;
+}
+
+export const getVideoTutorials = async (): Promise<VideoTutorialItem[]> => {
+  try {
+    const res = await api.get<any>('/api/user/content/video-tutorials/');
+    const data = res.data.results ? res.data.results : res.data;
+    if (Array.isArray(data) && data.length > 0) return data;
+  } catch {
+    // Graceful fallback
+  }
+
+  return [
+    {
+      id: 1,
+      title: 'Getting Started with CBT Practice Exams',
+      duration: '4:15',
+      category: 'Basics',
+      video_url: 'https://classore.com/tutorials/getting-started',
+    },
+    {
+      id: 2,
+      title: 'How to Master IELTS Reading & Writing Sections',
+      duration: '8:30',
+      category: 'IELTS Prep',
+      video_url: 'https://classore.com/tutorials/ielts-mastery',
+    },
+    {
+      id: 3,
+      title: 'Using AI Explanations & Remedial Practice',
+      duration: '5:45',
+      category: 'AI Tools',
+      video_url: 'https://classore.com/tutorials/ai-explanations',
+    },
+    {
+      id: 4,
+      title: 'Joining Contests & Earning Tokens',
+      duration: '3:50',
+      category: 'Contests',
+      video_url: 'https://classore.com/tutorials/contests-tokens',
+    },
+  ];
+};
+
+export const getUserGuides = async (): Promise<UserGuideItem[]> => {
+  try {
+    const res = await api.get<any>('/api/user/content/user-guides/');
+    const data = res.data.results ? res.data.results : res.data;
+    if (Array.isArray(data) && data.length > 0) return data;
+  } catch {
+    // Graceful fallback
+  }
+
+  return [
+    {
+      id: 1,
+      title: 'Comprehensive Guide to JAMB UTME Subject Setup',
+      category: 'Exams',
+      read_time: '5 min read',
+      content: 'Learn how to select your 4 core subjects, set custom timers, and simulate realistic CBT exam conditions.',
+    },
+    {
+      id: 2,
+      title: 'Understanding IELTS Band Score Calculations',
+      category: 'IELTS',
+      read_time: '7 min read',
+      content: 'A detailed breakdown of how raw scores map to Band Scores 1.0 - 9.0 in Reading, Listening, Writing, and Speaking.',
+    },
+    {
+      id: 3,
+      title: 'How to Track & Improve Your Weak Topics',
+      category: 'Analytics',
+      read_time: '4 min read',
+      content: 'Discover how Classore AI analyzes your question response patterns to recommend targeted topic practice.',
+    },
+  ];
+};

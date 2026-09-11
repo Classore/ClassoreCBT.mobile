@@ -27,6 +27,7 @@ import {
   DiagramLabelingQuestion,
   IELTSChartCard,
   IELTSWritingEditor,
+  AudioResponseQuestion,
 } from '@/components/ielts';
 import { 
   SubscriptionRequiredModal, 
@@ -576,6 +577,31 @@ export default function IELTSSessionScreen() {
       });
     } catch (e) {
       console.warn('Auto-save matching clear failed:', e);
+    }
+  };
+
+  const handleUpdateAudioResponse = async (questionId: number, audioUri: string) => {
+    if (!attempt || !currentResponse) return;
+    const updatedAttempt = { ...attempt };
+    const sec = updatedAttempt.sections[activeSectionIndex];
+    const grp = sec.question_groups[activeGroupIndex];
+    const resp = grp.responses[currentResponseIndex];
+    const newMeta = { ...(resp.metadata || {}), audio_uri: audioUri };
+    resp.metadata = newMeta;
+    resp.audio_response_url = audioUri;
+    setAttempt(updatedAttempt);
+
+    try {
+      await examService.autoSave(attempt.id, {
+        responses: [{
+          question_id: questionId,
+          metadata: newMeta,
+          audio_response_url: audioUri,
+          time_spent_seconds: 30,
+        }]
+      });
+    } catch (e) {
+      console.warn('Auto-save audio response failed:', e);
     }
   };
 
@@ -1236,6 +1262,18 @@ export default function IELTSSessionScreen() {
                     maxWords={currentResponse.question.metadata?.max_words || 2}
                     instructionText={currentResponse.question.instructions}
                     onChangeBlank={handleUpdateGapFill}
+                  />
+                ) : currentResponse.question.question_type === 'AUDIO' ? (
+                  /* FORMAT 6: Audio Response / Speaking Question */
+                  <AudioResponseQuestion
+                    audioUri={currentResponse.metadata?.audio_uri || currentResponse.audio_response_url}
+                    instructionText={currentResponse.question.instructions || 'Record your audio response for this question.'}
+                    onRecordComplete={(uri) => {
+                      handleUpdateAudioResponse(currentResponse.question.id, uri);
+                    }}
+                    onClearRecord={() => {
+                      handleUpdateAudioResponse(currentResponse.question.id, '');
+                    }}
                   />
                 ) : (currentResponse.question.question_type === 'MCQ' && (
                   currentResponse.question.metadata?.is_multi_select || 
