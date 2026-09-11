@@ -6,11 +6,38 @@ import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { examService, ExamSection, ExamTierConfig, isSectionBasedExam } from '@/services/exam';
+import { 
+  SubscriptionRequiredModal, 
+  isSubscriptionError, 
+  getSubscriptionErrorMessage 
+} from '@/components/SubscriptionRequiredModal';
+
+interface TopicItem {
+  id: string;
+  name: string;
+  isLocked: boolean;
+}
+
+const DEFAULT_FALLBACK_TOPICS: Record<string, string[]> = {
+  mathematics: ['Number Systems', 'Algebra', 'Geometry', 'Trigonometry', 'Mensuration', 'Statistics', 'Calculus', 'Matrices'],
+  maths: ['Number Systems', 'Algebra', 'Geometry', 'Trigonometry', 'Mensuration', 'Statistics', 'Calculus', 'Matrices'],
+  english: ['Comprehension', 'Lexis and Structure', 'Oral Forms', 'Sentence Completion', 'Idioms & Figures of Speech', 'Antonyms & Synonyms'],
+  'use of english': ['Comprehension', 'Lexis and Structure', 'Oral Forms', 'Sentence Completion', 'Idioms & Figures of Speech', 'Antonyms & Synonyms'],
+  physics: ['Mechanics', 'Waves & Optics', 'Electricity & Magnetism', 'Thermal Physics', 'Modern Physics', 'Radioactivity'],
+  chemistry: ['Physical Chemistry', 'Organic Chemistry', 'Inorganic Chemistry', 'Chemical Reactions & Stoichiometry', 'Electrochemistry'],
+  biology: ['Cell Biology', 'Genetics & Evolution', 'Ecology', 'Plant Physiology', 'Animal Physiology', 'Reproduction'],
+  economics: ['Microeconomics', 'Macroeconomics', 'Market Structures', 'National Income', 'Public Finance', 'Monetary Policy'],
+  government: ['Political Concepts', 'Forms of Government', 'Nigerian Politics', 'International Organizations', 'Constitutions'],
+  commerce: ['Trade & Commerce', 'Business Organizations', 'Banking & Finance', 'Insurance', 'Marketing'],
+  accounting: ['Bookkeeping & Principles', 'Financial Statements', 'Partnership Accounts', 'Company Accounts', 'Departmental Accounts'],
+  geography: ['Physical Geography', 'Human Geography', 'Map Reading', 'Regional Geography of Nigeria', 'Environmental Issues'],
+  literature: ['Drama & Theatre', 'Poetry Analysis', 'Prose & Fiction', 'Literary Devices & Figures of Speech', 'African & Non-African Literature'],
+};
 
 export default function PracticeSetupScreen() {
   const { user } = useAuth();
   const router = useRouter();
-  const params = useLocalSearchParams<{ exam?: string; subject?: string; topic_id?: string }>();
+  const params = useLocalSearchParams<{ exam?: string; subject?: string; topic_id?: string; topic_name?: string; topic?: string }>();
   
   const examIdStr = Array.isArray(params.exam) ? params.exam[0] : params.exam;
   const examId = examIdStr ? parseInt(examIdStr, 10) : 1; // Default to 1 if missing
@@ -37,6 +64,25 @@ export default function PracticeSetupScreen() {
   const [isStarting, setIsStarting] = useState<boolean>(false);
   const [isCustomInputFocused, setIsCustomInputFocused] = useState<boolean>(false);
   
+  // Topic State
+  const [selectedTopicsBySubject, setSelectedTopicsBySubject] = useState<Record<number, string[]>>({});
+  const [subjectTopicsMap, setSubjectTopicsMap] = useState<Record<number, TopicItem[]>>({});
+  const [loadingTopics, setLoadingTopics] = useState<boolean>(false);
+  const [showTopics, setShowTopics] = useState<boolean>(false);
+  const [topicSearchQuery, setTopicSearchQuery] = useState<string>('');
+  const [activeTopicSubjectId, setActiveTopicSubjectId] = useState<number | null>(null);
+
+  // Subscription modal state
+  const [showSubscriptionModal, setShowSubscriptionModal] = useState<boolean>(false);
+  const [modalTopicName, setModalTopicName] = useState<string>('');
+  const [subscriptionMessage, setSubscriptionMessage] = useState<string | undefined>();
+
+  const isSubscribed = Boolean(
+    (user as any)?.is_premium ||
+    (user as any)?.has_active_subscription ||
+    (user?.scholar_tier && user.scholar_tier.toLowerCase() !== 'free')
+  );
+
   // Modals
   const [showSubjects, setShowSubjects] = useState(false);
   const [showDifficulty, setShowDifficulty] = useState(false);
@@ -110,6 +156,107 @@ export default function PracticeSetupScreen() {
     };
   }, [params.exam, params.subject]);
 
+  // Keep active topic subject tab valid
+  useEffect(() => {
+    if (selectedSubjects.length > 0) {
+      if (!activeTopicSubjectId || !selectedSubjects.includes(activeTopicSubjectId)) {
+        setActiveTopicSubjectId(selectedSubjects[0]);
+      }
+    } else {
+      setActiveTopicSubjectId(null);
+    }
+  }, [selectedSubjects, activeTopicSubjectId]);
+
+  // Pre-fetch and prepare topics whenever selectedSubjects change
+  useEffect(() => {
+    let isMounted = true;
+    const loadTopicsForSelected = async () => {
+      const missingSubjectIds = selectedSubjects.filter(id => !subjectTopicsMap[id]);
+      if (missingSubjectIds.length === 0) return;
+
+      setLoadingTopics(true);
+      try {
+        const newMap: Record<number, TopicItem[]> = {};
+        const newSelected: Record<number, string[]> = {};
+
+        await Promise.all(
+          missingSubjectIds.map(async (subId) => {
+            const subjectObj = subjects.find(s => s.id === subId);
+            const subName = subjectObj?.name || '';
+            let fetchedNames: string[] = [];
+            try {
+              fetchedNames = await examService.getSectionTopics(subId);
+            } catch (e) {
+              console.warn(`Could not fetch topics for subject ${subId}:`, e);
+            }
+
+            if (!fetchedNames || fetchedNames.length === 0) {
+              const key = subName.toLowerCase().trim();
+              const matchedFallbackKey = Object.keys(DEFAULT_FALLBACK_TOPICS).find(k => key.includes(k));
+              if (matchedFallbackKey) {
+                fetchedNames = DEFAULT_FALLBACK_TOPICS[matchedFallbackKey];
+              } else {
+                fetchedNames = ['General Concepts', 'Core Principles', 'Problem Solving', 'Exam Practice'];
+              }
+            }
+
+            const items: TopicItem[] = fetchedNames.map((name, index) => ({
+              id: `topic-${subId}-${index + 1}`,
+              name,
+              isLocked: !isSubscribed && index >= 3,
+            }));
+
+            newMap[subId] = items;
+
+            // Pre-select topic if specific topic requested
+            const targetTopicQuery = (params.topic_name || params.topic || params.topic_id || '').toString().toLowerCase().trim();
+            let matchedTopic: TopicItem | undefined;
+            if (targetTopicQuery) {
+              matchedTopic = items.find(t => 
+                t.name.toLowerCase().includes(targetTopicQuery) || 
+                targetTopicQuery.includes(t.name.toLowerCase())
+              );
+            }
+
+            if (matchedTopic) {
+              matchedTopic.isLocked = false;
+              newSelected[subId] = [matchedTopic.name];
+            } else {
+              // Default select unlocked topics (up to 3)
+              const unlocked = items.filter(t => !t.isLocked).slice(0, 3).map(t => t.name);
+              newSelected[subId] = unlocked.length > 0 ? unlocked : (items[0] ? [items[0].name] : []);
+            }
+          })
+        );
+
+        if (isMounted) {
+          setSubjectTopicsMap(prev => ({ ...prev, ...newMap }));
+          setSelectedTopicsBySubject(prev => {
+            const updated = { ...prev };
+            const targetTopicQuery = (params.topic_name || params.topic || params.topic_id || '').toString().trim();
+            Object.keys(newSelected).forEach(k => {
+              const keyNum = parseInt(k, 10);
+              if (targetTopicQuery || !updated[keyNum] || updated[keyNum].length === 0) {
+                updated[keyNum] = newSelected[keyNum];
+              }
+            });
+            return updated;
+          });
+        }
+      } catch (err) {
+        console.error('Error fetching section topics:', err);
+      } finally {
+        if (isMounted) {
+          setLoadingTopics(false);
+        }
+      }
+    };
+
+    if (selectedSubjects.length > 0 && subjects.length > 0) {
+      loadTopicsForSelected();
+    }
+  }, [selectedSubjects, subjects, isSubscribed, params.topic_id, params.topic_name, params.topic]);
+
   const filteredSubjects = subjects.filter(s => s.name.toLowerCase().includes(searchQuery.toLowerCase()));
 
   const toggleSubject = (id: number) => {
@@ -124,11 +271,106 @@ export default function PracticeSetupScreen() {
 
   const isComplete = selectedSubjects.length > 0 && !!difficulty && !!questionCount;
 
+  // Active topic subject & list
+  const currentActiveSubject = subjects.find(s => s.id === (activeTopicSubjectId || selectedSubjects[0]));
+  const currentActiveTopics = (activeTopicSubjectId ? subjectTopicsMap[activeTopicSubjectId] : []) || [];
+  const currentActiveSelected = (activeTopicSubjectId ? selectedTopicsBySubject[activeTopicSubjectId] : []) || [];
+
+  const filteredActiveTopics = currentActiveTopics.filter(t => 
+    t.name.toLowerCase().includes(topicSearchQuery.toLowerCase())
+  );
+
+  const handleToggleTopic = (topic: TopicItem) => {
+    if (topic.isLocked) {
+      setModalTopicName(topic.name);
+      setShowSubscriptionModal(true);
+      return;
+    }
+    if (!activeTopicSubjectId) return;
+
+    setSelectedTopicsBySubject(prev => {
+      const currentList = prev[activeTopicSubjectId] || [];
+      if (currentList.includes(topic.name)) {
+        return {
+          ...prev,
+          [activeTopicSubjectId]: currentList.filter(t => t !== topic.name),
+        };
+      } else {
+        return {
+          ...prev,
+          [activeTopicSubjectId]: [...currentList, topic.name],
+        };
+      }
+    });
+  };
+
+  const handleSelectAllTopics = () => {
+    if (!activeTopicSubjectId) return;
+    const unlocked = currentActiveTopics.filter(t => !t.isLocked).map(t => t.name);
+    setSelectedTopicsBySubject(prev => ({
+      ...prev,
+      [activeTopicSubjectId]: unlocked,
+    }));
+  };
+
+  const handleClearTopics = () => {
+    if (!activeTopicSubjectId) return;
+    setSelectedTopicsBySubject(prev => ({
+      ...prev,
+      [activeTopicSubjectId]: [],
+    }));
+  };
+
+  const getTopicsSummarySubtitle = () => {
+    if (selectedSubjects.length === 0) {
+      return 'Choose subjects first';
+    }
+    if (loadingTopics && Object.keys(subjectTopicsMap).length === 0) {
+      return 'Loading topics...';
+    }
+
+    const totalChosenCount = selectedSubjects.reduce((acc, subId) => {
+      return acc + (selectedTopicsBySubject[subId]?.length || 0);
+    }, 0);
+
+    if (totalChosenCount === 0) {
+      return 'Tap to select topics';
+    }
+
+    if (selectedSubjects.length === 1) {
+      const subId = selectedSubjects[0];
+      const chosen = selectedTopicsBySubject[subId] || [];
+      const all = subjectTopicsMap[subId] || [];
+      if (all.length > 0 && chosen.length === all.length) {
+        return `All topics selected (${chosen.length})`;
+      }
+      if (chosen.length === 1) {
+        return chosen[0];
+      }
+      if (chosen.length === 2) {
+        return `${chosen[0]}, ${chosen[1]}`;
+      }
+      return `${chosen.length} topics selected`;
+    }
+
+    return `${totalChosenCount} topics selected across ${selectedSubjects.length} subjects`;
+  };
+
   const handleStartOrContinue = async () => {
     if (selectedSubjects.length === 0) {
       setShowSubjects(true);
       return;
     }
+
+    const totalSelectedTopicsCount = selectedSubjects.reduce((acc, subId) => {
+      return acc + (selectedTopicsBySubject[subId]?.length || 0);
+    }, 0);
+
+    if (totalSelectedTopicsCount === 0) {
+      setShowTopics(true);
+      return;
+    }
+
     if (!difficulty) {
       setShowDifficulty(true);
       return;
@@ -143,8 +385,9 @@ export default function PracticeSetupScreen() {
 
     try {
       const examIdStr = Array.isArray(params.exam) ? params.exam[0] : params.exam;
-      const examId = examIdStr ? parseInt(examIdStr, 10) : 41;
+      const examId = examIdStr ? parseInt(examIdStr, 10) : 1;
 
+      // Check if exam is section-based (e.g. IELTS, TOEFL)
       const cachedExams = examService.getCachedExamsSync() || [];
       let currentExam = cachedExams.find(e => e.id === examId);
       if (!currentExam) {
@@ -156,19 +399,19 @@ export default function PracticeSetupScreen() {
 
       const isSectionExam = isSectionBasedExam(currentExam?.name);
 
-      const targetQuestionCount = questionCount || 40;
-      const targetDifficulty = difficulty || 'Medium';
-
       const practiceConfig: Record<string, any> = {
-        question_count: targetQuestionCount,
-        difficulty: targetDifficulty,
+        question_count: questionCount,
+        difficulty: difficulty,
       };
 
+      const allChosenTopics: string[] = [];
       selectedSubjects.forEach(subId => {
+        const subTopics = selectedTopicsBySubject[subId] || [];
+        allChosenTopics.push(...subTopics);
         practiceConfig[String(subId)] = {
-          question_count: targetQuestionCount,
-          difficulty: targetDifficulty,
-          topics: params.topic_id ? [params.topic_id] : [],
+          question_count: questionCount,
+          difficulty: difficulty,
+          topics: subTopics,
         };
       });
 
@@ -177,8 +420,9 @@ export default function PracticeSetupScreen() {
         mode: 'Practice',
         selected_section_ids: selectedSubjects,
         time_limit_override: isTimed ? timeMinutes : undefined,
-        question_count: targetQuestionCount,
-        difficulty: targetDifficulty,
+        question_count: questionCount,
+        difficulty: difficulty,
+        topics: allChosenTopics,
         practice_config: practiceConfig,
       });
 
@@ -196,7 +440,7 @@ export default function PracticeSetupScreen() {
             question_count: String(questionCount),
             time_limit: isTimed ? String(timeMinutes) : '0',
             is_timed: isTimed ? 'true' : 'false',
-          }
+          },
         });
       } else {
         router.push({
@@ -210,16 +454,23 @@ export default function PracticeSetupScreen() {
             question_count: String(questionCount),
             time_limit: isTimed ? String(timeMinutes) : '0',
             is_timed: isTimed ? 'true' : 'false',
-          }
+          },
         });
       }
     } catch (error: any) {
       console.error('Failed to start practice session:', error);
-      const errorMsg = error?.response?.data?.error 
-        || error?.response?.data?.detail 
-        || error?.message 
-        || 'Failed to start practice session. Please check your connection and try again.';
-      Alert.alert('Unable to Start Practice', errorMsg);
+      const errorMsg = getSubscriptionErrorMessage(
+        error,
+        'Failed to start practice session. Please check your connection and try again.'
+      );
+
+      if (isSubscriptionError(error)) {
+        setModalTopicName('');
+        setSubscriptionMessage(errorMsg);
+        setShowSubscriptionModal(true);
+      } else {
+        Alert.alert('Unable to Start Practice', errorMsg);
+      }
     } finally {
       setIsStarting(false);
     }
@@ -263,6 +514,30 @@ export default function PracticeSetupScreen() {
             <AppText style={styles.setupCardTitle}>Choose subjects</AppText>
             <AppText style={styles.setupCardSubtitle} numberOfLines={1}>
               {selectedSubjects.length > 0 ? selectedSubjectNames : 'Select the right subject combination'}
+            </AppText>
+          </View>
+          <Feather name="chevron-right" size={20} color="#D1D5DB" />
+        </TouchableOpacity>
+
+        {/* Select Topics Card (Immediately after subject selection) */}
+        <TouchableOpacity 
+          style={[styles.setupCard, selectedSubjects.length === 0 && { opacity: 0.6 }]} 
+          onPress={() => {
+            if (selectedSubjects.length === 0) {
+              setShowSubjects(true);
+            } else {
+              setShowTopics(true);
+            }
+          }} 
+          activeOpacity={0.7}
+        >
+          <View style={[styles.setupCardIconBg, { backgroundColor: '#EEF2FF' }]}>
+            <Feather name="book-open" size={20} color="#6366F1" />
+          </View>
+          <View style={styles.setupCardContent}>
+            <AppText style={styles.setupCardTitle}>Select topics</AppText>
+            <AppText style={styles.setupCardSubtitle} numberOfLines={1}>
+              {getTopicsSummarySubtitle()}
             </AppText>
           </View>
           <Feather name="chevron-right" size={20} color="#D1D5DB" />
@@ -325,7 +600,7 @@ export default function PracticeSetupScreen() {
             <ActivityIndicator color="#FFF" />
           ) : (
             <>
-              <AppText style={styles.mainContinueButtonText}>{isComplete ? 'Start Test' : 'Continue'}</AppText>
+              <AppText style={styles.mainContinueButtonText}>Start Practice</AppText>
               <Feather name="arrow-right" size={20} color="#FFF" style={{ marginLeft: 8 }} />
             </>
           )}
@@ -392,9 +667,217 @@ export default function PracticeSetupScreen() {
               <TouchableOpacity 
                 style={[styles.continueButton, selectedSubjects.length === 0 && styles.continueButtonDisabled]}
                 disabled={selectedSubjects.length === 0}
-                onPress={() => setShowSubjects(false)}
+                onPress={() => {
+                  setShowSubjects(false);
+                  setShowTopics(true);
+                }}
               >
                 <AppText style={styles.continueButtonText}>Continue ({selectedSubjects.length})</AppText>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Topics Modal (Done immediately after subject selection) */}
+      <Modal visible={showTopics} animationType="fade" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.bottomSheet, { maxHeight: '90%' }]}>
+            <View style={styles.handleBarContainer}><View style={styles.handleBar} /></View>
+            <View style={styles.sheetHeader}>
+              <View style={{ flex: 1 }}>
+                <AppText style={styles.sheetTitle}>Select Topics</AppText>
+                <AppText style={styles.sheetSubtitle}>Choose the topics you want to practice</AppText>
+              </View>
+              <TouchableOpacity onPress={() => setShowTopics(false)} hitSlop={{ top: 10, right: 10, bottom: 10, left: 10 }}>
+                <Feather name="x" size={24} color="#9CA3AF" />
+              </TouchableOpacity>
+            </View>
+
+            {/* If multiple subjects selected, render subject switcher tabs */}
+            {selectedSubjects.length > 1 && (
+              <ScrollView 
+                horizontal 
+                showsHorizontalScrollIndicator={false} 
+                style={styles.subjectTabsScroll}
+                contentContainerStyle={styles.subjectTabsContent}
+              >
+                {selectedSubjects.map(subId => {
+                  const sub = subjects.find(s => s.id === subId);
+                  const isActive = (activeTopicSubjectId || selectedSubjects[0]) === subId;
+                  const count = selectedTopicsBySubject[subId]?.length || 0;
+                  return (
+                    <TouchableOpacity
+                      key={subId}
+                      style={[styles.subjectTabPill, isActive && styles.subjectTabPillActive]}
+                      onPress={() => {
+                        setActiveTopicSubjectId(subId);
+                        setTopicSearchQuery('');
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <AppText style={[styles.subjectTabPillText, isActive && styles.subjectTabPillTextActive]}>
+                        {sub?.name || 'Subject'} ({count})
+                      </AppText>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            )}
+
+            {/* Search container */}
+            <View style={styles.searchContainer}>
+              <Feather name="search" size={20} color="#9CA3AF" />
+              <TextInput 
+                style={styles.searchInput} 
+                placeholder={`Search ${currentActiveSubject?.name || 'subject'} topics...`}
+                placeholderTextColor="#9CA3AF" 
+                value={topicSearchQuery} 
+                onChangeText={setTopicSearchQuery} 
+              />
+              {topicSearchQuery.length > 0 && (
+                <TouchableOpacity onPress={() => setTopicSearchQuery('')}>
+                  <Feather name="x-circle" size={18} color="#9CA3AF" />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {/* Quick Actions (Select All / Clear) */}
+            <View style={styles.topicActionRow}>
+              <AppText style={styles.topicActiveSubjectTitle} numberOfLines={1}>
+                {currentActiveSubject?.name || 'Subject Topics'}
+              </AppText>
+              <View style={styles.topicActionButtons}>
+                <TouchableOpacity onPress={handleSelectAllTopics} style={styles.topicActionBtn}>
+                  <AppText style={styles.topicActionText}>Select All</AppText>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={handleClearTopics} style={styles.topicActionBtn}>
+                  <AppText style={styles.topicActionTextDanger}>Clear</AppText>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* Topic List */}
+            <ScrollView style={styles.scrollArea} showsVerticalScrollIndicator={false}>
+              {loadingTopics && (!currentActiveTopics || currentActiveTopics.length === 0) ? (
+                <View style={{ paddingVertical: 40, alignItems: 'center' }}>
+                  <ActivityIndicator size="small" color="#6D28D9" />
+                  <AppText style={{ marginTop: 12, color: '#6B7280' }}>Loading topics...</AppText>
+                </View>
+              ) : filteredActiveTopics.length === 0 ? (
+                <View style={{ paddingVertical: 40, alignItems: 'center' }}>
+                  <Feather name="search" size={32} color="#D1D5DB" />
+                  <AppText style={{ marginTop: 12, color: '#6B7280', fontSize: 14 }}>
+                    {topicSearchQuery ? 'No topics match your search' : 'No topics available for this subject'}
+                  </AppText>
+                </View>
+              ) : (
+                filteredActiveTopics.map((topic, index) => {
+                  const isSelected = currentActiveSelected.includes(topic.name);
+                  const isLocked = topic.isLocked;
+
+                  return (
+                    <TouchableOpacity
+                      key={topic.id || index}
+                      style={[
+                        styles.topicCard,
+                        isSelected && !isLocked && styles.topicCardSelected,
+                      ]}
+                      onPress={() => handleToggleTopic(topic)}
+                      activeOpacity={0.7}
+                    >
+                      {/* Topic Index Number */}
+                      <View
+                        style={[
+                          styles.indexCircle,
+                          isSelected && !isLocked && styles.indexCircleSelected,
+                        ]}
+                      >
+                        <AppText
+                          style={[
+                            styles.indexNumber,
+                            isSelected && !isLocked && styles.indexNumberSelected,
+                          ]}
+                        >
+                          {index + 1}
+                        </AppText>
+                      </View>
+
+                      {/* Topic Info */}
+                      <View style={styles.topicInfo}>
+                        <AppText
+                          style={[
+                            styles.topicTitle,
+                            isLocked && styles.topicTitleLocked,
+                          ]}
+                          numberOfLines={2}
+                        >
+                          {topic.name}
+                        </AppText>
+                        {isLocked && (
+                          <AppText style={styles.subscriptionRequiredText}>
+                            Subscription required
+                          </AppText>
+                        )}
+                      </View>
+
+                      {/* Checkbox or Lock */}
+                      {isLocked ? (
+                        <View style={styles.lockIconContainer}>
+                          <MaterialCommunityIcons
+                            name="lock"
+                            size={20}
+                            color="#9CA3AF"
+                          />
+                        </View>
+                      ) : (
+                        <View
+                          style={[
+                            styles.checkCircle,
+                            isSelected && styles.checkCircleSelected,
+                          ]}
+                        >
+                          {isSelected && (
+                            <Feather name="check" size={14} color="#FFFFFF" />
+                          )}
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  );
+                })
+              )}
+              <View style={{ height: 40 }} />
+            </ScrollView>
+
+            {/* Footer */}
+            <View style={styles.footer}>
+              <View style={styles.selectionInfo}>
+                <View style={styles.checkBadge}>
+                  <Feather name="check" size={14} color="#6D28D9" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <AppText style={styles.selectedCountText}>
+                    {currentActiveSelected.length} {currentActiveSubject?.name || 'topics'} selected
+                  </AppText>
+                  <AppText style={styles.selectedMaxText}>
+                    {selectedSubjects.length > 1
+                      ? `${selectedSubjects.reduce((acc, subId) => acc + (selectedTopicsBySubject[subId]?.length || 0), 0)} total across ${selectedSubjects.length} subjects`
+                      : 'Choose specific topics or practice all'}
+                  </AppText>
+                </View>
+              </View>
+
+              <TouchableOpacity
+                style={[
+                  styles.continueButton,
+                  currentActiveSelected.length === 0 && styles.continueButtonDisabled,
+                ]}
+                disabled={currentActiveSelected.length === 0}
+                onPress={() => setShowTopics(false)}
+              >
+                <AppText style={styles.continueButtonText}>
+                  Done ({currentActiveSelected.length})
+                </AppText>
               </TouchableOpacity>
             </View>
           </View>
@@ -597,6 +1080,23 @@ export default function PracticeSetupScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Subscription Required Modal */}
+      <SubscriptionRequiredModal
+        visible={showSubscriptionModal}
+        onClose={() => {
+          setShowSubscriptionModal(false);
+          setSubscriptionMessage(undefined);
+        }}
+        subjectName={currentActiveSubject?.name}
+        topicName={modalTopicName}
+        customMessage={subscriptionMessage || (modalTopicName ? 'This topic requires an active subscription or bundle. Upgrade now to practice all topics!' : undefined)}
+        onViewBundles={() => {
+          setShowSubscriptionModal(false);
+          setSubscriptionMessage(undefined);
+          router.push('/(tabs)/bundles' as any);
+        }}
+      />
       
     </SafeAreaView>
   );
@@ -781,5 +1281,141 @@ const styles = StyleSheet.create({
   },
   timeOptionTextSelected: {
     color: '#FFF',
+  },
+
+  // Subject tabs in topics modal
+  subjectTabsScroll: { marginBottom: 12, maxHeight: 44 },
+  subjectTabsContent: { paddingHorizontal: 24, gap: 8, alignItems: 'center' },
+  subjectTabPill: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 20,
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  subjectTabPillActive: {
+    backgroundColor: '#F3E8FF',
+    borderColor: '#7E57C2',
+  },
+  subjectTabPillText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#4B5563',
+  },
+  subjectTabPillTextActive: {
+    color: '#6D28D9',
+    fontWeight: '700',
+  },
+
+  // Topic action row
+  topicActionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    marginBottom: 12,
+  },
+  topicActiveSubjectTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#111827',
+    flex: 1,
+    marginRight: 8,
+  },
+  topicActionButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  topicActionBtn: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  },
+  topicActionText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#6D28D9',
+  },
+  topicActionTextDanger: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#9CA3AF',
+  },
+
+  // Topic card
+  topicCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  topicCardSelected: {
+    borderColor: '#7E57C2',
+    backgroundColor: '#FAF5FF',
+    borderWidth: 1.5,
+  },
+  indexCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F3F4F6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  indexCircleSelected: {
+    backgroundColor: '#EDE9FE',
+  },
+  indexNumber: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#4B5563',
+  },
+  indexNumberSelected: {
+    color: '#6D28D9',
+  },
+  topicInfo: {
+    flex: 1,
+    marginRight: 12,
+  },
+  topicTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#111827',
+    lineHeight: 20,
+  },
+  topicTitleLocked: {
+    color: '#9CA3AF',
+  },
+  subscriptionRequiredText: {
+    fontSize: 11,
+    color: '#9CA3AF',
+    marginTop: 2,
+    fontStyle: 'italic',
+  },
+  lockIconContainer: {
+    width: 24,
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  checkCircle: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    borderColor: '#D1D5DB',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  checkCircleSelected: {
+    backgroundColor: '#6D28D9',
+    borderColor: '#6D28D9',
   },
 });

@@ -9,12 +9,19 @@ import {
   ScrollView, 
   TouchableOpacity, 
   Platform,
-  ActivityIndicator
+  ActivityIndicator,
+  Alert
 } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
+import {
+  SubscriptionRequiredModal,
+  isSubscriptionError,
+  getSubscriptionErrorMessage,
+} from '@/components/SubscriptionRequiredModal';
+
 
 interface SectionItem {
   id: string;
@@ -33,7 +40,11 @@ const DEFAULT_SECTIONS: Record<string, SectionItem> = {
 
 export default function IELTSSetupScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ exam?: string }>();
+  const params = useLocalSearchParams<{ 
+    exam?: string;
+    exam_name?: string;
+    exam_desc?: string;
+  }>();
 
   const examIdStr = Array.isArray(params.exam) ? params.exam[0] : params.exam;
   const examId = examIdStr ? parseInt(examIdStr, 10) : 42; // Default to 42
@@ -59,10 +70,38 @@ export default function IELTSSetupScreen() {
   const initialSections = examService.getCachedSectionsSync(examId);
   const initialMapped = initialSections ? mapSections(initialSections) : [];
 
+  const resolveInitialExamInfo = () => {
+    if (params.exam_name && typeof params.exam_name === 'string' && params.exam_name.trim()) {
+      return {
+        name: params.exam_name.trim(),
+        desc: params.exam_desc || 'International English Language Testing System',
+      };
+    }
+    const cached = examService.getCachedExamsSync();
+    if (cached) {
+      const found = cached.find(e => e.id === examId);
+      if (found?.name) {
+        return {
+          name: found.name,
+          desc: found.description || 'International English Language Testing System',
+        };
+      }
+    }
+    return {
+      name: 'IELTS Academic',
+      desc: 'International English Language Testing System',
+    };
+  };
+
+  const initialExamInfo = resolveInitialExamInfo();
   const [sections, setSections] = useState<SectionItem[]>(initialMapped);
-  const [examName, setExamName] = useState('Language Proficiency');
-  const [examDesc, setExamDesc] = useState('Standard English Proficiency Test');
+  const [examName, setExamName] = useState(initialExamInfo.name);
+  const [examDesc, setExamDesc] = useState(initialExamInfo.desc);
   const [loading, setLoading] = useState(!initialSections || initialSections.length === 0);
+  const [isStarting, setIsStarting] = useState(false);
+  const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
+  const [subscriptionMessage, setSubscriptionMessage] = useState<string | undefined>();
+
 
   useEffect(() => {
     let isMounted = true;
@@ -283,28 +322,79 @@ export default function IELTSSetupScreen() {
 
           {/* Continue Button */}
           <TouchableOpacity 
-            style={styles.continueButton}
-            onPress={() => {
+            style={[styles.continueButton, isStarting && { opacity: 0.7 }]}
+            disabled={isStarting}
+            onPress={async () => {
+              if (isStarting) return;
+              setIsStarting(true);
+
               const examIdStr = Array.isArray(params.exam) ? params.exam[0] : params.exam;
               const examId = examIdStr ? parseInt(examIdStr, 10) : 42;
               const sectionOrder = sections.map(s => s.id).join(',');
-              router.push({
-                pathname: '/(exam)/ielts-instructions',
-                params: { exam: examId, section_order: sectionOrder }
-              });
+              const orderIds = sections.map(s => Number(s.id)).filter(n => !isNaN(n));
+              const firstSectionName = sections[0]?.name || 'Reading';
+
+              try {
+                // Pre-fetch attempt & questions BEFORE showing instructions
+                const newAttempt = await examService.startExam({
+                  exam_type_id: examId,
+                  mode: 'Standard',
+                  selected_section_ids: orderIds.length > 0 ? orderIds : undefined,
+                });
+
+                router.push({
+                  pathname: '/(exam)/ielts-instructions',
+                  params: { 
+                    ...params,
+                    attempt_id: String(newAttempt.id),
+                    exam: String(examId), 
+                    section_order: sectionOrder,
+                    exam_name: examName,
+                    exam_desc: examDesc,
+                    section_name: firstSectionName,
+                  }
+                });
+              } catch (error: any) {
+                console.error('Failed to pre-start IELTS attempt:', error);
+                const errorMsg = getSubscriptionErrorMessage(
+                  error,
+                  'Failed to start exam. Please check your connection and try again.'
+                );
+                if (isSubscriptionError(error)) {
+                  setSubscriptionMessage(errorMsg);
+                  setShowSubscriptionModal(true);
+                } else {
+                  Alert.alert('Unable to Start Exam', errorMsg);
+                }
+              } finally {
+                setIsStarting(false);
+              }
             }}
             activeOpacity={0.85}
           >
-            <Text style={styles.continueButtonText}>Continue</Text>
-            <Feather name="arrow-right" size={18} color="#FFFFFF" style={{ marginLeft: 8 }} />
+            {isStarting ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <>
+                <Text style={styles.continueButtonText}>Continue</Text>
+                <Feather name="arrow-right" size={18} color="#FFFFFF" style={{ marginLeft: 8 }} />
+              </>
+            )}
           </TouchableOpacity>
 
           <View style={{ height: 40 }} />
         </ScrollView>
       </View>
+
+      <SubscriptionRequiredModal
+        visible={showSubscriptionModal}
+        onClose={() => setShowSubscriptionModal(false)}
+        message={subscriptionMessage}
+      />
     </SafeAreaView>
   );
 }
+
 
 const styles = StyleSheet.create({
   safeArea: {

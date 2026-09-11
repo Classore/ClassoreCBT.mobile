@@ -1,6 +1,7 @@
 import { AppText } from '@/components/AppText';
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, SafeAreaView, Platform, ActivityIndicator } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'expo-router';
@@ -33,8 +34,18 @@ export default function HomeScreen() {
   useEffect(() => {
     const fetchReport = async () => {
       try {
-        const data = await examService.getAggregateReport('Overview', 'This Week');
-        setReportData(data);
+        // 1. Load cached report first for instant rendering
+        const cached = await examService.getCachedAggregateReport();
+        if (cached) {
+          setReportData(cached);
+          setLoading(false);
+        }
+
+        // 2. Revalidate fresh data in background
+        const freshData = await examService.getAggregateReport('Overview', 'This Week');
+        if (freshData) {
+          setReportData(freshData);
+        }
       } catch (err) {
         console.error('Failed to fetch home report', err);
       } finally {
@@ -101,15 +112,15 @@ export default function HomeScreen() {
               activeOpacity={0.8}
               onPress={() => router.push('/notifications')}
             >
-              <Image source={require('../../../assets/images/bell-icon.png')} style={styles.headerIcon} contentFit="contain" />
+              <Ionicons name="notifications-outline" size={20} color="#1E293B" />
               <View style={styles.notificationDot} />
             </TouchableOpacity>
             <TouchableOpacity 
               style={styles.iconButton} 
               activeOpacity={0.8}
-              onPress={() => router.push('/(exam)/leaderboard')}
+              onPress={() => router.push('/achievements')}
             >
-              <Image source={require('../../../assets/images/trophy-icon.png')} style={styles.headerIcon} contentFit="contain" />
+              <Ionicons name="trophy-outline" size={19} color="#1E293B" />
             </TouchableOpacity>
             <TouchableOpacity 
               style={[styles.darkModeToggle, isDarkMode ? styles.darkModeToggleActive : styles.darkModeToggleInactive]} 
@@ -117,10 +128,10 @@ export default function HomeScreen() {
               activeOpacity={0.85}
             >
               <View style={[styles.toggleThumb, isDarkMode ? styles.toggleThumbRight : styles.toggleThumbLeft]}>
-                <Image 
-                  source={isDarkMode ? require('../../../assets/images/moon-white-icon.png') : require('../../../assets/images/moon-icon.png')} 
-                  style={{ width: 14, height: 14 }} 
-                  contentFit="contain" 
+                <Ionicons 
+                  name="moon" 
+                  size={13} 
+                  color={isDarkMode ? '#FFFFFF' : '#4B5563'} 
                 />
               </View>
             </TouchableOpacity>
@@ -182,7 +193,7 @@ export default function HomeScreen() {
         <View style={styles.examCardsRow}>
           {/* JAMB Card */}
           <LinearGradient colors={['#2563EB', '#1D4ED8']} style={styles.examCard}>
-            <Image source={require('../../../assets/images/jamb-bg.png')} style={[StyleSheet.absoluteFillObject, { borderRadius: 20, opacity: 0.9 }]} contentFit="cover" />
+            <Image source={require('../../../assets/images/jamb-bg.png')} style={[StyleSheet.absoluteFill, { borderRadius: 20, opacity: 0.9 }]} contentFit="cover" />
             <View style={styles.examCardContent}>
               <View style={styles.examIconContainer}>
                 <Image source={require('../../../assets/images/exam-jamb-icon.png')} style={{ width: 18, height: 18 }} contentFit="contain" />
@@ -203,7 +214,7 @@ export default function HomeScreen() {
           
           {/* IELTS Card */}
           <LinearGradient colors={['#7C3AED', '#5B21B6']} style={styles.examCard}>
-            <Image source={require('../../../assets/images/ielts-bg.png')} style={[StyleSheet.absoluteFillObject, { borderRadius: 20, opacity: 0.9 }]} contentFit="cover" />
+            <Image source={require('../../../assets/images/ielts-bg.png')} style={[StyleSheet.absoluteFill, { borderRadius: 20, opacity: 0.9 }]} contentFit="cover" />
             <View style={styles.examCardContent}>
               <View style={styles.examIconContainer}>
                 <Image source={require('../../../assets/images/exam-ielts-icon.png')} style={{ width: 18, height: 18 }} contentFit="contain" />
@@ -229,7 +240,7 @@ export default function HomeScreen() {
             { id: 1, name: 'Mock Tests', image: require('../../../assets/images/qa-mock-tests.png'), bg: '#D1FAE5', route: '/(tabs)/practice' },
             { id: 2, name: 'Study Room', image: require('../../../assets/images/qa-study-room.png'), bg: '#FFEDD5', route: '/saved-questions' },
             { id: 3, name: 'Weak Areas', image: require('../../../assets/images/qa-target.png'), bg: '#DBEAFE', route: '/weak-topics' },
-            { id: 4, name: 'Achievements', image: require('../../../assets/images/qa-achievements.png'), bg: '#FFE4E6', route: '/(tabs)/profile' },
+            { id: 4, name: 'Achievements', image: require('../../../assets/images/qa-achievements.png'), bg: '#FFE4E6', route: '/(tabs)/achievements' },
             { id: 5, name: 'Wallet', image: require('../../../assets/images/qa-wallet.png'), bg: '#EDE9FE', route: '/wallet' },
             { id: 6, name: 'Refer & Earn', image: require('../../../assets/images/qa-gift-icon.png'), bg: '#FEF3C7', route: '/(tabs)/profile' },
           ].map(action => (

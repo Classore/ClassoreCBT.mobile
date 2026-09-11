@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { 
   View, 
   Text, 
@@ -6,7 +6,9 @@ import {
   SafeAreaView, 
   ScrollView, 
   TouchableOpacity, 
-  Platform 
+  Platform,
+  RefreshControl,
+  ActivityIndicator
 } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
@@ -17,25 +19,41 @@ import { paymentService, MyBundle } from '@/services/payment';
 
 export default function WalletScreen() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, refreshUser, isRefreshingUser, isLoading } = useAuth();
+  const hasBalance = user?.token_balance !== undefined;
   const tokenBalance = user?.token_balance ?? 0;
 
   const [myBundles, setMyBundles] = useState<MyBundle[]>([]);
   const [loadingBundles, setLoadingBundles] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const fetchBundles = async () => {
+    try {
+      const bundles = await paymentService.getMyBundles();
+      if (Array.isArray(bundles)) {
+        setMyBundles(bundles);
+      } else if (bundles && Array.isArray((bundles as any).results)) {
+        setMyBundles((bundles as any).results);
+      } else {
+        setMyBundles([]);
+      }
+    } catch (error) {
+      console.error('Error fetching bundles', error);
+    } finally {
+      setLoadingBundles(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchBundles = async () => {
-      try {
-        const bundles = await paymentService.getMyBundles();
-        setMyBundles(bundles);
-      } catch (error) {
-        console.error('Error fetching bundles', error);
-      } finally {
-        setLoadingBundles(false);
-      }
-    };
     fetchBundles();
+    refreshUser().catch(err => console.warn('Wallet refreshUser error:', err));
   }, []);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await Promise.allSettled([refreshUser(), fetchBundles()]);
+    setRefreshing(false);
+  }, [refreshUser]);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -64,6 +82,14 @@ export default function WalletScreen() {
         <ScrollView 
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.scrollContent}
+          refreshControl={
+            <RefreshControl 
+              refreshing={refreshing} 
+              onRefresh={onRefresh} 
+              tintColor="#FFFFFF" 
+              colors={['#6D28D9']} 
+            />
+          }
         >
           {/* Hero Balance Card */}
           <LinearGradient
@@ -81,9 +107,19 @@ export default function WalletScreen() {
                     style={styles.coinImage} 
                     contentFit="contain" 
                   />
-                  <Text style={styles.balanceNumber}>{tokenBalance.toLocaleString()}</Text>
+                  {hasBalance ? (
+                    <Text style={styles.balanceNumber}>{tokenBalance.toLocaleString()}</Text>
+                  ) : (
+                    <View style={styles.balanceLoaderContainer}>
+                      <ActivityIndicator size="small" color="#FFFFFF" />
+                    </View>
+                  )}
                 </View>
-                <Text style={styles.nairaEquivalent}>≈ ₦{tokenBalance.toLocaleString()}.00</Text>
+                {hasBalance ? (
+                  <Text style={styles.nairaEquivalent}>≈ ₦{tokenBalance.toLocaleString()}.00</Text>
+                ) : (
+                  <Text style={styles.nairaEquivalent}>Updating balance...</Text>
+                )}
               </View>
 
               <View style={styles.heroRight}>
@@ -158,23 +194,45 @@ export default function WalletScreen() {
 
           {/* My Active Bundles Card */}
           <View style={styles.card}>
-            <Text style={styles.cardSectionTitle}>My Active Bundles</Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <Text style={[styles.cardSectionTitle, { marginBottom: 0 }]}>My Active Bundles</Text>
+              <TouchableOpacity 
+                onPress={() => router.push('/(tabs)/bundles' as any)}
+                activeOpacity={0.7}
+                style={{ flexDirection: 'row', alignItems: 'center' }}
+              >
+                <Text style={{ fontSize: 13, fontWeight: '700', color: '#7C3AED' }}>Explore Bundles</Text>
+                <Feather name="chevron-right" size={14} color="#7C3AED" style={{ marginLeft: 2 }} />
+              </TouchableOpacity>
+            </View>
             
             <View style={styles.summaryList}>
               {loadingBundles ? (
                 <Text style={{ padding: 10, color: '#6B7280' }}>Loading bundles...</Text>
               ) : myBundles.length === 0 ? (
-                <Text style={{ padding: 10, color: '#6B7280' }}>No active bundles.</Text>
+                <View style={{ paddingVertical: 12, alignItems: 'center' }}>
+                  <Text style={{ color: '#6B7280', fontSize: 13, marginBottom: 8 }}>No active bundles.</Text>
+                  <TouchableOpacity
+                    onPress={() => router.push('/(tabs)/bundles' as any)}
+                    style={{ backgroundColor: '#F3E8FF', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 12 }}
+                  >
+                    <Text style={{ color: '#7C3AED', fontWeight: '700', fontSize: 13 }}>Browse Available Bundles</Text>
+                  </TouchableOpacity>
+                </View>
               ) : (
-                myBundles.map((b, index) => (
-                  <View key={b.id} style={[styles.summaryRow, index === myBundles.length - 1 && { borderBottomWidth: 0 }]}>
-                    <View style={[styles.summaryIconCircle, { backgroundColor: '#E0F2FE' }]}>
-                      <MaterialCommunityIcons name="ticket-outline" size={16} color="#0284C7" />
+                myBundles.filter(Boolean).map((b, index) => {
+                  const bundleName = b.bundle?.name || (b as any)?.bundle_name || (b as any)?.name || 'Active Bundle';
+                  const isActive = b.is_active !== undefined ? b.is_active : ((b as any)?.status === 'active');
+                  return (
+                    <View key={b.id || index} style={[styles.summaryRow, index === myBundles.length - 1 && { borderBottomWidth: 0 }]}>
+                      <View style={[styles.summaryIconCircle, { backgroundColor: '#E0F2FE' }]}>
+                        <MaterialCommunityIcons name="ticket-outline" size={16} color="#0284C7" />
+                      </View>
+                      <Text style={styles.summaryRowLabel}>{bundleName}</Text>
+                      <Text style={styles.summaryRowValue}>{isActive ? 'Active' : 'Expired'}</Text>
                     </View>
-                    <Text style={styles.summaryRowLabel}>{b.bundle.name}</Text>
-                    <Text style={styles.summaryRowValue}>{b.is_active ? 'Active' : 'Expired'}</Text>
-                  </View>
-                ))
+                  );
+                })
               )}
             </View>
           </View>
@@ -324,6 +382,12 @@ const styles = StyleSheet.create({
     fontSize: 30,
     fontWeight: '800',
     color: '#FFFFFF',
+  },
+  balanceLoaderContainer: {
+    height: 38,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 8,
   },
   nairaEquivalent: {
     fontSize: 12,

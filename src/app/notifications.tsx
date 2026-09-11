@@ -108,7 +108,11 @@ export default function NotificationsScreen() {
             <Feather name="chevron-left" size={24} color="#111827" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Notifications</Text>
-          <TouchableOpacity style={styles.headerButton} activeOpacity={0.7}>
+          <TouchableOpacity 
+            style={styles.headerButton} 
+            activeOpacity={0.7}
+            onPress={() => router.push('/notification-preferences')}
+          >
             <Feather name="settings" size={20} color="#111827" />
           </TouchableOpacity>
         </View>

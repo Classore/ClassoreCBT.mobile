@@ -1,4 +1,4 @@
-import { Tabs } from 'expo-router';
+import { Tabs, usePathname } from 'expo-router';
 import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
 import { SymbolView } from 'expo-symbols';
 import { Image } from 'expo-image';
@@ -17,6 +17,29 @@ const CustomTabBarButton = ({ children, onPress }: any) => (
 );
 
 export default function TabsLayout() {
+  const pathname = usePathname();
+
+  const isProfileActive =
+    pathname === '/profile' ||
+    pathname === '/(tabs)/profile' ||
+    pathname?.includes('report-problem') ||
+    pathname?.includes('faqs') ||
+    pathname?.includes('user-guide') ||
+    pathname?.includes('guide-practice-test') ||
+    pathname?.includes('contact-support') ||
+    pathname?.includes('help-support') ||
+    pathname?.includes('video-tutorials') ||
+    pathname?.includes('certificates') ||
+    pathname?.includes('certificate-detail') ||
+    pathname?.includes('achievements') ||
+    pathname?.includes('change-password') ||
+    pathname?.includes('add-password') ||
+    pathname?.includes('profile-settings') ||
+    pathname?.includes('appearance') ||
+    pathname?.includes('language') ||
+    pathname?.includes('notification-preferences') ||
+    pathname?.includes('security');
+
   return (
     <Tabs
       screenOptions={{
@@ -33,7 +56,7 @@ export default function TabsLayout() {
         options={{
           title: 'Home',
           tabBarIcon: ({ color }) => (
-            <Image source={require('../../../assets/images/home-icon.png')} style={{ width: 24, height: 24 }} tintColor={color} contentFit="contain" />
+            <Image source={require('../../../assets/images/home-icon.png')} style={{ width: 24, height: 24 }} tintColor={color as string} contentFit="contain" />
           ),
         }}
       />
@@ -43,7 +66,7 @@ export default function TabsLayout() {
         options={{
           title: 'Practice',
           tabBarIcon: ({ color }) => (
-            <Image source={require('../../../assets/images/practice-icon.png')} style={{ width: 24, height: 24 }} tintColor={color} contentFit="contain" />
+            <Image source={require('../../../assets/images/practice-icon.png')} style={{ width: 24, height: 24 }} tintColor={color as string} contentFit="contain" />
           ),
         }}
       />
@@ -63,7 +86,7 @@ export default function TabsLayout() {
         options={{
           title: 'Reports',
           tabBarIcon: ({ color }) => (
-            <Image source={require('../../../assets/images/reports-icon.png')} style={{ width: 24, height: 24 }} tintColor={color} contentFit="contain" />
+            <Image source={require('../../../assets/images/reports-icon.png')} style={{ width: 24, height: 24 }} tintColor={color as string} contentFit="contain" />
           ),
         }}
       />
@@ -73,8 +96,151 @@ export default function TabsLayout() {
         options={{
           title: 'Profile',
           tabBarIcon: ({ color }) => (
-            <Image source={require('../../../assets/images/profile-icon.png')} style={{ width: 24, height: 24 }} tintColor={color} contentFit="contain" />
+            <Image
+              source={require('../../../assets/images/profile-icon.png')}
+              style={{ width: 24, height: 24 }}
+              tintColor={(isProfileActive ? '#6D28D9' : color) as string}
+              contentFit="contain"
+            />
           ),
+          tabBarLabel: ({ color }) => (
+            <Text style={[styles.tabBarLabel, { color: isProfileActive ? '#6D28D9' : (color as string) }]}>
+              Profile
+            </Text>
+          ),
+        }}
+      />
+
+      <Tabs.Screen
+        name="bundles"
+        options={{
+          href: null,
+        }}
+      />
+
+      <Tabs.Screen
+        name="report-problem"
+        options={{
+          href: null,
+        }}
+      />
+
+      <Tabs.Screen
+        name="faqs"
+        options={{
+          href: null,
+        }}
+      />
+
+      <Tabs.Screen
+        name="user-guide"
+        options={{
+          href: null,
+        }}
+      />
+
+      <Tabs.Screen
+        name="guide-practice-test"
+        options={{
+          href: null,
+        }}
+      />
+
+      <Tabs.Screen
+        name="contact-support"
+        options={{
+          href: null,
+        }}
+      />
+
+      <Tabs.Screen
+        name="help-support"
+        options={{
+          href: null,
+        }}
+      />
+
+      <Tabs.Screen
+        name="video-tutorials"
+        options={{
+          href: null,
+        }}
+      />
+
+      <Tabs.Screen
+        name="contest"
+        options={{
+          href: null,
+        }}
+      />
+
+      <Tabs.Screen
+        name="certificates"
+        options={{
+          href: null,
+        }}
+      />
+
+      <Tabs.Screen
+        name="certificate-detail"
+        options={{
+          href: null,
+        }}
+      />
+
+      <Tabs.Screen
+        name="achievements"
+        options={{
+          href: null,
+        }}
+      />
+
+      <Tabs.Screen
+        name="change-password"
+        options={{
+          href: null,
+        }}
+      />
+
+      <Tabs.Screen
+        name="add-password"
+        options={{
+          href: null,
+        }}
+      />
+
+      <Tabs.Screen
+        name="profile-settings"
+        options={{
+          href: null,
+        }}
+      />
+
+      <Tabs.Screen
+        name="appearance"
+        options={{
+          href: null,
+        }}
+      />
+
+      <Tabs.Screen
+        name="language"
+        options={{
+          href: null,
+        }}
+      />
+
+      <Tabs.Screen
+        name="notification-preferences"
+        options={{
+          href: null,
+        }}
+      />
+
+      <Tabs.Screen
+        name="security"
+        options={{
+          href: null,
         }}
       />
     </Tabs>

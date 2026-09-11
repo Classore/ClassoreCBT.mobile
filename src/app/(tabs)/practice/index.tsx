@@ -87,18 +87,28 @@ export default function ExamSetupScreen() {
     if (selectedMode === 'practice') {
       router.push({
         pathname: '/(tabs)/practice/practice-setup',
-        params: { exam: selectedExam }
+        params: { 
+          exam: selectedExam,
+          exam_name: examObj?.name,
+        }
       });
     } else {
       if (isSectionBasedExam(examObj?.name)) {
         router.push({
           pathname: '/(exam)/ielts-setup',
-          params: { exam: selectedExam }
+          params: { 
+            exam: selectedExam,
+            exam_name: examObj?.name,
+            exam_desc: examObj?.description,
+          }
         });
       } else {
         router.push({
           pathname: '/(tabs)/practice/standard-setup',
-          params: { exam: selectedExam }
+          params: { 
+            exam: selectedExam,
+            exam_name: examObj?.name,
+          }
         });
       }
     }

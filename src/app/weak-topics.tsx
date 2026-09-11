@@ -175,7 +175,7 @@ export default function WeakTopicsScreen() {
             </View>
             <View style={styles.heroRight}>
               <Image 
-                source={require('@/assets/images/qa-target.png')} 
+                source={require('@/assets/images/target-3d.png')} 
                 style={styles.targetImage}
                 contentFit="contain"
               />
@@ -240,7 +240,7 @@ export default function WeakTopicsScreen() {
                     <Text style={styles.questionsText}>{item.questionsCount} Questions</Text>
                     <TouchableOpacity 
                       style={styles.practiceButton}
-                      onPress={() => router.push(`/(tabs)/practice/practice-setup?topic_id=${item.id}&subject=${item.subject}`)}
+                      onPress={() => router.push(`/(tabs)/practice/practice-setup?topic_id=${item.id}&subject=${encodeURIComponent(item.subject)}&topic_name=${encodeURIComponent(item.topic)}`)}
                       activeOpacity={0.8}
                     >
                       <Text style={styles.practiceButtonText}>Practice</Text>
@@ -334,14 +334,14 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   heroRight: {
-    width: 90,
-    height: 90,
+    width: 95,
+    height: 95,
     justifyContent: 'center',
     alignItems: 'center',
   },
   targetImage: {
-    width: 85,
-    height: 85,
+    width: 95,
+    height: 95,
   },
 
   // Filter Pills

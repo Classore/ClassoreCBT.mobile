@@ -18,6 +18,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { paymentService } from '@/services/payment';
 import { useAuth } from '@/context/AuthContext';
 import { WebView } from 'react-native-webview';
+import * as WebBrowser from 'expo-web-browser';
 import { RNIap } from '@/utils/iap';
 import { Modal } from 'react-native';
 
@@ -34,10 +35,13 @@ export default function BuyTokensScreen() {
   const [paymentUrl, setPaymentUrl] = useState('');
 
   React.useEffect(() => {
+    // Proactively refresh latest token balance
+    refreshUser().catch(console.warn);
+
     // Initialize IAP connection
     RNIap.initConnection().catch(console.warn);
 
-    const purchaseUpdateSubscription = RNIap.purchaseUpdatedListener(async (purchase) => {
+    const purchaseUpdateSubscription = RNIap.purchaseUpdatedListener(async (purchase: any) => {
       try {
         const receipt = purchase.transactionReceipt;
         if (receipt) {
@@ -55,9 +59,9 @@ export default function BuyTokensScreen() {
       }
     });
 
-    const purchaseErrorSubscription = RNIap.purchaseErrorListener((error) => {
+    const purchaseErrorSubscription = RNIap.purchaseErrorListener((error: any) => {
       console.log('purchaseErrorListener', error);
-      if (error.code !== 'E_USER_CANCELLED') {
+      if (error?.code !== 'E_USER_CANCELLED') {
         Alert.alert('Purchase Error', error.message);
       }
     });
@@ -87,6 +91,13 @@ export default function BuyTokensScreen() {
         const data = await paymentService.initializePaystack(Number(params.packId));
         if (data.authorization_url) {
           setPaymentUrl(data.authorization_url);
+          if (Platform.OS === 'web') {
+            try {
+              window.open(data.authorization_url, '_blank');
+            } catch {
+              await WebBrowser.openBrowserAsync(data.authorization_url);
+            }
+          }
           setShowWebView(true);
         } else {
           if (Platform.OS === 'web') window.alert('No authorization URL returned.');
@@ -99,9 +110,9 @@ export default function BuyTokensScreen() {
           return;
         }
         const productId = `com.classorecbt.tokens.${params.packId}`;
-        const products = await RNIap.getProducts({ skus: [productId] });
+        const products = await (RNIap as any).getProducts({ skus: [productId] });
         if (products && products.length > 0) {
-          await RNIap.requestPurchase({ sku: productId });
+          await (RNIap as any).requestPurchase({ sku: productId });
         } else {
           Alert.alert('Error', 'Product not found on the App Store.');
         }
@@ -109,6 +120,13 @@ export default function BuyTokensScreen() {
         const data = await paymentService.initializeFlutterwave(Number(params.packId));
         if (data.authorization_url) {
           setPaymentUrl(data.authorization_url);
+          if (Platform.OS === 'web') {
+            try {
+              window.open(data.authorization_url, '_blank');
+            } catch {
+              await WebBrowser.openBrowserAsync(data.authorization_url);
+            }
+          }
           setShowWebView(true);
         } else {
           if (Platform.OS === 'web') window.alert('No authorization URL returned.');
@@ -124,6 +142,38 @@ export default function BuyTokensScreen() {
       else Alert.alert('Error', err.message || 'Failed to initialize payment.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleWebPaymentDone = async () => {
+    setLoading(true);
+    try {
+      await refreshUser();
+      setShowWebView(false);
+      if (Platform.OS === 'web') {
+        window.alert('Tokens will reflect in your wallet shortly!');
+      } else {
+        Alert.alert('Notice', 'Tokens will reflect in your wallet shortly!');
+      }
+      router.replace('/wallet');
+    } catch (err: any) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleReopenPayment = async () => {
+    if (paymentUrl) {
+      if (Platform.OS === 'web') {
+        try {
+          window.open(paymentUrl, '_blank');
+        } catch {
+          await WebBrowser.openBrowserAsync(paymentUrl);
+        }
+      } else {
+        Linking.openURL(paymentUrl);
+      }
     }
   };
 
@@ -164,7 +214,11 @@ export default function BuyTokensScreen() {
                 style={styles.coinImageSmall} 
                 contentFit="contain" 
               />
-              <Text style={styles.balanceNumber}>{user?.token_balance?.toLocaleString() || '0'}</Text>
+              {user?.token_balance !== undefined ? (
+                <Text style={styles.balanceNumber}>{user.token_balance.toLocaleString()}</Text>
+              ) : (
+                <ActivityIndicator size="small" color="#6D28D9" style={{ marginHorizontal: 8 }} />
+              )}
             </View>
           </View>
 
@@ -350,23 +404,70 @@ export default function BuyTokensScreen() {
             <Text style={styles.headerTitle}>Complete Payment</Text>
             <View style={{ width: 40 }} />
           </View>
-          <WebView
-            source={{ uri: paymentUrl }}
-            onNavigationStateChange={(navState) => {
-              if (navState.url.includes('/success') || navState.url.includes('/verify') || navState.url.includes('/callback')) {
-                // If it hits a success callback URL
-                setShowWebView(false);
-                Alert.alert('Success', 'Payment completed successfully!', [
-                  { text: 'View Wallet', onPress: () => { refreshUser(); router.replace('/wallet'); } }
-                ]);
-              } else if (navState.url.includes('/cancel')) {
-                setShowWebView(false);
-                Alert.alert('Cancelled', 'Payment was cancelled.');
-              }
-            }}
-            startInLoadingState={true}
-            renderLoading={() => <ActivityIndicator size="large" color="#7C3AED" style={{ flex: 1, justifyContent: 'center' }} />}
-          />
+          {Platform.OS === 'web' ? (
+            <View style={styles.webPaymentWrapper}>
+              <View style={styles.webPaymentCard}>
+                <View style={styles.webPaymentIconCircle}>
+                  <Feather name="external-link" size={36} color="#7C3AED" />
+                </View>
+                <Text style={styles.webPaymentHeading}>Payment Window Opened</Text>
+                <Text style={styles.webPaymentSubheading}>
+                  We opened the payment gateway in a separate tab or window. Once you have completed the transaction there, click below to verify and return to your wallet.
+                </Text>
+
+                <TouchableOpacity
+                  style={styles.webConfirmButton}
+                  onPress={handleWebPaymentDone}
+                  disabled={loading}
+                  activeOpacity={0.85}
+                >
+                  {loading ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <>
+                      <Feather name="check-circle" size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
+                      <Text style={styles.webConfirmButtonText}>I Have Completed Payment</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.webReopenButton}
+                  onPress={handleReopenPayment}
+                  activeOpacity={0.8}
+                >
+                  <Feather name="external-link" size={16} color="#7C3AED" style={{ marginRight: 6 }} />
+                  <Text style={styles.webReopenButtonText}>Reopen Payment Window</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.webCancelButton}
+                  onPress={() => setShowWebView(false)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.webCancelButtonText}>Cancel Transaction</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : (
+            <WebView
+              source={{ uri: paymentUrl }}
+              onNavigationStateChange={(navState) => {
+                if (navState.url.includes('/success') || navState.url.includes('/verify') || navState.url.includes('/callback')) {
+                  // If it hits a success callback URL
+                  setShowWebView(false);
+                  Alert.alert('Success', 'Payment completed successfully!', [
+                    { text: 'View Wallet', onPress: () => { refreshUser(); router.replace('/wallet'); } }
+                  ]);
+                } else if (navState.url.includes('/cancel')) {
+                  setShowWebView(false);
+                  Alert.alert('Cancelled', 'Payment was cancelled.');
+                }
+              }}
+              startInLoadingState={true}
+              renderLoading={() => <ActivityIndicator size="large" color="#7C3AED" style={{ flex: 1, justifyContent: 'center' }} />}
+            />
+          )}
         </SafeAreaView>
       </Modal>
     </SafeAreaView>
@@ -659,5 +760,91 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     color: '#FFFFFF',
+  },
+
+  // Web Payment Modal Styles
+  webPaymentWrapper: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+    backgroundColor: '#F9FAFB',
+  },
+  webPaymentCard: {
+    width: '100%',
+    maxWidth: 440,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 28,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    elevation: 3,
+  },
+  webPaymentIconCircle: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    backgroundColor: '#F3E8FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  webPaymentHeading: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#111827',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  webPaymentSubheading: {
+    fontSize: 14,
+    color: '#6B7280',
+    textAlign: 'center',
+    lineHeight: 21,
+    marginBottom: 26,
+  },
+  webConfirmButton: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#7C3AED',
+    paddingVertical: 14,
+    borderRadius: 14,
+    marginBottom: 12,
+  },
+  webConfirmButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  webReopenButton: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F3E8FF',
+    paddingVertical: 13,
+    borderRadius: 14,
+    marginBottom: 16,
+  },
+  webReopenButtonText: {
+    color: '#7C3AED',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  webCancelButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  webCancelButtonText: {
+    color: '#9CA3AF',
+    fontSize: 13,
+    fontWeight: '600',
   },
 });

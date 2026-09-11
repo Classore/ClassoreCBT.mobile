@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import * as SecureStore from 'expo-secure-store';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import { api } from '@/services/api';
 
@@ -38,6 +39,7 @@ type AuthContextType = {
   token: string | null;
   user: UserProfile | null;
   isLoading: boolean;
+  isRefreshingUser: boolean;
   login: (token: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
@@ -53,13 +55,56 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshingUser, setIsRefreshingUser] = useState(false);
+
+  const saveCachedUser = async (profile: UserProfile | null) => {
+    try {
+      if (!profile) {
+        if (Platform.OS === 'web') {
+          localStorage.removeItem('cached_user_profile');
+        } else {
+          await AsyncStorage.removeItem('cached_user_profile');
+        }
+        return;
+      }
+      const serialized = JSON.stringify(profile);
+      if (Platform.OS === 'web') {
+        localStorage.setItem('cached_user_profile', serialized);
+      } else {
+        await AsyncStorage.setItem('cached_user_profile', serialized);
+      }
+    } catch (err) {
+      console.warn('Failed to cache user profile', err);
+    }
+  };
+
+  const getCachedUser = async (): Promise<UserProfile | null> => {
+    try {
+      let raw: string | null = null;
+      if (Platform.OS === 'web') {
+        raw = localStorage.getItem('cached_user_profile');
+      } else {
+        raw = await AsyncStorage.getItem('cached_user_profile');
+      }
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object' && parsed.id) {
+          return parsed;
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to read cached user profile', err);
+    }
+    return null;
+  };
 
   // Fetch current user details from /api/auth/me/
   const fetchUserDetails = async (authToken?: string) => {
-    try {
-      const activeToken = authToken || token;
-      if (!activeToken) return;
+    const activeToken = authToken || token;
+    if (!activeToken) return;
 
+    setIsRefreshingUser(true);
+    try {
       const response = await api.get('/api/auth/me/', {
         headers: {
           Authorization: `Token ${activeToken}`,
@@ -68,18 +113,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (response.data) {
         setUser(response.data);
+        await saveCachedUser(response.data);
       }
     } catch (e: any) {
       console.warn('Failed to fetch user profile /me:', e?.response?.data || e.message);
       if (e?.response?.status === 401) {
         logout(); // Automatically log out if the token is invalid
       }
+    } finally {
+      setIsRefreshingUser(false);
     }
   };
 
   useEffect(() => {
     const bootstrapAsync = async () => {
       try {
+        // 1. Immediately hydrate cached user profile if available (0ms delay, no flashing 0)
+        const cachedUser = await getCachedUser();
+        if (cachedUser) {
+          setUser(cachedUser);
+        }
+
         let storedToken = null;
         if (Platform.OS === 'web') {
           storedToken = localStorage.getItem('auth_token');
@@ -89,10 +143,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         
         if (storedToken) {
           setToken(storedToken);
+          // 2. Fetch fresh user details in background (stale-while-revalidate)
           await fetchUserDetails(storedToken);
         }
       } catch (e) {
-        console.error('Failed to load token', e);
+        console.error('Failed to load token or cached user', e);
       } finally {
         setIsLoading(false);
       }
@@ -131,6 +186,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } else {
         await SecureStore.deleteItemAsync('auth_token');
       }
+      await saveCachedUser(null);
       setToken(null);
       setUser(null);
     } catch (e) {
@@ -150,6 +206,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const response = await api.patch('/api/auth/me/', data, { headers });
       if (response.data) {
         setUser(response.data);
+        await saveCachedUser(response.data);
         return response.data;
       }
       throw new Error('No profile data returned');
@@ -201,6 +258,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         token, 
         user, 
         isLoading, 
+        isRefreshingUser,
         login, 
         logout, 
         refreshUser, 

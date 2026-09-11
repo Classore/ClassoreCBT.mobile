@@ -10,6 +10,7 @@ import {
   ActivityIndicator
 } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
@@ -36,13 +37,15 @@ export default function StreakScreen() {
     fetchStreakHistory();
   }, []);
 
+  const [localProtectionCards, setLocalProtectionCards] = useState<number | null>(null);
   const currentStreak = historyData?.streak ?? user?.streak ?? 0;
   const bestStreak = historyData?.best_streak ?? user?.best_streak ?? 0;
-  const protectionCards = user?.protection_cards_count ?? 0;
+  const protectionCards = localProtectionCards ?? historyData?.protection_cards_count ?? user?.protection_cards_count ?? 0;
 
   const handleUseProtectionCard = async () => {
     const success = await useStreakProtection();
     if (success) {
+      setLocalProtectionCards(Math.max(0, protectionCards - 1));
       alert("Streak protection activated successfully!");
     } else {
       alert("Could not activate streak protection. Do you have any cards left?");
@@ -95,7 +98,7 @@ export default function StreakScreen() {
         <View style={styles.header}>
           <TouchableOpacity 
             style={styles.headerButton} 
-            onPress={() => router.back()}
+            onPress={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)'))}
             activeOpacity={0.7}
           >
             <Feather name="chevron-left" size={24} color="#111827" />
@@ -145,8 +148,11 @@ export default function StreakScreen() {
 
                 {/* 3D Flame Illustration */}
                 <View style={styles.candleContainer}>
-                  <Ionicons name="flame" size={56} color="#FBBF24" style={styles.candleFlame} />
-                  <View style={styles.candleStand} />
+                  <Image 
+                    source={require('../../assets/images/streak-candle-fire.png')} 
+                    style={styles.heroFlameImage} 
+                    contentFit="contain" 
+                  />
                 </View>
               </View>
             </LinearGradient>
@@ -296,10 +302,11 @@ export default function StreakScreen() {
                 <Text style={styles.splitCardTitle}>Streak Protection</Text>
                 
                 <View style={styles.shieldContainer}>
-                  <View style={styles.shieldBg}>
-                    <Ionicons name="shield" size={48} color="#C4B5FD" />
-                    <Ionicons name="checkmark-circle" size={20} color="#10B981" style={styles.shieldCheck} />
-                  </View>
+                  <Image 
+                    source={require('../../assets/images/streak-shield-protection.png')} 
+                    style={styles.shieldImage} 
+                    contentFit="contain" 
+                  />
                 </View>
 
                 <View style={styles.protectionStatsRow}>
@@ -324,7 +331,11 @@ export default function StreakScreen() {
             {/* Motivation Banner */}
             <View style={styles.rocketCard}>
               <View style={styles.rocketIconWrapper}>
-                <MaterialCommunityIcons name="rocket-launch-outline" size={22} color="#7C3AED" />
+                <Image 
+                  source={require('../../assets/images/streak-rocket-jet.png')} 
+                  style={styles.rocketImage} 
+                  contentFit="contain" 
+                />
               </View>
               <View style={styles.rocketTextContainer}>
                 <Text style={styles.rocketTitle}>Build a habit!</Text>
@@ -438,20 +449,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingLeft: 8,
   },
-  candleFlame: {
-    marginBottom: -8,
-    zIndex: 2,
-  },
-  candleStand: {
-    width: 60,
-    height: 38,
-    backgroundColor: '#5B21B6',
-    borderTopLeftRadius: 12,
-    borderTopRightRadius: 12,
-    borderBottomLeftRadius: 16,
-    borderBottomRightRadius: 16,
-    borderWidth: 2,
-    borderColor: '#7C3AED',
+  heroFlameImage: {
+    width: 85,
+    height: 85,
   },
 
   card: {
@@ -725,17 +725,12 @@ const styles = StyleSheet.create({
 
   shieldContainer: {
     alignItems: 'center',
-    marginVertical: 8,
-  },
-  shieldBg: {
-    position: 'relative',
     justifyContent: 'center',
-    alignItems: 'center',
+    marginVertical: 10,
   },
-  shieldCheck: {
-    position: 'absolute',
-    top: 14,
-    alignSelf: 'center',
+  shieldImage: {
+    width: 60,
+    height: 60,
   },
   protectionStatsRow: {
     flexDirection: 'row',
@@ -790,6 +785,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
+  },
+  rocketImage: {
+    width: 30,
+    height: 30,
   },
   rocketTextContainer: {
     flex: 1,

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   View, 
   Text, 
@@ -10,16 +10,25 @@ import {
   Alert,
   ActivityIndicator
 } from 'react-native';
-import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Feather, Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { examService } from '@/services/exam';
+import { 
+  SubscriptionRequiredModal, 
+  isSubscriptionError, 
+  getSubscriptionErrorMessage 
+} from '@/components/SubscriptionRequiredModal';
 
 export default function IELTSSectionInstructionsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ 
+    attempt_id?: string;
     exam?: string; 
     exam_type_id?: string; 
+    exam_name?: string;
     section_name?: string;
+    section_index?: string;
     sections?: string;
     section_order?: string;
     mode?: string;
@@ -27,11 +36,101 @@ export default function IELTSSectionInstructionsScreen() {
     question_count?: string;
     difficulty?: string;
   }>();
-  const [examName, setExamName] = useState('Test');
-  const [isStarting, setIsStarting] = useState(false);
 
-  const handleBeginTest = async () => {
+  const currentSection = params.section_name || 'Writing';
+
+  const getSectionDetails = (section: string) => {
+    const s = section.toLowerCase();
+    if (s.includes('writing')) {
+      return {
+        title: 'Writing',
+        timeText: '1 hr for all questions in this section.',
+        tasksText: 'The test have 2 Tasks.',
+        requirementsText: 'You must write at least 150 words for Task 1,\nYou must write at least 250 words for Task 2.',
+        rules: [
+          'Manage your time carefully.',
+          'Your word count will be shown',
+          'You cannot edit your answers before the time ends.',
+        ],
+      };
+    }
+    if (s.includes('reading')) {
+      return {
+        title: 'Reading',
+        timeText: '60 mins for all questions in this section.',
+        tasksText: 'The test has 40 questions across 3 passages.',
+        requirementsText: 'Read each passage carefully and answer all questions based on the text.',
+        rules: [
+          'Manage your time carefully.',
+          'Review your answers before moving forward.',
+          'You cannot return to this section once completed.',
+        ],
+      };
+    }
+    if (s.includes('listening')) {
+      return {
+        title: 'Listening',
+        timeText: '~30 mins for all questions in this section.',
+        tasksText: 'The test has 40 questions across 4 recordings.',
+        requirementsText: 'Audio tracks play once. Check your headphones before continuing.',
+        rules: [
+          'Listen carefully as audio plays only once.',
+          'Answers are auto-saved as you listen.',
+          'Ensure steady volume and internet connection.',
+        ],
+      };
+    }
+    return {
+      title: section,
+      timeText: 'Follow the allotted time for this section.',
+      tasksText: 'Complete all questions in this section.',
+      requirementsText: 'Answer all questions carefully before finishing.',
+      rules: [
+        'Manage your time carefully.',
+        'Review your answers before submitting.',
+        'Answers are auto-saved in real-time.',
+      ],
+    };
+  };
+
+  const details = getSectionDetails(currentSection);
+  const illustrationSource = details.title.toLowerCase().includes('reading')
+    ? require('../../../assets/images/ielts-book-illustration.png')
+    : require('../../../assets/images/ielts-instructions-mic.png');
+
+  const [isStarting, setIsStarting] = useState(false);
+  const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
+  const [subscriptionMessage, setSubscriptionMessage] = useState<string | undefined>();
+
+  useEffect(() => {
+    const isListening = (currentSection || '').toLowerCase().includes('listening') || (params.section_name || '').toLowerCase().includes('listening');
+    if (isListening) {
+      router.replace({
+        pathname: '/(exam)/ielts-listening-instructions',
+        params: params,
+      });
+    }
+  }, [currentSection, params.section_name]);
+
+  const handleContinue = async () => {
     if (isStarting) return;
+
+    const isListening = (currentSection || '').toLowerCase().includes('listening') || (params.section_name || '').toLowerCase().includes('listening');
+
+    // If this section is part of an ongoing attempt (resuming / after break)
+    if (params.attempt_id) {
+      router.replace({
+        pathname: isListening ? '/(exam)/ielts-listening-session' : '/(exam)/ielts-session',
+        params: {
+          ...params,
+          attempt_id: params.attempt_id,
+          section_index: params.section_index || '0',
+        },
+      });
+      return;
+    }
+
+    // Otherwise, start a brand new attempt
     setIsStarting(true);
     try {
       const examId = params.exam ? Number(params.exam) : (params.exam_type_id ? Number(params.exam_type_id) : 42);
@@ -67,47 +166,34 @@ export default function IELTSSectionInstructionsScreen() {
         practice_config: practiceConfig,
       });
 
-      router.push({
-        pathname: '/(exam)/ielts-session',
+      router.replace({
+        pathname: isListening ? '/(exam)/ielts-listening-session' : '/(exam)/ielts-session',
         params: {
           ...params,
           attempt_id: String(newAttempt.id),
-        }
+          section_index: '0',
+        },
       });
     } catch (error: any) {
       console.error('Failed to start section exam:', error);
-      const errorMsg = error?.response?.data?.error 
-        || error?.response?.data?.detail 
-        || error?.message 
-        || 'Failed to start exam. Please check your connection and try again.';
-      Alert.alert('Unable to Start Exam', errorMsg);
+      const errorMsg = getSubscriptionErrorMessage(
+        error,
+        'Failed to start exam. Please check your connection and try again.'
+      );
+      if (isSubscriptionError(error)) {
+        setSubscriptionMessage(errorMsg);
+        setShowSubscriptionModal(true);
+      } else {
+        Alert.alert('Unable to Start Exam', errorMsg);
+      }
     } finally {
       setIsStarting(false);
     }
   };
 
-  React.useEffect(() => {
-    const fetchExam = async () => {
-      try {
-        const examId = params.exam ? Number(params.exam) : (params.exam_type_id ? Number(params.exam_type_id) : null);
-        if (examId) {
-          const allExams = await examService.getExams();
-          const current = allExams.find(e => e.id === examId);
-          if (current) setExamName(current.name);
-        }
-      } catch (e) {
-        console.warn('Failed to load exam details for section instructions:', e);
-      }
-    };
-    fetchExam();
-  }, [params.exam, params.exam_type_id]);
-
-  const currentSection = params.section_name || 'Reading';
-
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
-        
         {/* Top Header */}
         <View style={styles.header}>
           <TouchableOpacity 
@@ -117,77 +203,55 @@ export default function IELTSSectionInstructionsScreen() {
           >
             <Feather name="chevron-left" size={24} color="#111827" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>{currentSection} Instructions</Text>
-          <View style={styles.streakBadge}>
-            <Text style={{ fontSize: 13, marginRight: 4 }}>🔥</Text>
-            <Text style={styles.streakText}>120</Text>
-          </View>
+          <Text style={styles.headerTitle}>{details.title} Instructions</Text>
+          <View style={styles.headerRightPlaceholder} />
         </View>
 
         <ScrollView 
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.scrollContent}
         >
-          {/* 3D Open Book Illustration */}
+          {/* 3D Section Illustration (book for Reading, mic for others) */}
           <View style={styles.illustrationContainer}>
-            <View style={styles.bookMockWrapper}>
-              <View style={styles.bookMockLeft}>
-                <View style={styles.bookImageThumb} />
-                <View style={styles.bookLine} />
-                <View style={styles.bookLine} />
-              </View>
-              <View style={styles.bookMockRight}>
-                <View style={styles.bookLine} />
-                <View style={styles.bookLine} />
-                <View style={styles.bookLine} />
-              </View>
-              <View style={styles.bellBadge}>
-                <Feather name="bell" size={26} color="#F59E0B" />
-              </View>
-            </View>
+            <Image
+              source={illustrationSource}
+              style={styles.illustrationImage}
+              contentFit="contain"
+            />
           </View>
 
           {/* Section Headline */}
           <View style={styles.headlineContainer}>
-            <Text style={styles.mainTitle}>{examName} {currentSection}</Text>
+            <Text style={styles.mainTitle}>{details.title} Test Instructions</Text>
             <Text style={styles.mainSubtitle}>
-              Complete all questions carefully based on the provided passages and instructions.
+              These instructions are important for{'\n'}Please read the instructions carefully. You cannot view them at any time during the test
             </Text>
           </View>
 
           {/* 3 Summary Cards */}
           <View style={styles.summaryCardsList}>
-            {/* Time */}
+            {/* Time Card */}
             <View style={styles.summaryCard}>
-              <View style={[styles.iconBg, { backgroundColor: '#EDE9FE' }]}>
-                <Feather name="clock" size={18} color="#7C3AED" />
+              <View style={[styles.iconBg, { backgroundColor: '#F5F3FF' }]}>
+                <Feather name="clock" size={20} color="#7C3AED" />
               </View>
-              <View style={styles.summaryTextContainer}>
-                <Text style={styles.summaryLabel}>Time</Text>
-                <Text style={styles.summaryValue}>60 minutes</Text>
-              </View>
+              <Text style={styles.summaryCardText}>{details.timeText}</Text>
             </View>
 
-            {/* Passages */}
+            {/* Tasks Card */}
             <View style={styles.summaryCard}>
-              <View style={[styles.iconBg, { backgroundColor: '#FFE4E6' }]}>
-                <Ionicons name="book-outline" size={18} color="#E11D48" />
+              <View style={[styles.iconBg, { backgroundColor: '#ECFDF5' }]}>
+                <Ionicons name="checkbox-outline" size={20} color="#059669" />
               </View>
-              <View style={styles.summaryTextContainer}>
-                <Text style={styles.summaryLabel}>Passages</Text>
-                <Text style={styles.summaryValue}>3–4 passages</Text>
-              </View>
+              <Text style={styles.summaryCardText}>{details.tasksText}</Text>
             </View>
 
-            {/* Questions */}
+            {/* Requirements / Word count Card */}
             <View style={styles.summaryCard}>
-              <View style={[styles.iconBg, { backgroundColor: '#D1FAE5' }]}>
-                <Feather name="info" size={18} color="#059669" />
+              <View style={[styles.iconBg, { backgroundColor: '#FFF7ED' }]}>
+                <Feather name="file-text" size={20} color="#EA580C" />
               </View>
-              <View style={styles.summaryTextContainer}>
-                <Text style={styles.summaryLabel}>Questions</Text>
-                <Text style={styles.summaryValue}>40 questions</Text>
-              </View>
+              <Text style={styles.summaryCardText}>{details.requirementsText}</Text>
             </View>
           </View>
 
@@ -196,12 +260,7 @@ export default function IELTSSectionInstructionsScreen() {
             <Text style={styles.howItWorksTitle}>How it works</Text>
             
             <View style={styles.rulesList}>
-              {[
-                'Read the passages carefully.',
-                'Answer all questions based on the passages.',
-                'Move forward to the next question once you have answered.',
-                'You cannot go back to previous questions.',
-              ].map((rule, idx) => (
+              {details.rules.map((rule, idx) => (
                 <View key={idx} style={styles.ruleRow}>
                   <View style={styles.checkCircle}>
                     <Feather name="check" size={12} color="#FFFFFF" />
@@ -212,10 +271,10 @@ export default function IELTSSectionInstructionsScreen() {
             </View>
           </View>
 
-          {/* Begin Test Button */}
+          {/* Continue Button */}
           <TouchableOpacity 
-            style={[styles.beginTestButton, isStarting && { opacity: 0.7 }]}
-            onPress={handleBeginTest}
+            style={[styles.continueButton, isStarting && { opacity: 0.7 }]}
+            onPress={handleContinue}
             disabled={isStarting}
             activeOpacity={0.85}
           >
@@ -223,7 +282,7 @@ export default function IELTSSectionInstructionsScreen() {
               <ActivityIndicator color="#FFFFFF" />
             ) : (
               <>
-                <Text style={styles.beginTestButtonText}>Begin Test</Text>
+                <Text style={styles.continueButtonText}>Continue</Text>
                 <Feather name="arrow-right" size={18} color="#FFFFFF" style={{ marginLeft: 8 }} />
               </>
             )}
@@ -232,6 +291,18 @@ export default function IELTSSectionInstructionsScreen() {
           <View style={{ height: 40 }} />
         </ScrollView>
       </View>
+
+      <SubscriptionRequiredModal
+        visible={showSubscriptionModal}
+        onClose={() => setShowSubscriptionModal(false)}
+        subjectName={details.title || (params.section_name as string)}
+        examName={params.exam_name as string}
+        customMessage={subscriptionMessage}
+        onViewBundles={() => {
+          setShowSubscriptionModal(false);
+          router.push('/(tabs)/bundles' as any);
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -243,7 +314,7 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
-    backgroundColor: '#FAFAFA',
+    backgroundColor: '#FFFFFF',
   },
   header: {
     flexDirection: 'row',
@@ -269,108 +340,46 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#111827',
   },
-  streakBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F3E8FF',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-  },
-  streakText: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#7C3AED',
+  headerRightPlaceholder: {
+    width: 40,
   },
   scrollContent: {
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
     paddingTop: 10,
+    flexGrow: 1,
   },
-
-  // Illustration
   illustrationContainer: {
     alignItems: 'center',
-    marginVertical: 12,
-  },
-  bookMockWrapper: {
-    flexDirection: 'row',
-    width: 170,
-    height: 120,
-    backgroundColor: '#EDE9FE',
-    borderRadius: 20,
-    borderWidth: 4,
-    borderColor: '#7C3AED',
-    padding: 12,
-    justifyContent: 'space-between',
-    position: 'relative',
-    shadowColor: '#7C3AED',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.15,
-    shadowRadius: 10,
-    elevation: 4,
-  },
-  bookMockLeft: {
-    flex: 1,
-    borderRightWidth: 1.5,
-    borderRightColor: '#C4B5FD',
-    paddingRight: 6,
     justifyContent: 'center',
+    marginVertical: 14,
   },
-  bookImageThumb: {
-    width: 26,
-    height: 20,
-    backgroundColor: '#C4B5FD',
-    borderRadius: 4,
-    marginBottom: 6,
+  illustrationImage: {
+    width: 200,
+    height: 170,
   },
-  bookMockRight: {
-    flex: 1,
-    paddingLeft: 8,
-    justifyContent: 'center',
-  },
-  bookLine: {
-    height: 4,
-    backgroundColor: '#C4B5FD',
-    borderRadius: 2,
-    marginBottom: 6,
-  },
-  bellBadge: {
-    position: 'absolute',
-    bottom: -10,
-    right: -10,
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#FEF3C7',
-    borderWidth: 3,
-    borderColor: '#FFFFFF',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-
-  // Headline
   headlineContainer: {
     alignItems: 'center',
     marginBottom: 20,
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
   },
   mainTitle: {
     fontSize: 22,
     fontWeight: '800',
     color: '#111827',
-    marginBottom: 6,
+    marginBottom: 8,
+    textAlign: 'center',
+    letterSpacing: -0.2,
   },
   mainSubtitle: {
     fontSize: 13,
     color: '#6B7280',
     textAlign: 'center',
-    lineHeight: 18,
+    lineHeight: 19,
+    fontWeight: '400',
   },
-
-  // Summary Cards
   summaryCardsList: {
-    gap: 10,
-    marginBottom: 20,
+    gap: 12,
+    marginBottom: 24,
   },
   summaryCard: {
     flexDirection: 'row',
@@ -378,46 +387,42 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderRadius: 18,
     paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingVertical: 16,
     borderWidth: 1,
     borderColor: '#F3F4F6',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.03,
+    shadowRadius: 6,
+    elevation: 1,
   },
   iconBg: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
+    width: 42,
+    height: 42,
+    borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 14,
   },
-  summaryTextContainer: {
+  summaryCardText: {
     flex: 1,
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1F2937',
+    lineHeight: 20,
   },
-  summaryLabel: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#111827',
-    marginBottom: 1,
-  },
-  summaryValue: {
-    fontSize: 11.5,
-    color: '#6B7280',
-    fontWeight: '500',
-  },
-
-  // How it works
   howItWorksSection: {
-    marginBottom: 24,
+    marginBottom: 28,
   },
   howItWorksTitle: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '800',
     color: '#111827',
-    marginBottom: 12,
+    marginBottom: 14,
     marginLeft: 2,
   },
   rulesList: {
-    gap: 10,
+    gap: 12,
   },
   ruleRow: {
     flexDirection: 'row',
@@ -427,29 +432,32 @@ const styles = StyleSheet.create({
     width: 20,
     height: 20,
     borderRadius: 10,
-    backgroundColor: '#6D28D9',
+    backgroundColor: '#5824B7',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 10,
   },
   ruleText: {
     flex: 1,
-    fontSize: 13,
+    fontSize: 13.5,
     color: '#374151',
     fontWeight: '500',
-    lineHeight: 18,
+    lineHeight: 19,
   },
-
-  // Begin Test Button
-  beginTestButton: {
+  continueButton: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#4C1D95',
     borderRadius: 16,
-    paddingVertical: 16,
+    paddingVertical: 18,
+    shadowColor: '#4C1D95',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 3,
   },
-  beginTestButtonText: {
+  continueButtonText: {
     fontSize: 16,
     fontWeight: '800',
     color: '#FFFFFF',

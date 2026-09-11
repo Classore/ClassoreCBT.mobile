@@ -8,11 +8,17 @@ import { Image } from 'expo-image';
 import { CustomButton } from '@/components/CustomButton';
 
 import { examService, isSectionBasedExam } from '@/services/exam';
+import {
+  SubscriptionRequiredModal,
+  isSubscriptionError,
+  getSubscriptionErrorMessage,
+} from '@/components/SubscriptionRequiredModal';
 
 export default function TestInstructionsScreen() {
   const { user } = useAuth();
   const router = useRouter();
   const params = useLocalSearchParams<{
+    attempt_id?: string;
     exam_type_id?: string;
     exam?: string;
     mode?: string;
@@ -24,9 +30,59 @@ export default function TestInstructionsScreen() {
   }>();
 
   const [isStarting, setIsStarting] = useState(false);
+  const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
+  const [subscriptionMessage, setSubscriptionMessage] = useState<string | undefined>();
 
   const handleBeginTest = async () => {
     if (isStarting) return;
+
+    // If attempt was pre-fetched before showing instructions, navigate directly
+    if (params.attempt_id) {
+      const examTypeId = params.exam_type_id 
+        ? Number(params.exam_type_id) 
+        : (params.exam ? Number(params.exam) : 41);
+      const mode = (params.mode as 'Standard' | 'Practice') || 'Standard';
+
+      try {
+        const allExams = await examService.getExams();
+        const currentExam = allExams.find(e => e.id === examTypeId);
+        const isSectionExam = isSectionBasedExam(currentExam?.name);
+
+        if (isSectionExam) {
+          router.push({
+            pathname: '/(exam)/ielts-session',
+            params: {
+              attempt_id: params.attempt_id,
+              exam: String(examTypeId),
+              exam_type_id: String(examTypeId),
+              mode: mode,
+              sections: params.sections,
+            },
+          });
+        } else {
+          router.push({
+            pathname: '/(exam)/session',
+            params: {
+              attempt_id: params.attempt_id,
+              exam_type_id: String(examTypeId),
+              mode: mode,
+              sections: params.sections,
+            },
+          });
+        }
+      } catch {
+        router.push({
+          pathname: '/(exam)/session',
+          params: {
+            attempt_id: params.attempt_id,
+            exam_type_id: String(examTypeId),
+            mode: mode,
+          },
+        });
+      }
+      return;
+    }
+
     setIsStarting(true);
     try {
       const examTypeId = params.exam_type_id 
@@ -102,13 +158,19 @@ export default function TestInstructionsScreen() {
           },
         });
       }
+
     } catch (error: any) {
       console.error('Failed to start exam:', error);
-      const errorMsg = error?.response?.data?.error 
-        || error?.response?.data?.detail 
-        || error?.message 
-        || 'Failed to start exam. Please check your connection and try again.';
-      Alert.alert('Unable to Start Exam', errorMsg);
+      const errorMsg = getSubscriptionErrorMessage(
+        error,
+        'Failed to start exam. Please check your connection and try again.'
+      );
+      if (isSubscriptionError(error)) {
+        setSubscriptionMessage(errorMsg);
+        setShowSubscriptionModal(true);
+      } else {
+        Alert.alert('Unable to Start Exam', errorMsg);
+      }
     } finally {
       setIsStarting(false);
     }
@@ -183,6 +245,20 @@ export default function TestInstructionsScreen() {
 
         <View style={{height: 40}} />
       </ScrollView>
+
+      <SubscriptionRequiredModal
+        visible={showSubscriptionModal}
+        onClose={() => {
+          setShowSubscriptionModal(false);
+          if (router.canGoBack()) router.back();
+          else router.replace('/');
+        }}
+        customMessage={subscriptionMessage}
+        onViewBundles={() => {
+          setShowSubscriptionModal(false);
+          router.push('/(tabs)/bundles' as any);
+        }}
+      />
     </SafeAreaView>
   );
 }

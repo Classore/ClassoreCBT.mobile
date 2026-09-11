@@ -3,6 +3,7 @@ import { Feather } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
+import { navigateWithFrom } from '@/utils/helpNavigation';
 import {
   Alert,
   Platform,
@@ -34,6 +35,9 @@ export default function EditProfileScreen() {
   const [school, setSchool] = useState(user?.school || '');
   const [classLevel, setClassLevel] = useState(user?.class_level || '');
 
+  const avatarSource = (user?.avatar_url || user?.avatar)
+    ? { uri: user?.avatar_url || user?.avatar }
+    : require('@/assets/images/default-avatar.png');
 
   const [isSaving, setIsSaving] = useState(false);
 
@@ -144,7 +148,7 @@ export default function EditProfileScreen() {
           <View style={styles.avatarSection}>
             <View style={styles.avatarWrapper}>
               <Image
-                source={{ uri: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80' }}
+                source={avatarSource}
                 style={styles.avatarImage}
                 contentFit="cover"
               />
@@ -265,7 +269,7 @@ export default function EditProfileScreen() {
             <TouchableOpacity 
               style={styles.changePasswordCard} 
               activeOpacity={0.7}
-              onPress={() => router.push('/auth/reset-password')}
+              onPress={() => navigateWithFrom('/(tabs)/change-password', '/edit-profile')}
             >
               <Feather name="lock" size={18} color="#4B5563" style={{ marginRight: 12 }} />
               <Text style={styles.changePasswordText}>Change Password</Text>

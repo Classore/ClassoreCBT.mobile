@@ -6,7 +6,8 @@ import {
   SafeAreaView, 
   ScrollView, 
   TouchableOpacity, 
-  Platform 
+  Platform,
+  Image
 } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -82,30 +83,13 @@ export default function IELTSSpeakingInstructionsScreen() {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.scrollContent}
         >
-          {/* 3D Clipboard Checklist Graphic */}
+          {/* 3D Microphone Hero Graphic */}
           <View style={styles.illustrationContainer}>
-            <View style={styles.clipboardMock}>
-              <View style={styles.clipboardClip} />
-              <View style={styles.checklistLineRow}>
-                <Feather name="check" size={14} color="#7C3AED" />
-                <View style={styles.checklistLine} />
-              </View>
-              <View style={styles.checklistLineRow}>
-                <Feather name="check" size={14} color="#7C3AED" />
-                <View style={styles.checklistLine} />
-              </View>
-              <View style={styles.checklistLineRow}>
-                <Feather name="check" size={14} color="#7C3AED" />
-                <View style={styles.checklistLine} />
-              </View>
-              <View style={styles.checklistLineRow}>
-                <Feather name="check" size={14} color="#7C3AED" />
-                <View style={styles.checklistLine} />
-              </View>
-              <View style={styles.bellBadge}>
-                <Feather name="bell" size={26} color="#F59E0B" />
-              </View>
-            </View>
+            <Image
+              source={require('../../../assets/images/ielts-instructions-mic.png')}
+              style={styles.heroImage}
+              resizeMode="contain"
+            />
           </View>
 
           {/* Heading */}
@@ -208,32 +192,12 @@ const styles = StyleSheet.create({
   // Illustration
   illustrationContainer: {
     alignItems: 'center',
+    justifyContent: 'center',
     marginVertical: 14,
   },
-  clipboardMock: {
-    width: 140,
-    height: 155,
-    backgroundColor: '#EDE9FE',
-    borderRadius: 24,
-    borderWidth: 5,
-    borderColor: '#7C3AED',
-    padding: 16,
-    justifyContent: 'center',
-    position: 'relative',
-    shadowColor: '#7C3AED',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.15,
-    shadowRadius: 10,
-    elevation: 4,
-  },
-  clipboardClip: {
-    position: 'absolute',
-    top: -12,
-    alignSelf: 'center',
-    width: 46,
-    height: 18,
-    backgroundColor: '#6D28D9',
-    borderRadius: 8,
+  heroImage: {
+    width: 175,
+    height: 175,
   },
   checklistLineRow: {
     flexDirection: 'row',

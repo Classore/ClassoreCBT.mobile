@@ -36,27 +36,36 @@ export default function SavedQuestionsScreen() {
   const [questions, setQuestions] = useState<SavedQuestionItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
+  const mapQuestions = (data: any[]): SavedQuestionItem[] => {
+    return data.map((item: any, index: number) => ({
+      id: String(index),
+      originalId: item.question?.id || item.id,
+      exam: item.question?.exam_type_name || 'General',
+      subject: item.question?.section_name || 'General',
+      tag: item.notes?.toLowerCase().includes('difficult') ? 'Difficult' : 'Bookmarked',
+      question: item.question?.text || 'No question text',
+      date: item.created_at ? new Date(item.created_at).toLocaleDateString() : 'Recent',
+      qCode: `Q#${item.question?.id || item.id}`,
+      difficulty: item.question?.difficulty || 'Medium',
+      hasDiagram: !!item.question?.image,
+      iconName: item.notes?.toLowerCase().includes('difficult') ? 'clock' : 'file-text',
+      iconBg: item.notes?.toLowerCase().includes('difficult') ? '#FFEDD5' : '#EDE9FE',
+      iconColor: item.notes?.toLowerCase().includes('difficult') ? '#EA580C' : '#7C3AED',
+    }));
+  };
+
   const fetchQuestions = async () => {
     try {
-      setIsLoading(true);
-      const data = await examService.getSavedQuestions();
-      // Map API data to UI items
-      const mapped = data.map((item: any, index: number) => ({
-        id: String(index),
-        originalId: item.question.id,
-        exam: item.question.exam_type_name || 'General',
-        subject: item.question.section_name || 'General',
-        tag: item.notes?.toLowerCase().includes('difficult') ? 'Difficult' : 'Bookmarked',
-        question: item.question.text || 'No question text',
-        date: new Date(item.created_at).toLocaleDateString(),
-        qCode: `Q#${item.question.id}`,
-        difficulty: item.question.difficulty || 'Medium',
-        hasDiagram: !!item.question.image,
-        iconName: item.notes?.toLowerCase().includes('difficult') ? 'clock' : 'file-text',
-        iconBg: item.notes?.toLowerCase().includes('difficult') ? '#FFEDD5' : '#EDE9FE',
-        iconColor: item.notes?.toLowerCase().includes('difficult') ? '#EA580C' : '#7C3AED',
-      }));
-      setQuestions(mapped);
+      // 1. Instantly render cached saved questions for 0 latency / offline availability
+      const cached = await examService.getCachedSavedQuestions();
+      if (cached && cached.length > 0) {
+        setQuestions(mapQuestions(cached));
+        setIsLoading(false);
+      }
+
+      // 2. Fetch fresh questions in background
+      const freshData = await examService.getSavedQuestions();
+      setQuestions(mapQuestions(freshData));
     } catch (error) {
       console.error('Failed to fetch saved questions:', error);
     } finally {

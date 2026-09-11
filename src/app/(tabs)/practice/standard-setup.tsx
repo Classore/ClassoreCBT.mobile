@@ -1,17 +1,23 @@
 import { AppText } from '@/components/AppText';
 import { useAuth } from '@/context/AuthContext';
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, Platform, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, Platform, ActivityIndicator, Alert } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { examService, ExamSection, ExamTierConfig, isSectionBasedExam } from '@/services/exam';
+import {
+  SubscriptionRequiredModal,
+  isSubscriptionError,
+  getSubscriptionErrorMessage,
+} from '@/components/SubscriptionRequiredModal';
+
 
 export default function StandardSetupScreen() {
   const { user } = useAuth();
   const router = useRouter();
-  const params = useLocalSearchParams<{ exam?: string }>();
+  const params = useLocalSearchParams<{ exam?: string; exam_name?: string }>();
 
   const examIdStr = Array.isArray(params.exam) ? params.exam[0] : params.exam;
   const examId = examIdStr ? parseInt(examIdStr, 10) : 1;
@@ -21,9 +27,26 @@ export default function StandardSetupScreen() {
   const initialTierConfigs = examService.getCachedTierConfigsSync();
   const initialTierConfig = initialTierConfigs?.find(t => t.exam_type === examId) || null;
 
+  const resolveExamName = (): string => {
+    if (params.exam_name && typeof params.exam_name === 'string' && params.exam_name.trim()) {
+      return params.exam_name.trim();
+    }
+    const cached = examService.getCachedExamsSync();
+    if (cached) {
+      const found = cached.find(e => e.id === examId);
+      if (found?.name) return found.name;
+    }
+    return 'JAMB UTME';
+  };
+
+  const [examName, setExamName] = useState<string>(resolveExamName);
   const [subjects, setSubjects] = useState<ExamSection[]>(initialSections || []);
   const [tierConfig, setTierConfig] = useState<ExamTierConfig | null>(initialTierConfig);
   const [loading, setLoading] = useState<boolean>(!initialSections || initialSections.length === 0);
+  const [isStarting, setIsStarting] = useState(false);
+  const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
+  const [subscriptionMessage, setSubscriptionMessage] = useState<string | undefined>();
+
 
   useEffect(() => {
     let isMounted = true;
@@ -81,6 +104,15 @@ export default function StandardSetupScreen() {
     };
   }, [params.exam]);
 
+  const getExamLogo = (name: string) => {
+    const lower = name.toLowerCase();
+    if (lower.includes('ielts')) return require('../../../../assets/images/ielts-logo.png');
+    if (lower.includes('toefl')) return require('../../../../assets/images/toefl-logo.png');
+    if (lower.includes('waec')) return require('../../../../assets/images/waec-logo.png');
+    if (lower.includes('neco')) return require('../../../../assets/images/neco-logo.png');
+    return require('../../../../assets/images/jamb-logo.png');
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
@@ -110,7 +142,7 @@ export default function StandardSetupScreen() {
               </View>
               <View style={{ marginLeft: 12 }}>
                 <AppText style={styles.heroTitle}>2025 {tierConfig?.difficulty || 'Official'} Mock</AppText>
-                <AppText style={styles.heroSubtitle}>JAMB UTME</AppText>
+                <AppText style={styles.heroSubtitle}>{examName}</AppText>
               </View>
             </View>
             
@@ -135,7 +167,7 @@ export default function StandardSetupScreen() {
           </View>
           
           <View style={styles.heroRightAbsolute}>
-            <Image source={require('../../../../assets/images/jamb-logo.png')} style={styles.hugeJambLogo} contentFit="contain" />
+            <Image source={getExamLogo(examName)} style={styles.hugeJambLogo} contentFit="contain" />
           </View>
         </LinearGradient>
 
@@ -217,44 +249,85 @@ export default function StandardSetupScreen() {
 
         {/* Begin Button */}
         <TouchableOpacity 
-          style={styles.beginButton}
+          style={[styles.beginButton, isStarting && { opacity: 0.7 }]}
+          disabled={isStarting}
           onPress={async () => {
+            if (isStarting) return;
             const examIdStr = Array.isArray(params.exam) ? params.exam[0] : params.exam;
             const examId = examIdStr ? parseInt(examIdStr, 10) : 41;
 
+            setIsStarting(true);
             try {
               const allExams = await examService.getExams();
               const currentExam = allExams.find(e => e.id === examId);
-              if (isSectionBasedExam(currentExam?.name)) {
+              const targetExamName = currentExam?.name || examName;
+              if (isSectionBasedExam(targetExamName)) {
                 router.push({
                   pathname: '/(exam)/ielts-setup',
-                  params: { exam: examId }
+                  params: { 
+                    exam: examId,
+                    exam_name: targetExamName,
+                  }
                 });
+                setIsStarting(false);
                 return;
               }
-            } catch (e) {
-              console.warn('Failed to resolve exam in standard-setup:', e);
-            }
 
-            router.push({
-              pathname: '/(exam)/instructions',
-              params: {
+              // Pre-fetch attempt & questions BEFORE showing instructions
+              const newAttempt = await examService.startExam({
                 exam_type_id: examId,
                 mode: 'Standard',
+              });
+
+              router.push({
+                pathname: '/(exam)/instructions',
+                params: {
+                  attempt_id: String(newAttempt.id),
+                  exam_type_id: String(examId),
+                  exam_name: targetExamName,
+                  mode: 'Standard',
+                }
+              });
+            } catch (error: any) {
+              console.error('Failed to pre-start standard attempt:', error);
+              const errorMsg = getSubscriptionErrorMessage(
+                error,
+                'Failed to start test. Please check your connection and try again.'
+              );
+              if (isSubscriptionError(error)) {
+                setSubscriptionMessage(errorMsg);
+                setShowSubscriptionModal(true);
+              } else {
+                Alert.alert('Unable to Start Exam', errorMsg);
               }
-            });
+            } finally {
+              setIsStarting(false);
+            }
           }}
         >
-          <AppText style={styles.beginButtonText}>Begin Test</AppText>
-          <Feather name="arrow-right" size={16} color="#FFF" />
+          {isStarting ? (
+            <ActivityIndicator color="#FFF" />
+          ) : (
+            <>
+              <AppText style={styles.beginButtonText}>Begin Test</AppText>
+              <Feather name="arrow-right" size={16} color="#FFF" />
+            </>
+          )}
         </TouchableOpacity>
 
         {/* Extra clearance for tab bar */}
         <View style={{ height: Platform.OS === 'ios' ? 120 : 100 }} />
       </ScrollView>
+
+      <SubscriptionRequiredModal
+        visible={showSubscriptionModal}
+        onClose={() => setShowSubscriptionModal(false)}
+        message={subscriptionMessage}
+      />
     </SafeAreaView>
   );
 }
+
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#FFF' },

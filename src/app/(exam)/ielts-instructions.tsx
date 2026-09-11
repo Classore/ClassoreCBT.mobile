@@ -8,6 +8,7 @@ import {
   TouchableOpacity, 
   Platform 
 } from 'react-native';
+import { Image } from 'expo-image';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 
@@ -82,30 +83,13 @@ export default function IELTSInstructionsScreen() {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.scrollContent}
         >
-          {/* 3D Clipboard Checklist Graphic */}
+          {/* 3D Book Illustration */}
           <View style={styles.illustrationContainer}>
-            <View style={styles.clipboardMock}>
-              <View style={styles.clipboardClip} />
-              <View style={styles.checklistLineRow}>
-                <Feather name="check" size={14} color="#7C3AED" />
-                <View style={styles.checklistLine} />
-              </View>
-              <View style={styles.checklistLineRow}>
-                <Feather name="check" size={14} color="#7C3AED" />
-                <View style={styles.checklistLine} />
-              </View>
-              <View style={styles.checklistLineRow}>
-                <Feather name="check" size={14} color="#7C3AED" />
-                <View style={styles.checklistLine} />
-              </View>
-              <View style={styles.checklistLineRow}>
-                <Feather name="check" size={14} color="#7C3AED" />
-                <View style={styles.checklistLine} />
-              </View>
-              <View style={styles.bellBadge}>
-                <Feather name="bell" size={26} color="#F59E0B" />
-              </View>
-            </View>
+            <Image
+              source={require('../../../assets/images/ielts-book-illustration.png')}
+              style={styles.instructionBookImage}
+              contentFit="contain"
+            />
           </View>
 
           {/* Heading */}
@@ -139,7 +123,10 @@ export default function IELTSInstructionsScreen() {
             style={styles.continueButton}
             onPress={() => router.push({
               pathname: '/(exam)/ielts-section-instructions',
-              params: params
+              params: {
+                ...params,
+                exam_name: params.exam_name || 'IELTS Academic',
+              }
             })}
             activeOpacity={0.85}
           >
@@ -210,55 +197,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginVertical: 14,
   },
-  clipboardMock: {
-    width: 140,
-    height: 155,
-    backgroundColor: '#EDE9FE',
-    borderRadius: 24,
-    borderWidth: 5,
-    borderColor: '#7C3AED',
-    padding: 16,
-    justifyContent: 'center',
-    position: 'relative',
-    shadowColor: '#7C3AED',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.15,
-    shadowRadius: 10,
-    elevation: 4,
-  },
-  clipboardClip: {
-    position: 'absolute',
-    top: -12,
-    alignSelf: 'center',
-    width: 46,
-    height: 18,
-    backgroundColor: '#6D28D9',
-    borderRadius: 8,
-  },
-  checklistLineRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  checklistLine: {
-    flex: 1,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: '#C4B5FD',
-    marginLeft: 8,
-  },
-  bellBadge: {
-    position: 'absolute',
-    bottom: -8,
-    right: -12,
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: '#FEF3C7',
-    borderWidth: 3,
-    borderColor: '#FFFFFF',
-    justifyContent: 'center',
-    alignItems: 'center',
+  instructionBookImage: {
+    width: 160,
+    height: 150,
   },
 
   // Heading

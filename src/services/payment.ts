@@ -10,14 +10,36 @@ export interface TokenPackage {
   is_active: boolean;
 }
 
+export interface ServiceConfig {
+  id: number;
+  name: string;
+  action_identifier: string;
+  exam_type?: number;
+  token_cost: number;
+  billing_type: string;
+  max_usage?: number;
+  is_unlimited: boolean;
+}
+
+export interface BundleServiceItem {
+  id: number;
+  service: ServiceConfig;
+  max_usage_override?: number;
+  is_unlimited_override?: boolean;
+}
+
 export interface ServiceBundle {
   id: number;
   name: string;
-  exam_type: number;
+  description?: string;
+  exam_type?: number;
   token_cost: number;
   billing_type: string;
   is_customizable: boolean;
   customization_limit?: number;
+  included_services?: BundleServiceItem[];
+  is_popular?: boolean;
+  tag?: string;
 }
 
 export interface MyBundle {
@@ -32,6 +54,70 @@ export const paymentService = {
   getTokenPackages: async (): Promise<TokenPackage[]> => {
     const response = await api.get('/api/admin/token-packages/');
     return response.data.results ? response.data.results : response.data;
+  },
+
+  getServiceBundles: async (): Promise<ServiceBundle[]> => {
+    try {
+      const response = await api.get('/api/admin/service-bundles/');
+      const data = response.data.results ? response.data.results : response.data;
+      if (Array.isArray(data) && data.length > 0) {
+        return data;
+      }
+    } catch (e) {
+      console.warn('Failed to fetch service bundles from API, falling back to defaults:', e);
+    }
+    // Return curated bundles fallback
+    return [
+      {
+        id: 1,
+        name: 'Full JAMB Package',
+        description: 'Best for 2026 candidates\nEnglish, Mathematics, Biology, Chemistry\nUnlimited practice',
+        token_cost: 6,
+        billing_type: 'monthly',
+        is_customizable: false,
+        tag: '',
+        is_popular: false,
+        included_services: [
+          { id: 1, service: { id: 1, name: 'English', action_identifier: 'jamb_eng', token_cost: 2, billing_type: 'monthly', is_unlimited: true }, is_unlimited_override: true },
+          { id: 2, service: { id: 2, name: 'Mathematics', action_identifier: 'jamb_math', token_cost: 2, billing_type: 'monthly', is_unlimited: true }, is_unlimited_override: true },
+          { id: 3, service: { id: 3, name: 'Biology', action_identifier: 'jamb_bio', token_cost: 2, billing_type: 'monthly', is_unlimited: true }, is_unlimited_override: true },
+          { id: 4, service: { id: 4, name: 'Chemistry', action_identifier: 'jamb_chem', token_cost: 2, billing_type: 'monthly', is_unlimited: true }, is_unlimited_override: true },
+        ]
+      },
+      {
+        id: 2,
+        name: 'IELTS Bundle',
+        description: 'Listening, Reading, Speaking & Writing\nListening & Reading Unlimited\nSpeaking: 3 assessments\nWriting: 3 assessments',
+        token_cost: 100,
+        billing_type: 'monthly',
+        is_customizable: false,
+        tag: 'Popular',
+        is_popular: true,
+        included_services: [
+          { id: 5, service: { id: 5, name: 'Listening', action_identifier: 'ielts_listening', token_cost: 30, billing_type: 'monthly', is_unlimited: true }, is_unlimited_override: true },
+          { id: 6, service: { id: 6, name: 'Reading', action_identifier: 'ielts_reading', token_cost: 30, billing_type: 'monthly', is_unlimited: true }, is_unlimited_override: true },
+          { id: 7, service: { id: 7, name: 'Speaking', action_identifier: 'ielts_speaking', token_cost: 25, billing_type: 'monthly', max_usage: 3, is_unlimited: false }, max_usage_override: 4, is_unlimited_override: false },
+          { id: 8, service: { id: 8, name: 'Writing', action_identifier: 'ielts_writing', token_cost: 25, billing_type: 'monthly', max_usage: 3, is_unlimited: false }, max_usage_override: 4, is_unlimited_override: false },
+        ]
+      }
+    ];
+  },
+
+  getServiceConfigs: async (): Promise<ServiceConfig[]> => {
+    try {
+      const response = await api.get('/api/admin/service-configs/');
+      const data = response.data.results ? response.data.results : response.data;
+      if (Array.isArray(data) && data.length > 0) {
+        return data;
+      }
+    } catch (e) {
+      console.warn('Failed to fetch service configs from API, falling back to defaults:', e);
+    }
+    return [
+      { id: 101, name: 'JAMB Mathematics', action_identifier: 'jamb_math_single', token_cost: 2, billing_type: 'monthly', is_unlimited: true },
+      { id: 102, name: 'Extra Speaking Assessment', action_identifier: 'extra_speaking', token_cost: 15, billing_type: 'one_time', max_usage: 1, is_unlimited: false },
+      { id: 103, name: 'Extra Writing Assessment', action_identifier: 'extra_writing', token_cost: 10, billing_type: 'one_time', max_usage: 1, is_unlimited: false },
+    ];
   },
 
   initializePaystack: async (packageId: number): Promise<{ authorization_url: string; access_code: string; reference: string }> => {

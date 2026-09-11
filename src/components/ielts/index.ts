@@ -1,0 +1,8 @@
+export { MultiSelectQuestion } from './MultiSelectQuestion';
+export { TFNGQuestion } from './TFNGQuestion';
+export { GapFillQuestion } from './GapFillQuestion';
+export { WordBankQuestion } from './WordBankQuestion';
+export { MatchingQuestion } from './MatchingQuestion';
+export { DiagramLabelingQuestion } from './DiagramLabelingQuestion';
+export { IELTSChartCard } from './IELTSChartCard';
+export { IELTSWritingEditor } from './IELTSWritingEditor';

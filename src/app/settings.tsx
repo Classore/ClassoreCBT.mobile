@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, Platform, Alert } from 'react-native';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { navigateWithFrom } from '@/utils/helpNavigation';
 import { api } from '@/services/api';
 
 export default function SettingsScreen() {
@@ -106,7 +107,7 @@ export default function SettingsScreen() {
 
               <TouchableOpacity 
                 style={styles.settingItem} 
-                onPress={() => router.push('/auth/reset-password')}
+                onPress={() => navigateWithFrom('/(tabs)/change-password', '/settings')}
                 activeOpacity={0.7}
               >
                 <View style={[styles.iconBg, { backgroundColor: '#EFF6FF' }]}>
@@ -119,13 +120,43 @@ export default function SettingsScreen() {
                 <Feather name="chevron-right" size={18} color="#9CA3AF" />
               </TouchableOpacity>
 
-              <TouchableOpacity style={styles.settingItem} activeOpacity={0.7} onPress={handleSecurity}>
+              <TouchableOpacity style={styles.settingItem} activeOpacity={0.7} onPress={() => router.push('/(tabs)/security')}>
                 <View style={[styles.iconBg, { backgroundColor: '#ECFDF5' }]}>
                   <Feather name="shield" size={18} color="#10B981" />
                 </View>
                 <View style={styles.itemTextContainer}>
                   <Text style={styles.itemTitle}>Security</Text>
                   <Text style={styles.itemSubtitle}>{preferences?.two_factor_auth ? '2FA is Enabled' : 'Manage 2FA and active devices'}</Text>
+                </View>
+                <Feather name="chevron-right" size={18} color="#9CA3AF" />
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.settingItem} 
+                onPress={() => navigateWithFrom('/(tabs)/certificates', '/settings')}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.iconBg, { backgroundColor: '#EDE9FE' }]}>
+                  <MaterialCommunityIcons name="ribbon" size={20} color="#7C3AED" />
+                </View>
+                <View style={styles.itemTextContainer}>
+                  <Text style={styles.itemTitle}>My Certificates</Text>
+                  <Text style={styles.itemSubtitle}>View and download certificates</Text>
+                </View>
+                <Feather name="chevron-right" size={18} color="#9CA3AF" />
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.settingItem} 
+                onPress={() => navigateWithFrom('/(tabs)/achievements', '/settings')}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.iconBg, { backgroundColor: '#FEF3C7' }]}>
+                  <Feather name="star" size={18} color="#F59E0B" />
+                </View>
+                <View style={styles.itemTextContainer}>
+                  <Text style={styles.itemTitle}>Achievements & Badges</Text>
+                  <Text style={styles.itemSubtitle}>Milestones and earned badges</Text>
                 </View>
                 <Feather name="chevron-right" size={18} color="#9CA3AF" />
               </TouchableOpacity>
@@ -138,7 +169,7 @@ export default function SettingsScreen() {
             <View style={styles.cardGroup}>
               <TouchableOpacity 
                 style={styles.settingItem} 
-                onPress={() => router.push('/notifications')}
+                onPress={() => router.push('/(tabs)/notification-preferences')}
                 activeOpacity={0.7}
               >
                 <View style={[styles.iconBg, { backgroundColor: '#EDE9FE' }]}>
@@ -151,7 +182,7 @@ export default function SettingsScreen() {
                 <Feather name="chevron-right" size={18} color="#9CA3AF" />
               </TouchableOpacity>
 
-              <TouchableOpacity style={styles.settingItem} activeOpacity={0.7} onPress={handleAppearance}>
+              <TouchableOpacity style={styles.settingItem} activeOpacity={0.7} onPress={() => router.push('/(tabs)/appearance')}>
                 <View style={[styles.iconBg, { backgroundColor: '#FEF3C7' }]}>
                   <Feather name="sun" size={18} color="#F59E0B" />
                 </View>
@@ -162,7 +193,7 @@ export default function SettingsScreen() {
                 <Feather name="chevron-right" size={18} color="#9CA3AF" />
               </TouchableOpacity>
 
-              <TouchableOpacity style={styles.settingItem} activeOpacity={0.7} onPress={handleLanguage}>
+              <TouchableOpacity style={styles.settingItem} activeOpacity={0.7} onPress={() => router.push('/(tabs)/language')}>
                 <View style={[styles.iconBg, { backgroundColor: '#EFF6FF' }]}>
                   <Feather name="globe" size={18} color="#3B82F6" />
                 </View>
@@ -179,7 +210,7 @@ export default function SettingsScreen() {
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Privacy & Data</Text>
             <View style={styles.cardGroup}>
-              <TouchableOpacity style={styles.settingItem} activeOpacity={0.7} onPress={handlePrivacy}>
+              <TouchableOpacity style={styles.settingItem} activeOpacity={0.7} onPress={() => router.push('/(tabs)/profile-settings')}>
                 <View style={[styles.iconBg, { backgroundColor: '#ECFDF5' }]}>
                   <MaterialCommunityIcons name="shield-check-outline" size={20} color="#10B981" />
                 </View>
@@ -197,6 +228,102 @@ export default function SettingsScreen() {
                 <View style={styles.itemTextContainer}>
                   <Text style={styles.itemTitle}>Data Usage</Text>
                   <Text style={styles.itemSubtitle}>{preferences?.data_usage === 'saver' ? 'Data Saver Mode On' : 'Standard Data Usage'}</Text>
+                </View>
+                <Feather name="chevron-right" size={18} color="#9CA3AF" />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Section: Support & Guides */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Support & Guides</Text>
+            <View style={styles.cardGroup}>
+              <TouchableOpacity
+                style={styles.settingItem}
+                activeOpacity={0.7}
+                onPress={() => navigateWithFrom('/(tabs)/help-support', '/settings')}
+              >
+                <View style={[styles.iconBg, { backgroundColor: '#EDE9FE' }]}>
+                  <Feather name="headphones" size={18} color="#7C3AED" />
+                </View>
+                <View style={styles.itemTextContainer}>
+                  <Text style={styles.itemTitle}>Help & Support Center</Text>
+                  <Text style={styles.itemSubtitle}>Popular topics & support resources</Text>
+                </View>
+                <Feather name="chevron-right" size={18} color="#9CA3AF" />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.settingItem}
+                activeOpacity={0.7}
+                onPress={() => navigateWithFrom('/(tabs)/video-tutorials', '/settings')}
+              >
+                <View style={[styles.iconBg, { backgroundColor: '#FFE4E6' }]}>
+                  <Feather name="video" size={18} color="#E11D48" />
+                </View>
+                <View style={styles.itemTextContainer}>
+                  <Text style={styles.itemTitle}>Video Tutorials</Text>
+                  <Text style={styles.itemSubtitle}>Watch and learn how to use the app</Text>
+                </View>
+                <Feather name="chevron-right" size={18} color="#9CA3AF" />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.settingItem}
+                activeOpacity={0.7}
+                onPress={() => navigateWithFrom('/(tabs)/user-guide', '/settings')}
+              >
+                <View style={[styles.iconBg, { backgroundColor: '#EFF6FF' }]}>
+                  <Feather name="book-open" size={18} color="#2563EB" />
+                </View>
+                <View style={styles.itemTextContainer}>
+                  <Text style={styles.itemTitle}>User Guide</Text>
+                  <Text style={styles.itemSubtitle}>Step-by-step walkthroughs</Text>
+                </View>
+                <Feather name="chevron-right" size={18} color="#9CA3AF" />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.settingItem}
+                activeOpacity={0.7}
+                onPress={() => navigateWithFrom('/(tabs)/faqs', '/settings')}
+              >
+                <View style={[styles.iconBg, { backgroundColor: '#ECFDF5' }]}>
+                  <Feather name="help-circle" size={18} color="#10B981" />
+                </View>
+                <View style={styles.itemTextContainer}>
+                  <Text style={styles.itemTitle}>FAQs</Text>
+                  <Text style={styles.itemSubtitle}>Frequently asked questions</Text>
+                </View>
+                <Feather name="chevron-right" size={18} color="#9CA3AF" />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.settingItem}
+                activeOpacity={0.7}
+                onPress={() => navigateWithFrom('/(tabs)/contact-support', '/settings')}
+              >
+                <View style={[styles.iconBg, { backgroundColor: '#F5F3FF' }]}>
+                  <Feather name="message-circle" size={18} color="#6D28D9" />
+                </View>
+                <View style={styles.itemTextContainer}>
+                  <Text style={styles.itemTitle}>Contact Support</Text>
+                  <Text style={styles.itemSubtitle}>Get help from our team</Text>
+                </View>
+                <Feather name="chevron-right" size={18} color="#9CA3AF" />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.settingItem, { borderBottomWidth: 0 }]}
+                activeOpacity={0.7}
+                onPress={() => navigateWithFrom('/(tabs)/report-problem', '/settings')}
+              >
+                <View style={[styles.iconBg, { backgroundColor: '#FDF2F4' }]}>
+                  <Feather name="alert-triangle" size={18} color="#E11D48" />
+                </View>
+                <View style={styles.itemTextContainer}>
+                  <Text style={styles.itemTitle}>Report a Problem</Text>
+                  <Text style={styles.itemSubtitle}>Let us know about issues</Text>
                 </View>
                 <Feather name="chevron-right" size={18} color="#9CA3AF" />
               </TouchableOpacity>

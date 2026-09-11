@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   View, 
   Text, 
@@ -9,11 +9,30 @@ import {
   Platform,
   Modal,
   Alert,
+  TextInput,
   ActivityIndicator
 } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import { Image } from 'expo-image';
+import { Audio } from 'expo-av';
+import { mediaCache } from '@/services/mediaCache';
 import { examService, UserAttempt, AttemptSection, QuestionGroupItem, UserResponseItem } from '@/services/exam';
+import { 
+  MultiSelectQuestion, 
+  TFNGQuestion, 
+  GapFillQuestion, 
+  WordBankQuestion, 
+  MatchingQuestion, 
+  DiagramLabelingQuestion,
+  IELTSChartCard,
+  IELTSWritingEditor,
+} from '@/components/ielts';
+import { 
+  SubscriptionRequiredModal, 
+  isSubscriptionError, 
+  getSubscriptionErrorMessage 
+} from '@/components/SubscriptionRequiredModal';
 
 export default function IELTSSessionScreen() {
   const router = useRouter();
@@ -21,24 +40,42 @@ export default function IELTSSessionScreen() {
     attempt_id?: string; 
     exam?: string; 
     exam_type_id?: string; 
-    section_order?: string;
-    sections?: string;
+    exam_name?: string;
+    section_order?: string; 
+    sections?: string; 
     mode?: string;
     time_limit?: string;
+    section_index?: string;
   }>();
   
   const [attempt, setAttempt] = useState<UserAttempt | null>(null);
   const [loading, setLoading] = useState(true);
   
-  const [activeSectionIndex, setActiveSectionIndex] = useState(0);
+  const initialSectionIndex = params.section_index ? Math.max(0, parseInt(String(params.section_index), 10) || 0) : 0;
+  const [activeSectionIndex, setActiveSectionIndex] = useState(initialSectionIndex);
   const [activeGroupIndex, setActiveGroupIndex] = useState(0);
   const [currentResponseIndex, setCurrentResponseIndex] = useState(0);
+
+  // Listening Audio State
+  const [sound, setSound] = useState<Audio.Sound | null>(null);
+  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+  const [hasPlayedAudio, setHasPlayedAudio] = useState(false);
+  const [audioPosition, setAudioPosition] = useState(0);
+  const [audioDuration, setAudioDuration] = useState(0);
+
+  // Writing Visual Preview State
+  const [isPromptImageExpanded, setIsPromptImageExpanded] = useState(true);
   
   const [timeLeft, setTimeLeft] = useState(3600);
   const [isPaletteVisible, setIsPaletteVisible] = useState(false);
-  const [isBookmarked, setIsBookmarked] = useState(false);
+  const [bookmarkedQuestions, setBookmarkedQuestions] = useState<number[]>([]);
+  const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
+  const [subscriptionMessage, setSubscriptionMessage] = useState<string | undefined>();
   const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [writingElapsedSeconds, setWritingElapsedSeconds] = useState(0);
+  const tabsScrollViewRef = useRef<ScrollView>(null);
+
 
   useEffect(() => {
     let isMounted = true;
@@ -92,16 +129,32 @@ export default function IELTSSessionScreen() {
         
         if (isMounted) {
           setAttempt(currentAttempt);
+          const initialBookmarks: number[] = [];
+          currentAttempt.sections?.forEach(sec => {
+            sec.question_groups?.forEach(grp => {
+              grp.responses?.forEach(resp => {
+                if ((resp as any).is_bookmarked && resp.question?.id) {
+                  initialBookmarks.push(resp.question.id);
+                }
+              });
+            });
+          });
+          setBookmarkedQuestions(initialBookmarks);
         }
       } catch (e: any) {
         console.error('Could not initialize live IELTS attempt:', e);
-        const errorMsg = e?.response?.data?.error 
-          || e?.response?.data?.detail 
-          || e?.message 
-          || 'Could not initialize exam session.';
-        Alert.alert('Error', errorMsg, [
-          { text: 'Go Back', onPress: () => router.canGoBack() ? router.back() : router.replace('/') }
-        ]);
+        const errorMsg = getSubscriptionErrorMessage(
+          e,
+          'Could not initialize exam session.'
+        );
+        if (isSubscriptionError(e)) {
+          setSubscriptionMessage(errorMsg);
+          setShowSubscriptionModal(true);
+        } else {
+          Alert.alert('Error', errorMsg, [
+            { text: 'Go Back', onPress: () => router.canGoBack() ? router.back() : router.replace('/') }
+          ]);
+        }
       } finally {
         if (isMounted) {
           setLoading(false);
@@ -114,6 +167,18 @@ export default function IELTSSessionScreen() {
       isMounted = false;
     };
   }, [params.attempt_id, params.exam, params.exam_type_id, params.section_order]);
+
+  // Sync active section if passed as route param
+  useEffect(() => {
+    if (params.section_index !== undefined && params.section_index !== null) {
+      const targetIdx = parseInt(String(params.section_index), 10);
+      if (!isNaN(targetIdx) && targetIdx >= 0 && targetIdx !== activeSectionIndex) {
+        setActiveSectionIndex(targetIdx);
+        setActiveGroupIndex(0);
+        setCurrentResponseIndex(0);
+      }
+    }
+  }, [params.section_index]);
 
   // Timer Countdown Effect
   useEffect(() => {
@@ -141,6 +206,15 @@ export default function IELTSSessionScreen() {
   const activeSection = attempt?.sections[activeSectionIndex];
   const activeGroup = activeSection?.question_groups[activeGroupIndex];
   const currentResponse = activeGroup?.responses[currentResponseIndex];
+
+  useEffect(() => {
+    const isWriting = (activeSection?.section_name || '').toLowerCase().includes('writing');
+    if (!isWriting) return;
+    const interval = setInterval(() => {
+      setWritingElapsedSeconds(prev => prev + 1);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [activeSection?.section_name]);
 
   // Map of all responses in the current section for the palette
   const allSectionResponses = useMemo(() => {
@@ -177,6 +251,179 @@ export default function IELTSSessionScreen() {
     };
   }, [attempt]);
 
+  useEffect(() => {
+    return () => {
+      if (sound) {
+        sound.unloadAsync();
+      }
+    };
+  }, [sound]);
+
+  const navigationTabs = useMemo(() => {
+    if (!activeSection?.question_groups || activeSection.question_groups.length === 0) {
+      return [];
+    }
+
+    const isWriting = (activeSection.section_name || '').toLowerCase().includes('writing');
+    if (isWriting) {
+      return activeSection.question_groups.map((group, idx) => {
+        const isTask2 = idx === 1 || (group.group_title || '').toLowerCase().includes('task 2');
+        return {
+          id: group.group_id,
+          title: group.group_title || `Task ${idx + 1}`,
+          subtitle: isTask2 ? '40 mins · 250 words' : '20 mins · 150 words',
+          groupIndices: [idx],
+          startQuestionNumber: idx + 1,
+          endQuestionNumber: idx + 1,
+          firstGroupIndex: idx,
+        };
+      });
+    }
+
+    // Cumulative question ranges for each group
+    const groupRanges: { startQ: number; endQ: number }[] = [];
+    let cumulativeQ = 1;
+    activeSection.question_groups.forEach((group) => {
+      const len = group.responses?.length || 1;
+      groupRanges.push({
+        startQ: cumulativeQ,
+        endQ: cumulativeQ + len - 1,
+      });
+      cumulativeQ += len;
+    });
+
+    // Check if groups can be merged by Passage or Part
+    const passageKeyRegex = /(Passage\s+\d+|Part\s+\d+|Section\s+\d+)/i;
+    const groupsWithKeys = activeSection.question_groups.map((group, idx) => {
+      const tag = (group as any).topic_tag;
+      const titleMatch = (group.group_title || '').match(passageKeyRegex);
+      const key = tag || (titleMatch ? titleMatch[1] : null);
+      return { group, idx, key };
+    });
+
+    const hasPassageKeys = groupsWithKeys.some(g => g.key !== null);
+
+    if (hasPassageKeys) {
+      const mergedTabs: {
+        id: string | number;
+        title: string;
+        subtitle: string;
+        groupIndices: number[];
+        startQuestionNumber: number;
+        endQuestionNumber: number;
+        firstGroupIndex: number;
+      }[] = [];
+      let currentTab: typeof mergedTabs[0] | null = null;
+      let lastKey = '';
+
+      groupsWithKeys.forEach(({ group, idx, key }) => {
+        const tabKey = key || `Part ${mergedTabs.length + 1}`;
+        if (currentTab && tabKey.toLowerCase() === lastKey.toLowerCase()) {
+          currentTab.groupIndices.push(idx);
+          currentTab.endQuestionNumber = groupRanges[idx].endQ;
+          currentTab.subtitle = `Questions ${currentTab.startQuestionNumber}–${currentTab.endQuestionNumber}`;
+        } else {
+          const cleanTitle = tabKey.replace(/\b\w/g, (c: string) => c.toUpperCase());
+          const startQ = groupRanges[idx].startQ;
+          const endQ = groupRanges[idx].endQ;
+          const subtitle = startQ === endQ ? `Question ${startQ}` : `Questions ${startQ}–${endQ}`;
+
+          currentTab = {
+            id: `tab-${tabKey}-${idx}`,
+            title: cleanTitle,
+            subtitle,
+            groupIndices: [idx],
+            startQuestionNumber: startQ,
+            endQuestionNumber: endQ,
+            firstGroupIndex: idx,
+          };
+          mergedTabs.push(currentTab);
+          lastKey = tabKey;
+        }
+      });
+
+      return mergedTabs;
+    }
+
+    // Fallback: each group is its own tab
+    return activeSection.question_groups.map((group, idx) => {
+      const startQ = groupRanges[idx].startQ;
+      const endQ = groupRanges[idx].endQ;
+      const subtitle = startQ === endQ ? `Question ${startQ}` : `Questions ${startQ}–${endQ}`;
+
+      let cleanTitle = group.group_title?.trim() || `Part ${idx + 1}`;
+      if (cleanTitle.length > 20) {
+        const parenMatch = cleanTitle.match(/\(([^)]+)\)/);
+        cleanTitle = parenMatch ? parenMatch[1] : `Part ${idx + 1}`;
+      }
+
+      return {
+        id: group.group_id || idx,
+        title: cleanTitle,
+        subtitle,
+        groupIndices: [idx],
+        startQuestionNumber: startQ,
+        endQuestionNumber: endQ,
+        firstGroupIndex: idx,
+      };
+    });
+  }, [activeSection]);
+
+  const activeTab = useMemo(() => {
+    return navigationTabs.find(tab => tab.groupIndices.includes(activeGroupIndex)) || navigationTabs[0];
+  }, [navigationTabs, activeGroupIndex]);
+
+  useEffect(() => {
+    if (activeTab && tabsScrollViewRef.current && navigationTabs.length > 3) {
+      const activeIdx = navigationTabs.findIndex(t => t.id === activeTab.id);
+      if (activeIdx >= 0) {
+        const approximateTabWidth = 140;
+        const scrollX = Math.max(0, (activeIdx * approximateTabWidth) - 30);
+        tabsScrollViewRef.current.scrollTo({ x: scrollX, animated: true });
+      }
+    }
+  }, [activeTab?.id, navigationTabs.length]);
+
+  const handlePlayAudio = async (audioUri: string) => {
+    try {
+      if (sound) {
+        if (isPlayingAudio) {
+          await sound.pauseAsync();
+          setIsPlayingAudio(false);
+        } else {
+          if (params.mode === 'Standard' && hasPlayedAudio) {
+            Alert.alert('Audio Limit', 'In Standard IELTS Listening, the audio track can only be played once.');
+            return;
+          }
+          await sound.playAsync();
+          setIsPlayingAudio(true);
+        }
+        return;
+      }
+
+      await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
+      const cachedAudioUri = await mediaCache.getCachedAudioUri(audioUri);
+      const { sound: newSound } = await Audio.Sound.createAsync(
+        { uri: cachedAudioUri },
+        { shouldPlay: true },
+        (status) => {
+          if (status.isLoaded) {
+            setAudioPosition(status.positionMillis || 0);
+            setAudioDuration(status.durationMillis || 0);
+            if (status.didJustFinish) {
+              setIsPlayingAudio(false);
+              setHasPlayedAudio(true);
+            }
+          }
+        }
+      );
+      setSound(newSound);
+      setIsPlayingAudio(true);
+    } catch (e) {
+      console.warn('Audio playback error:', e);
+    }
+  };
+
   const handleSelectOption = async (choiceId: number) => {
     if (!attempt || !currentResponse) return;
     
@@ -201,6 +448,230 @@ export default function IELTSSessionScreen() {
     }
   };
 
+  const handleSelectMultiChoice = async (selectedIds: number[]) => {
+    if (!attempt || !currentResponse) return;
+    const updatedAttempt = { ...attempt };
+    const sec = updatedAttempt.sections[activeSectionIndex];
+    const grp = sec.question_groups[activeGroupIndex];
+    const resp = grp.responses[currentResponseIndex];
+    const newMeta = { ...(resp.metadata || {}), selected_choices: selectedIds };
+    resp.metadata = newMeta;
+    resp.selected_choice = selectedIds[0] || null;
+    setAttempt(updatedAttempt);
+
+    try {
+      await examService.autoSave(attempt.id, {
+        responses: [{
+          question_id: currentResponse.question.id,
+          choice_id: selectedIds[0] || null,
+          metadata: newMeta,
+          time_spent_seconds: 15,
+        }]
+      });
+    } catch (e) {
+      console.warn('Auto-save multi-choice failed:', e);
+    }
+  };
+
+  const handleSelectTFNG = async (val: string) => {
+    if (!attempt || !currentResponse) return;
+    const updatedAttempt = { ...attempt };
+    const sec = updatedAttempt.sections[activeSectionIndex];
+    const grp = sec.question_groups[activeGroupIndex];
+    const resp = grp.responses[currentResponseIndex];
+    const format = currentResponse.question.metadata?.format || 'TFNG';
+    const key = format === 'YNNG' ? 'ynng_answer' : 'tfng_answer';
+    const newMeta = { ...(resp.metadata || {}), [key]: val };
+    resp.metadata = newMeta;
+    
+    const matchChoice = currentResponse.question.choices?.find(c => c.text.trim().toUpperCase() === val.toUpperCase());
+    if (matchChoice) {
+      resp.selected_choice = matchChoice.id;
+    }
+    setAttempt(updatedAttempt);
+
+    try {
+      await examService.autoSave(attempt.id, {
+        responses: [{
+          question_id: currentResponse.question.id,
+          choice_id: matchChoice?.id,
+          metadata: newMeta,
+          time_spent_seconds: 15,
+        }]
+      });
+    } catch (e) {
+      console.warn('Auto-save TFNG failed:', e);
+    }
+  };
+
+  const handleUpdateGapFill = async (blankId: string, val: string) => {
+    if (!attempt || !currentResponse) return;
+    const updatedAttempt = { ...attempt };
+    const sec = updatedAttempt.sections[activeSectionIndex];
+    const grp = sec.question_groups[activeGroupIndex];
+    const resp = grp.responses[currentResponseIndex];
+    const existingBlanks = resp.metadata?.blanks || {};
+    const newBlanks = { ...existingBlanks, [blankId]: val };
+    const newMeta = { ...(resp.metadata || {}), blanks: newBlanks };
+    resp.metadata = newMeta;
+    setAttempt(updatedAttempt);
+
+    try {
+      await examService.autoSave(attempt.id, {
+        responses: [{
+          question_id: currentResponse.question.id,
+          metadata: newMeta,
+          time_spent_seconds: 15,
+        }]
+      });
+    } catch (e) {
+      console.warn('Auto-save gap fill failed:', e);
+    }
+  };
+
+  const handleUpdateMatching = async (itemId: string, optId: string) => {
+    if (!attempt || !currentResponse) return;
+    const updatedAttempt = { ...attempt };
+    const sec = updatedAttempt.sections[activeSectionIndex];
+    const grp = sec.question_groups[activeGroupIndex];
+    const resp = grp.responses[currentResponseIndex];
+    const existingMatches = resp.metadata?.matches || {};
+    const newMatches = { ...existingMatches, [itemId]: optId };
+    const newMeta = { ...(resp.metadata || {}), matches: newMatches };
+    resp.metadata = newMeta;
+    setAttempt(updatedAttempt);
+
+    try {
+      await examService.autoSave(attempt.id, {
+        responses: [{
+          question_id: currentResponse.question.id,
+          metadata: newMeta,
+          time_spent_seconds: 15,
+        }]
+      });
+    } catch (e) {
+      console.warn('Auto-save matching failed:', e);
+    }
+  };
+
+  const handleClearMatching = async (itemId: string) => {
+    if (!attempt || !currentResponse) return;
+    const updatedAttempt = { ...attempt };
+    const sec = updatedAttempt.sections[activeSectionIndex];
+    const grp = sec.question_groups[activeGroupIndex];
+    const resp = grp.responses[currentResponseIndex];
+    const newMatches = { ...(resp.metadata?.matches || {}) };
+    delete newMatches[itemId];
+    const newMeta = { ...(resp.metadata || {}), matches: newMatches };
+    resp.metadata = newMeta;
+    setAttempt(updatedAttempt);
+
+    try {
+      await examService.autoSave(attempt.id, {
+        responses: [{
+          question_id: currentResponse.question.id,
+          metadata: newMeta,
+          time_spent_seconds: 15,
+        }]
+      });
+    } catch (e) {
+      console.warn('Auto-save matching clear failed:', e);
+    }
+  };
+
+  const handleUpdateDiagramLabel = async (targetId: string, val: string) => {
+    if (!attempt || !currentResponse) return;
+    const updatedAttempt = { ...attempt };
+    const sec = updatedAttempt.sections[activeSectionIndex];
+    const grp = sec.question_groups[activeGroupIndex];
+    const resp = grp.responses[currentResponseIndex];
+    const existingLabels = resp.metadata?.labels || {};
+    const newLabels = { ...existingLabels, [targetId]: val };
+    const newMeta = { ...(resp.metadata || {}), labels: newLabels };
+    resp.metadata = newMeta;
+    setAttempt(updatedAttempt);
+
+    try {
+      await examService.autoSave(attempt.id, {
+        responses: [{
+          question_id: currentResponse.question.id,
+          metadata: newMeta,
+          time_spent_seconds: 15,
+        }]
+      });
+    } catch (e) {
+      console.warn('Auto-save labeling failed:', e);
+    }
+  };
+
+  const handleUpdateWrittenText = async (text: string) => {
+    if (!attempt || !currentResponse) return;
+    const updatedAttempt = { ...attempt };
+    const sec = updatedAttempt.sections[activeSectionIndex];
+    const grp = sec.question_groups[activeGroupIndex];
+    const resp = grp.responses[currentResponseIndex];
+    resp.written_response = text;
+    setAttempt(updatedAttempt);
+
+    try {
+      await examService.autoSave(attempt.id, {
+        responses: [{
+          question_id: currentResponse.question.id,
+          written_response: text,
+          time_spent_seconds: 15,
+        }]
+      });
+    } catch (e) {
+      console.warn('Auto-save written response failed:', e);
+    }
+  };
+
+  const toggleBookmark = async (questionId: number) => {
+    const isCurrentlyBookmarked = bookmarkedQuestions.includes(questionId);
+    const nextState = !isCurrentlyBookmarked;
+
+    // Optimistic UI state update
+    setBookmarkedQuestions(prev => 
+      isCurrentlyBookmarked ? prev.filter(id => id !== questionId) : [...prev, questionId]
+    );
+
+    // Update in-memory attempt state
+    if (attempt) {
+      const updatedAttempt = { ...attempt };
+      updatedAttempt.sections?.forEach(sec => {
+        sec.question_groups?.forEach(grp => {
+          grp.responses?.forEach(resp => {
+            if (resp.question?.id === questionId) {
+              (resp as any).is_bookmarked = nextState;
+            }
+          });
+        });
+      });
+      setAttempt(updatedAttempt);
+    }
+
+    // Backend sync
+    if (attempt?.id) {
+      try {
+        await examService.autoSave(attempt.id, {
+          responses: [{ question_id: questionId, is_bookmarked: nextState }]
+        });
+      } catch (err) {
+        console.warn('Bookmark auto-save warning:', err);
+      }
+
+      try {
+        if (nextState) {
+          await examService.saveQuestion(questionId);
+        } else {
+          await examService.removeSavedQuestion(questionId);
+        }
+      } catch (err) {
+        console.warn('Saved-questions sync warning:', err);
+      }
+    }
+  };
+
   const handleNext = () => {
     if (!activeGroup || !activeSection) return;
     if (currentResponseIndex < activeGroup.responses.length - 1) {
@@ -209,16 +680,52 @@ export default function IELTSSessionScreen() {
       setActiveGroupIndex(prev => prev + 1);
       setCurrentResponseIndex(0);
     } else if (attempt && activeSectionIndex < attempt.sections.length - 1) {
-      const nextSection = attempt.sections[activeSectionIndex + 1];
-      if (nextSection.section_name.toLowerCase().includes('speaking')) {
-        router.replace({
-          pathname: '/(exam)/ielts-speaking-instructions',
-          params: { attempt_id: attempt.id }
+      const nextSectionIndex = activeSectionIndex + 1;
+      const nextSection = attempt.sections[nextSectionIndex];
+      const completedSessionsCount = activeSectionIndex + 1;
+
+      // Unload any playing audio
+      if (sound) {
+        sound.unloadAsync().catch(() => {});
+        setSound(null);
+        setIsPlayingAudio(false);
+      }
+
+      // Check if a break should be shown after every 2 sessions!
+      if (completedSessionsCount % 2 === 0) {
+        router.push({
+          pathname: '/(exam)/ielts-break',
+          params: {
+            attempt_id: String(attempt.id),
+            exam_id: params.exam || params.exam_type_id || '42',
+            exam_name: (attempt as any)?.exam_type_name || params.exam_name || 'IELTS Academic',
+            next_section_index: String(nextSectionIndex),
+            next_section_name: nextSection.section_name,
+            section_order: params.section_order,
+            mode: params.mode,
+          },
         });
       } else {
-        setActiveSectionIndex(prev => prev + 1);
-        setActiveGroupIndex(0);
-        setCurrentResponseIndex(0);
+        // Between individual sessions (e.g. Session 1 -> Session 2)
+        if (nextSection.section_name.toLowerCase().includes('speaking')) {
+          router.push({
+            pathname: '/(exam)/ielts-speaking-instructions',
+            params: { attempt_id: String(attempt.id) },
+          });
+        } else {
+          router.push({
+            pathname: '/(exam)/ielts-section-instructions',
+            params: {
+              attempt_id: String(attempt.id),
+              exam: params.exam || params.exam_type_id || '42',
+              exam_name: (attempt as any)?.exam_type_name || params.exam_name || 'IELTS Academic',
+              section_index: String(nextSectionIndex),
+              section_name: nextSection.section_name,
+              section_order: params.section_order,
+              mode: params.mode,
+            },
+          });
+        }
       }
     } else {
       setShowSubmitModal(true);
@@ -243,16 +750,28 @@ export default function IELTSSessionScreen() {
       attempt.sections?.forEach(sec => {
         sec.question_groups?.forEach(grp => {
           grp.responses?.forEach(resp => {
+            const item: any = { question_id: resp.question.id };
+            let hasData = false;
+
             if (resp.selected_choice !== null && resp.selected_choice !== undefined) {
-              responsesPayload.push({
-                question_id: resp.question.id,
-                choice_id: resp.selected_choice,
-              });
-            } else if (resp.written_response) {
-              responsesPayload.push({
-                question_id: resp.question.id,
-                written_response: resp.written_response,
-              });
+              item.choice_id = resp.selected_choice;
+              hasData = true;
+            }
+            if (resp.written_response) {
+              item.written_response = resp.written_response;
+              hasData = true;
+            }
+            if (resp.metadata && Object.keys(resp.metadata).length > 0) {
+              item.metadata = resp.metadata;
+              hasData = true;
+            }
+            if ((resp as any).is_bookmarked || bookmarkedQuestions.includes(resp.question.id)) {
+              item.is_bookmarked = true;
+              hasData = true;
+            }
+
+            if (hasData) {
+              responsesPayload.push(item);
             }
           });
         });
@@ -301,6 +820,84 @@ export default function IELTSSessionScreen() {
      );
   }
 
+  const isWritingSection = (activeSection.section_name || '').toLowerCase().includes('writing');
+  const isReadingSection = (activeSection.section_name || '').toLowerCase().includes('reading');
+
+  // Compute question range for current activeGroup
+  let passageStartQ = 1;
+  for (let i = 0; i < activeGroupIndex; i++) {
+    passageStartQ += activeSection.question_groups[i]?.responses?.length || 0;
+  }
+  const passageEndQ = passageStartQ + (activeGroup.responses?.length || 1) - 1;
+  const passageRangeText = activeGroup.responses?.length > 0 ? `Questions ${passageStartQ}–${passageEndQ}` : '';
+  const globalQuestionNumber = passageStartQ + currentResponseIndex;
+
+  const getQuestionTypeMeta = (response: UserResponseItem) => {
+    const q = response.question;
+    const format = q.metadata?.format;
+    const qType = q.question_type;
+
+    if (format === 'TFNG') {
+      return {
+        title: 'True / False / Not Given',
+        subtitle: q.instructions || `Do the following statements agree with the information given in Reading Passage ${activeGroupIndex + 1}?`,
+      };
+    }
+    if (format === 'YNNG') {
+      return {
+        title: 'Yes / No / Not Given',
+        subtitle: q.instructions || 'Do the following statements agree with the views/claims of the writer?',
+      };
+    }
+    if (qType === 'MATCHING') {
+      return {
+        title: 'Matching Information',
+        subtitle: q.instructions || 'Which paragraph contains the following information? Choose the correct letter, A–D.',
+      };
+    }
+    if (qType === 'GAP_FILL') {
+      return {
+        title: 'Fill in the Blanks',
+        subtitle: q.instructions || 'Complete the sentences below. Choose NO MORE THAN TWO WORDS from the passage for each answer.',
+      };
+    }
+    if (qType === 'LABELING') {
+      return {
+        title: 'Diagram Labelling',
+        subtitle: q.instructions || 'Label the diagram below using words from the passage or box.',
+      };
+    }
+    if (qType === 'MCQ') {
+      const isMulti = q.metadata?.is_multi_select || (q.metadata?.max_choices && q.metadata?.max_choices > 1) || (q.metadata?.max_selections && q.metadata?.max_selections > 1);
+      if (isMulti) {
+        const count = q.metadata?.max_choices || q.metadata?.max_selections || 2;
+        return {
+          title: `Choose ${count} Options`,
+          subtitle: q.instructions || `Choose ${count} letters, A–E.`,
+        };
+      }
+      return {
+        title: 'Multiple Choice',
+        subtitle: q.instructions || 'Choose the correct letter, A, B, C or D.',
+      };
+    }
+    return {
+      title: activeGroup.group_title || 'Question',
+      subtitle: q.instructions || '',
+    };
+  };
+
+  const getGroupFormatLabel = (grp: QuestionGroupItem) => {
+    const parenMatch = grp.group_title?.match(/\(([^)]+)\)/);
+    if (parenMatch && parenMatch[1]) {
+      return parenMatch[1];
+    }
+    if (grp.responses?.[0]) {
+      return getQuestionTypeMeta(grp.responses[0]).title;
+    }
+    return grp.group_title || 'Questions';
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
@@ -314,126 +911,405 @@ export default function IELTSSessionScreen() {
           >
             <Feather name="menu" size={20} color="#111827" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>{activeSection.section_name}</Text>
+          <Text style={styles.headerTitle}>
+            {isWritingSection ? 'IELTS Writing' : isReadingSection ? 'IELTS Reading' : activeSection.section_name}
+          </Text>
           <View style={styles.timerBadge}>
             <Text style={styles.timerText}>{formatTime(timeLeft)}</Text>
           </View>
         </View>
 
-        {/* Passage Selection Tabs */}
-        <View style={styles.passageTabsContainer}>
-          {activeSection.question_groups.map((group, idx) => (
-             <TouchableOpacity 
-              key={group.group_id}
-              style={[styles.passageTab, activeGroupIndex === idx && styles.passageTabActive]}
-              onPress={() => { setActiveGroupIndex(idx); setCurrentResponseIndex(0); }}
-              activeOpacity={0.8}
+        {/* Modern Responsive Navigation Tabs (Passages / Tasks / Parts) */}
+        {navigationTabs.length > 0 && (
+          <View style={styles.tabsWrapper}>
+            <ScrollView
+              ref={tabsScrollViewRef}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={[
+                styles.tabsScrollContent,
+                navigationTabs.length <= 3 && styles.tabsScrollContentFill,
+              ]}
             >
-              <Text style={[styles.passageTabTitle, activeGroupIndex === idx && styles.passageTabTitleActive]}>
-                Part {idx + 1}
-              </Text>
-              <Text style={[styles.passageTabSub, activeGroupIndex === idx && styles.passageTabSubActive]}>
-                {group.responses.length} Qs
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
+              {navigationTabs.map((tab) => {
+                const isTabActive = activeTab?.id === tab.id;
+                return (
+                  <TouchableOpacity
+                    key={tab.id}
+                    style={[
+                      styles.modernTab,
+                      isTabActive && styles.modernTabActive,
+                      navigationTabs.length <= 3 && styles.modernTabFill,
+                    ]}
+                    onPress={() => {
+                      setActiveGroupIndex(tab.firstGroupIndex);
+                      setCurrentResponseIndex(0);
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Text
+                      style={[styles.modernTabTitle, isTabActive && styles.modernTabTitleActive]}
+                      numberOfLines={1}
+                    >
+                      {tab.title}
+                    </Text>
+                    {tab.subtitle ? (
+                      <Text
+                        style={[styles.modernTabSub, isTabActive && styles.modernTabSubActive]}
+                        numberOfLines={1}
+                      >
+                        {tab.subtitle}
+                      </Text>
+                    ) : null}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        )}
 
         <ScrollView 
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.scrollContent}
         >
-          {/* Passage Reading Card */}
-          {(activeGroup.context_text || activeGroup.context_media) && (
-            <View style={styles.passageCard}>
-              <View style={styles.passageHeaderRow}>
-                <Text style={styles.passageNumberText}>Context</Text>
-                <TouchableOpacity 
-                  style={styles.bookmarkButton}
-                  onPress={() => setIsBookmarked(!isBookmarked)}
-                  activeOpacity={0.7}
-                >
-                  <Feather 
-                    name="bookmark" 
-                    size={18} 
-                    color={isBookmarked ? '#7C3AED' : '#4B5563'} 
+          {isWritingSection ? (() => {
+            const isTask2 = (activeGroup.group_title || '').toLowerCase().includes('task 2') || 
+                            (currentResponse.question.text || '').toLowerCase().includes('task 2') || 
+                            activeGroupIndex === 1;
+            const targetMins = isTask2 ? 40 : 20;
+            const minWords = isTask2 ? 250 : 150;
+            const taskHeading = isTask2 ? 'Task 2' : 'Task 1';
+            const promptBody = activeGroup.context_text || currentResponse.question.text || (isTask2 
+              ? 'Some people believe that unpaid community service should be a compulsory part of high school programmes. To what extent do you agree or disagree?'
+              : 'The chart below shows the number of visitors to a museum between 2015 and 2020. Summarise the information by selecting and reporting the main features, and make comparisons where relevant.');
+            const promptImage = currentResponse.question.image || activeGroup.context_media;
+
+            return (
+              <View style={styles.writingSectionContainer}>
+                {/* Time Suggestion & Bookmark Header */}
+                <View style={styles.writingBannerRow}>
+                  <View style={styles.writingTimeBadge}>
+                    <Feather name="clock" size={14} color="#6B7280" />
+                    <Text style={styles.writingTimeText}>
+                      You should spend about {targetMins} minutes on this task.
+                    </Text>
+                  </View>
+                  <TouchableOpacity 
+                    style={styles.bookmarkButton}
+                    onPress={() => currentResponse?.question && toggleBookmark(currentResponse.question.id)}
+                    activeOpacity={0.7}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Ionicons 
+                      name={currentResponse?.question && bookmarkedQuestions.includes(currentResponse.question.id) ? "bookmark" : "bookmark-outline"} 
+                      size={20} 
+                      color={currentResponse?.question && bookmarkedQuestions.includes(currentResponse.question.id) ? '#F59E0B' : '#6B7280'} 
+                    />
+                  </TouchableOpacity>
+                </View>
+
+                {/* Main Writing Card */}
+                <View style={styles.writingCard}>
+                  <Text style={styles.writingCardTitle}>{taskHeading}</Text>
+                  <Text style={styles.writingCardPrompt}>{promptBody}</Text>
+
+                  {/* Task 1 Line Chart or Prompt Image */}
+                  {(!isTask2 || promptImage) && (
+                    <IELTSChartCard 
+                      imageUrl={promptImage}
+                      title={promptImage ? undefined : "Number of Visitors to the Museum (2015–2020)"}
+                    />
+                  )}
+
+                  <Text style={styles.writingMinWordsNotice}>
+                    Write at least {minWords} words.
+                  </Text>
+
+                  {/* Rich Toolbar Editor */}
+                  <IELTSWritingEditor
+                    value={currentResponse.written_response || ''}
+                    onChangeText={handleUpdateWrittenText}
+                    targetMinutes={targetMins}
+                    minWords={minWords}
+                    elapsedSeconds={writingElapsedSeconds}
+                    placeholder="Type your essay / response here..."
                   />
+                </View>
+
+                {/* Full-width Next CTA Button */}
+                <TouchableOpacity 
+                  style={styles.fullNextButton}
+                  onPress={handleNext}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.fullNextButtonText}>
+                    {activeGroupIndex < activeSection.question_groups.length - 1 ? 'Next Task' : 'Submit Test'}
+                  </Text>
                 </TouchableOpacity>
-              </View>
 
-              {activeGroup.group_title && (
-                <Text style={styles.passageTitle}>{activeGroup.group_title}</Text>
+                {activeGroupIndex > 0 && (
+                  <TouchableOpacity 
+                    style={styles.subtlePrevButton}
+                    onPress={handlePrevious}
+                    activeOpacity={0.7}
+                  >
+                    <Feather name="chevron-left" size={16} color="#6B7280" />
+                    <Text style={styles.subtlePrevButtonText}>Previous Task</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            );
+          })() : (
+            <>
+              {/* Passage Reading Card */}
+              {(activeGroup.context_text || activeGroup.context_media) && (
+                <View style={styles.passageCard}>
+                  <View style={styles.passageHeaderRow}>
+                    <Text style={styles.passageNumberText}>
+                      {activeTab ? activeTab.title : (activeGroup.group_title || `Passage ${activeGroupIndex + 1}`)}
+                    </Text>
+                    <TouchableOpacity 
+                      style={styles.bookmarkButton}
+                      onPress={() => currentResponse?.question && toggleBookmark(currentResponse.question.id)}
+                      activeOpacity={0.7}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Ionicons 
+                        name={currentResponse?.question && bookmarkedQuestions.includes(currentResponse.question.id) ? "bookmark" : "bookmark-outline"} 
+                        size={20} 
+                        color={currentResponse?.question && bookmarkedQuestions.includes(currentResponse.question.id) ? '#F59E0B' : '#6B7280'} 
+                      />
+                    </TouchableOpacity>
+                  </View>
+
+                  {activeGroup.context_text && (
+                    <Text style={styles.passageBodyText}>{activeGroup.context_text}</Text>
+                  )}
+                </View>
               )}
 
-              {activeGroup.context_text && (
-                <Text style={styles.passageBodyText}>{activeGroup.context_text}</Text>
-              )}
-            </View>
-          )}
-
-          {/* Question Subheading */}
-          <Text style={styles.questionSectionTitle}>Question {currentResponseIndex + 1} of {activeGroup.responses.length}</Text>
-
-          {/* Current Question */}
-          <View style={styles.questionCard}>
-            <View style={styles.questionHeaderRow}>
-              <View style={styles.questionNumberBadge}>
-                <Text style={styles.questionNumberText}>{currentResponseIndex + 1}</Text>
-              </View>
-              <Text style={styles.questionText}>{currentResponse.question.text}</Text>
-            </View>
-
-            {/* Options List */}
-            {currentResponse.question.choices && currentResponse.question.choices.length > 0 && (
-              <View style={styles.optionsList}>
-                {currentResponse.question.choices.map((opt, i) => {
-                  const isSelected = currentResponse.selected_choice === opt.id;
-                  const label = String.fromCharCode(65 + i);
-                  return (
+              {/* Listening Audio Control Card */}
+              {activeSection.section_name.toLowerCase().includes('listening') && (activeGroup.context_media || (activeGroup as any).audio_file || currentResponse.question.audio_file) && (
+                <View style={styles.audioPlayerCard}>
+                  <View style={styles.audioPlayerLeft}>
                     <TouchableOpacity
-                      key={opt.id}
-                      style={[
-                        styles.optionItem,
-                        isSelected && styles.optionItemSelected,
-                      ]}
-                      onPress={() => handleSelectOption(opt.id)}
+                      style={[styles.audioPlayBtn, isPlayingAudio && styles.audioPauseBtn]}
+                      onPress={() => handlePlayAudio(activeGroup.context_media || (activeGroup as any).audio_file || currentResponse.question.audio_file)}
+                      disabled={params.mode === 'Standard' && hasPlayedAudio && !isPlayingAudio}
                       activeOpacity={0.8}
                     >
-                      <View style={[styles.radioCircle, isSelected && styles.radioCircleSelected]}>
-                        {isSelected && <View style={styles.radioDot} />}
-                      </View>
-                      <Text style={[styles.optionText, isSelected && styles.optionTextSelected]}>
-                        <Text style={styles.optionLabel}>{label}. </Text>
-                        {opt.text}
-                      </Text>
+                      <Ionicons 
+                        name={isPlayingAudio ? "pause" : "play"} 
+                        size={22} 
+                        color="#FFF" 
+                      />
                     </TouchableOpacity>
-                  );
-                })}
+                    <View style={{ marginLeft: 12 }}>
+                      <Text style={styles.audioPlayerTitle}>
+                        {activeGroup.group_title || `Part ${activeGroupIndex + 1} Audio`}
+                      </Text>
+                      <Text style={styles.audioPlayerSub}>
+                        {params.mode === 'Standard' ? 'Plays once in Standard Mode' : 'Practice Audio Track'}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.audioPill}>
+                    <Ionicons name="volume-medium" size={16} color="#7C3AED" />
+                    <Text style={styles.audioPillText}>
+                      {audioDuration > 0
+                        ? `${Math.floor(audioPosition / 60000)}:${Math.floor((audioPosition % 60000) / 1000).toString().padStart(2, '0')}`
+                        : isPlayingAudio ? 'Playing' : 'Audio Ready'}
+                    </Text>
+                  </View>
+                </View>
+              )}
+
+              {/* Sub-Group Selector within Active Passage */}
+              {activeTab && activeTab.groupIndices.length > 1 ? (
+                <View style={styles.subGroupContainer}>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.subGroupScrollContent}>
+                    {activeTab.groupIndices.map((gIdx) => {
+                      const grp = activeSection.question_groups[gIdx];
+                      const isCurrentGroup = activeGroupIndex === gIdx;
+                      
+                      let gStartQ = 1;
+                      for (let i = 0; i < gIdx; i++) {
+                        gStartQ += activeSection.question_groups[i]?.responses?.length || 0;
+                      }
+                      const gEndQ = gStartQ + (grp.responses?.length || 1) - 1;
+                      const gRange = gStartQ === gEndQ ? `Q${gStartQ}` : `Q${gStartQ}–${gEndQ}`;
+                      const formatLabel = getGroupFormatLabel(grp);
+
+                      return (
+                        <TouchableOpacity
+                          key={grp.group_id}
+                          style={[styles.subGroupChip, isCurrentGroup && styles.subGroupChipActive]}
+                          onPress={() => {
+                            setActiveGroupIndex(gIdx);
+                            setCurrentResponseIndex(0);
+                          }}
+                          activeOpacity={0.8}
+                        >
+                          <View style={[styles.subGroupDot, isCurrentGroup && styles.subGroupDotActive]} />
+                          <Text style={[styles.subGroupChipText, isCurrentGroup && styles.subGroupChipTextActive]}>
+                            {gRange}: {formatLabel}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                </View>
+              ) : passageRangeText ? (
+                <Text style={styles.questionSectionTitle}>{passageRangeText}</Text>
+              ) : null}
+
+              {/* Current Question Card */}
+              <View style={styles.questionCard}>
+                <View style={styles.questionHeaderContainer}>
+                  <View style={styles.questionBadgeCircle}>
+                    <Text style={styles.questionBadgeNumber}>{globalQuestionNumber}</Text>
+                  </View>
+                  <View style={styles.questionTitleColumn}>
+                    <Text style={styles.questionTitleText}>
+                      {getQuestionTypeMeta(currentResponse).title}
+                    </Text>
+                    <Text style={styles.questionSubtitleText}>
+                      {getQuestionTypeMeta(currentResponse).subtitle}
+                    </Text>
+                  </View>
+                  <TouchableOpacity 
+                    style={styles.bookmarkButton}
+                    onPress={() => currentResponse?.question && toggleBookmark(currentResponse.question.id)}
+                    activeOpacity={0.7}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Ionicons 
+                      name={currentResponse?.question && bookmarkedQuestions.includes(currentResponse.question.id) ? "bookmark" : "bookmark-outline"} 
+                      size={20} 
+                      color={currentResponse?.question && bookmarkedQuestions.includes(currentResponse.question.id) ? '#F59E0B' : '#9CA3AF'} 
+                    />
+                  </TouchableOpacity>
+                </View>
+
+                {/* FORMAT 1: True / False / Not Given & Yes / No / Not Given */}
+                {(currentResponse.question.metadata?.format === 'TFNG' || currentResponse.question.metadata?.format === 'YNNG') ? (
+                  <TFNGQuestion
+                    statement={currentResponse.question.text}
+                    format={currentResponse.question.metadata?.format}
+                    selectedAnswer={currentResponse.metadata?.tfng_answer || currentResponse.metadata?.ynng_answer}
+                    onSelect={handleSelectTFNG}
+                  />
+                ) : currentResponse.question.question_type === 'MATCHING' ? (
+                  /* FORMAT 2: Matching Headings / Features / Sentence Endings */
+                  <MatchingQuestion
+                    items={currentResponse.question.metadata?.items || []}
+                    options={currentResponse.question.metadata?.options || []}
+                    matches={currentResponse.metadata?.matches || {}}
+                    onMatch={handleUpdateMatching}
+                    onClearMatch={handleClearMatching}
+                  />
+                ) : currentResponse.question.question_type === 'LABELING' ? (
+                  /* FORMAT 3: Diagram / Map Labelling */
+                  <DiagramLabelingQuestion
+                    imageUrl={currentResponse.question.image || activeGroup.context_media}
+                    labels={currentResponse.metadata?.labels || {}}
+                    targets={currentResponse.question.metadata?.targets || []}
+                    options={currentResponse.question.metadata?.options}
+                    onChangeLabel={handleUpdateDiagramLabel}
+                  />
+                ) : currentResponse.question.question_type === 'GAP_FILL' && currentResponse.question.metadata?.word_bank ? (
+                  /* FORMAT 4: Summary Completion with Word Bank */
+                  <WordBankQuestion
+                    blanks={currentResponse.metadata?.blanks || {}}
+                    blanksConfig={currentResponse.question.metadata?.blanks || []}
+                    wordBank={currentResponse.question.metadata?.word_bank || []}
+                    onSelectWord={(blankId, wordId) => handleUpdateGapFill(blankId, wordId)}
+                    onClearBlank={(blankId) => handleUpdateGapFill(blankId, '')}
+                  />
+                ) : currentResponse.question.question_type === 'GAP_FILL' ? (
+                  /* FORMAT 5: Standard Gap Fill / Sentence Completion */
+                  <GapFillQuestion
+                    sentence={currentResponse.question.text}
+                    blanks={currentResponse.metadata?.blanks || {}}
+                    blanksConfig={currentResponse.question.metadata?.blanks || []}
+                    maxWords={currentResponse.question.metadata?.max_words || 2}
+                    instructionText={currentResponse.question.instructions}
+                    onChangeBlank={handleUpdateGapFill}
+                  />
+                ) : (currentResponse.question.question_type === 'MCQ' && (
+                  currentResponse.question.metadata?.is_multi_select || 
+                  (currentResponse.question.metadata?.max_choices && currentResponse.question.metadata?.max_choices > 1) ||
+                  (currentResponse.question.metadata?.max_selections && currentResponse.question.metadata?.max_selections > 1)
+                )) ? (
+                  /* FORMAT 6: Multi-Select MCQ ("Choose 2 or 3 options") */
+                  <MultiSelectQuestion
+                    choices={currentResponse.question.choices || []}
+                    selectedChoiceIds={currentResponse.metadata?.selected_choices || (currentResponse.selected_choice ? [currentResponse.selected_choice] : [])}
+                    maxChoices={currentResponse.question.metadata?.max_choices || currentResponse.question.metadata?.max_selections || 2}
+                    onSelect={handleSelectMultiChoice}
+                  />
+                ) : (
+                  /* FORMAT 7: Standard Single-Choice MCQ */
+                  currentResponse.question.choices && currentResponse.question.choices.length > 0 && (
+                    <View style={styles.optionsList}>
+                      {currentResponse.question.choices.map((opt, i) => {
+                        const isSelected = currentResponse.selected_choice === opt.id;
+                        const label = String.fromCharCode(65 + i);
+                        return (
+                          <TouchableOpacity
+                            key={opt.id}
+                            style={[
+                              styles.optionItem,
+                              isSelected && styles.optionItemSelected,
+                            ]}
+                            onPress={() => handleSelectOption(opt.id)}
+                            activeOpacity={0.8}
+                          >
+                            <View style={[styles.radioCircle, isSelected && styles.radioCircleSelected]}>
+                              {isSelected && <View style={styles.radioDot} />}
+                            </View>
+                            <Text style={[styles.optionText, isSelected && styles.optionTextSelected]}>
+                              <Text style={styles.optionLabel}>{label}. </Text>
+                              {opt.text}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  )
+                )}
               </View>
-            )}
-          </View>
 
-          {/* Previous & Next Buttons */}
-          <View style={styles.navigationButtonsRow}>
-            <TouchableOpacity 
-              style={[styles.prevButton, (activeGroupIndex === 0 && currentResponseIndex === 0) && { opacity: 0.5 }]}
-              onPress={handlePrevious}
-              disabled={activeGroupIndex === 0 && currentResponseIndex === 0}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.prevButtonText}>Previous</Text>
-            </TouchableOpacity>
+              {/* Full-width Purple Next Button */}
+              <TouchableOpacity 
+                style={styles.fullNextButton}
+                onPress={handleNext}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.fullNextButtonText}>
+                  {currentResponseIndex < activeGroup.responses.length - 1 
+                    ? 'Next' 
+                    : activeGroupIndex < activeSection.question_groups.length - 1 
+                      ? 'Next Passage' 
+                      : 'Submit Test'}
+                </Text>
+              </TouchableOpacity>
 
-            <TouchableOpacity 
-              style={styles.nextButton}
-              onPress={handleNext}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.nextButtonText}>Next</Text>
-            </TouchableOpacity>
-          </View>
+              {(currentResponseIndex > 0 || activeGroupIndex > 0) && (
+                <TouchableOpacity 
+                  style={styles.subtlePrevButton}
+                  onPress={handlePrevious}
+                  activeOpacity={0.7}
+                >
+                  <Feather name="chevron-left" size={16} color="#6B7280" />
+                  <Text style={styles.subtlePrevButtonText}>Previous Question</Text>
+                </TouchableOpacity>
+              )}
+            </>
+          )}
 
-          <View style={{ height: 100 }} />
+          <View style={{ height: 80 }} />
         </ScrollView>
 
         {/* Bottom Utility Bar */}
@@ -454,14 +1330,14 @@ export default function IELTSSessionScreen() {
             onPress={() => setShowSubmitModal(true)}
             activeOpacity={0.7}
           >
-            <Feather name="check-circle" size={18} color="#EF4444" />
+            <Feather name="flag" size={18} color="#EF4444" />
             <Text style={[styles.bottomBarActionText, { color: '#EF4444', fontWeight: '700' }]}>Submit Test</Text>
           </TouchableOpacity>
 
           {/* Contact Support */}
           <TouchableOpacity style={styles.bottomBarAction} activeOpacity={0.7}>
             <Feather name="headphones" size={18} color="#4B5563" />
-            <Text style={styles.bottomBarActionText}>Support</Text>
+            <Text style={styles.bottomBarActionText}>Contact Support</Text>
           </TouchableOpacity>
         </View>
 
@@ -568,6 +1444,10 @@ export default function IELTSSessionScreen() {
                   <Text style={styles.legendText}>Current</Text>
                 </View>
                 <View style={styles.legendItem}>
+                  <Ionicons name="bookmark" size={13} color="#F59E0B" style={{ marginRight: 4 }} />
+                  <Text style={styles.legendText}>Bookmarked</Text>
+                </View>
+                <View style={styles.legendItem}>
                   <View style={[styles.legendRing, { borderColor: '#CBD5E1' }]} />
                   <Text style={styles.legendText}>Unanswered</Text>
                 </View>
@@ -593,6 +1473,7 @@ export default function IELTSSessionScreen() {
 
                     const isCurrent = activeGroupIndex === targetGroupIdx && currentResponseIndex === targetRespIdx;
                     const isAnswered = r.selected_choice !== null || r.written_response !== null;
+                    const isQBookmarked = bookmarkedQuestions.includes(r.question?.id);
 
                     return (
                       <TouchableOpacity
@@ -601,6 +1482,7 @@ export default function IELTSSessionScreen() {
                           styles.gridCircle,
                           isAnswered && styles.gridCircleAnswered,
                           isCurrent && !isAnswered && styles.gridCircleCurrent,
+                          isQBookmarked && !isAnswered && styles.gridCircleBookmarked,
                         ]}
                         onPress={() => {
                           setActiveGroupIndex(targetGroupIdx);
@@ -618,6 +1500,11 @@ export default function IELTSSessionScreen() {
                         >
                           {idx + 1}
                         </Text>
+                        {isQBookmarked && (
+                          <View style={styles.paletteBookmarkDot}>
+                            <Ionicons name="bookmark" size={10} color="#F59E0B" />
+                          </View>
+                        )}
                       </TouchableOpacity>
                     );
                   })}
@@ -628,6 +1515,22 @@ export default function IELTSSessionScreen() {
         </Modal>
 
       </View>
+
+      <SubscriptionRequiredModal
+        visible={showSubscriptionModal}
+        onClose={() => {
+          setShowSubscriptionModal(false);
+          if (router.canGoBack()) router.back();
+          else router.replace('/');
+        }}
+        subjectName={activeSection?.section_name || ((params as any).section_name as string)}
+        examName={(attempt as any)?.exam_type_name || (params.exam_name as string) || 'IELTS Academic'}
+        customMessage={subscriptionMessage}
+        onViewBundles={() => {
+          setShowSubscriptionModal(false);
+          router.replace('/(tabs)/bundles' as any);
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -676,44 +1579,230 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#7C3AED',
   },
-
-  // Passage Tabs
-  passageTabsContainer: {
-    flexDirection: 'row',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    gap: 8,
+  // Modern Responsive Navigation Tabs
+  tabsWrapper: {
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
     borderBottomColor: '#F3F4F6',
   },
-  passageTab: {
-    flex: 1,
+  tabsScrollContent: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    gap: 10,
+    alignItems: 'center',
+  },
+  tabsScrollContentFill: {
+    flexGrow: 1,
+    justifyContent: 'space-between',
+  },
+  modernTab: {
     backgroundColor: '#F1F5F9',
     borderRadius: 14,
     paddingVertical: 10,
-    paddingHorizontal: 8,
+    paddingHorizontal: 16,
     alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 110,
   },
-  passageTabActive: {
+  modernTabFill: {
+    flex: 1,
+    minWidth: 0,
+  },
+  modernTabActive: {
     backgroundColor: '#4C1D95',
+    shadowColor: '#4C1D95',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.18,
+    shadowRadius: 4,
+    elevation: 3,
   },
-  passageTabTitle: {
+  modernTabTitle: {
     fontSize: 13,
     fontWeight: '700',
     color: '#475569',
     marginBottom: 2,
   },
-  passageTabTitleActive: {
+  modernTabTitleActive: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+  },
+  modernTabSub: {
+    fontSize: 11,
+    color: '#94A3B8',
+    fontWeight: '600',
+  },
+  modernTabSubActive: {
+    color: '#DDD6FE',
+  },
+
+  // Writing Section Content
+  writingSectionContainer: {
+    marginBottom: 20,
+  },
+  writingBannerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  writingTimeBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F3F4F6',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    gap: 6,
+    flex: 1,
+    marginRight: 12,
+  },
+  writingTimeText: {
+    fontSize: 12.5,
+    color: '#4B5563',
+    fontWeight: '600',
+  },
+  writingCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 18,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.03,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  writingCardTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#111827',
+    marginBottom: 8,
+  },
+  writingCardPrompt: {
+    fontSize: 14,
+    lineHeight: 22,
+    color: '#374151',
+    marginBottom: 16,
+  },
+  writingMinWordsNotice: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#4B5563',
+    marginTop: 14,
+    marginBottom: 14,
+  },
+
+  // Question Header (Purple Circle + Title & Subtitle)
+  questionHeaderContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 16,
+    gap: 12,
+  },
+  questionBadgeCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#4C1D95',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 2,
+  },
+  questionBadgeNumber: {
+    fontSize: 14,
+    fontWeight: '800',
     color: '#FFFFFF',
   },
-  passageTabSub: {
-    fontSize: 10,
-    color: '#94A3B8',
-    fontWeight: '500',
+  questionTitleColumn: {
+    flex: 1,
   },
-  passageTabSubActive: {
-    color: '#DDD6FE',
+  questionTitleText: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#111827',
+    marginBottom: 4,
+  },
+  questionSubtitleText: {
+    fontSize: 13,
+    color: '#6B7280',
+    lineHeight: 18,
+  },
+
+  // Full-width Next CTA
+  fullNextButton: {
+    backgroundColor: '#4C1D95',
+    borderRadius: 28,
+    paddingVertical: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+    shadowColor: '#4C1D95',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  fullNextButtonText: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  subtlePrevButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    gap: 4,
+    marginBottom: 16,
+  },
+  subtlePrevButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#6B7280',
+  },
+
+  // Sub-Group Selector within Active Passage
+  subGroupContainer: {
+    marginBottom: 14,
+  },
+  subGroupScrollContent: {
+    paddingVertical: 2,
+    gap: 8,
+  },
+  subGroupChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 20,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    gap: 6,
+  },
+  subGroupChipActive: {
+    backgroundColor: '#EDE9FE',
+    borderColor: '#7C3AED',
+  },
+  subGroupDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#94A3B8',
+  },
+  subGroupDotActive: {
+    backgroundColor: '#7C3AED',
+  },
+  subGroupChipText: {
+    fontSize: 12.5,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  subGroupChipTextActive: {
+    color: '#6D28D9',
+    fontWeight: '800',
   },
 
   scrollContent: {
@@ -998,6 +2087,24 @@ const styles = StyleSheet.create({
     borderColor: '#F59E0B',
     borderWidth: 2,
   },
+  gridCircleBookmarked: {
+    borderColor: '#F59E0B',
+    borderWidth: 1.5,
+    backgroundColor: '#FFFBEB',
+  },
+  paletteBookmarkDot: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+  },
+  questionBookmarkBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#F3F4F6',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   gridCircleText: {
     fontSize: 14,
     fontWeight: '700',
@@ -1126,5 +2233,142 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: '#FFFFFF',
+  },
+
+  // Audio Player Styles
+  audioPlayerCard: {
+    backgroundColor: '#F5F3FF',
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 16,
+    borderWidth: 1.5,
+    borderColor: '#DDD6FE',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  audioPlayerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  audioPlayBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#7C3AED',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  audioPauseBtn: {
+    backgroundColor: '#EF4444',
+  },
+  audioPlayerTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1E1B4B',
+  },
+  audioPlayerSub: {
+    fontSize: 11,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  audioPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E9D5FF',
+    gap: 4,
+  },
+  audioPillText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#7C3AED',
+  },
+
+  // Writing Styles
+  writingContainer: {
+    marginTop: 12,
+  },
+  writingVisualCard: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    overflow: 'hidden',
+    marginBottom: 14,
+  },
+  writingVisualToggle: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 12,
+    backgroundColor: '#F1F5F9',
+  },
+  writingVisualTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#334155',
+  },
+  writingPromptImage: {
+    width: '100%',
+    height: 220,
+    backgroundColor: '#FFF',
+  },
+  wordCounterHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  writingInputLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#374151',
+  },
+  wordCountPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    gap: 4,
+  },
+  wordCountPillMet: {
+    backgroundColor: '#D1FAE5',
+  },
+  wordCountPillUnmet: {
+    backgroundColor: '#FEE2E2',
+  },
+  wordCountPillText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  writingTextInput: {
+    backgroundColor: '#FAFAFA',
+    borderWidth: 1.5,
+    borderColor: '#E5E7EB',
+    borderRadius: 14,
+    padding: 14,
+    fontSize: 15,
+    color: '#111827',
+    minHeight: 250,
+    lineHeight: 22,
+  },
+  questionInstructionCard: {
+    backgroundColor: '#F3F4F6',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginBottom: 12,
+  },
+  questionInstructionText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#4B5563',
   },
 });

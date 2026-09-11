@@ -268,6 +268,22 @@ export default function TestResultScreen() {
               <Text style={styles.actionButtonText}>View Subject Performance</Text>
             </TouchableOpacity>
 
+            {/* View Certificate of Achievement */}
+            <TouchableOpacity 
+              style={[styles.actionButton, { backgroundColor: '#FFFFFF', borderWidth: 1.5, borderColor: '#6D28D9', marginTop: 12 }]}
+              onPress={() => router.push({
+                pathname: '/(tabs)/certificate-detail',
+                params: {
+                  score: String(score || 0),
+                  totalScore: String(totalScore || 400),
+                  percentage: String(percentage || 0),
+                }
+              })}
+              activeOpacity={0.85}
+            >
+              <Text style={[styles.actionButtonText, { color: '#6D28D9' }]}>View Certificate of Achievement</Text>
+            </TouchableOpacity>
+
             <View style={{ height: 40 }} />
           </ScrollView>
         )}

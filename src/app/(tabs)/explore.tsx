@@ -189,7 +189,14 @@ export default function ExploreScreen() {
                     <View style={styles.section}>
                       <AppText style={styles.resultsSubtitle}>Subjects / Topics</AppText>
                       {searchResults.subjects.map((sub, idx) => (
-                        <TouchableOpacity key={idx} style={styles.resultItem} onPress={() => executeSearch(sub)}>
+                        <TouchableOpacity 
+                          key={idx} 
+                          style={styles.resultItem} 
+                          onPress={() => {
+                            executeSearch(sub);
+                            router.push({ pathname: '/(tabs)/practice', params: { exam: sub } });
+                          }}
+                        >
                           <View style={[styles.examIconContainer, { backgroundColor: '#4F46E5', marginBottom: 0, marginRight: 12 }]}>
                             <AppText style={{ color: '#FFF', fontWeight: 'bold' }}>#</AppText>
                           </View>
@@ -238,7 +245,7 @@ export default function ExploreScreen() {
               <View style={styles.section}>
                 <View style={styles.sectionHeader}>
                   <AppText style={styles.sectionTitle}>Popular Exams</AppText>
-                  <TouchableOpacity activeOpacity={0.7}>
+                  <TouchableOpacity onPress={() => router.push('/(tabs)/practice')} activeOpacity={0.7}>
                     <AppText style={styles.linkText}>View all</AppText>
                   </TouchableOpacity>
                 </View>

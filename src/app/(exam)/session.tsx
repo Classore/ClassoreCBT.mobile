@@ -15,6 +15,11 @@ import {
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { examService, UserAttempt, UserResponseItem, isSectionBasedExam } from '@/services/exam';
+import {
+  SubscriptionRequiredModal,
+  isSubscriptionError,
+  getSubscriptionErrorMessage,
+} from '@/components/SubscriptionRequiredModal';
 
 export default function ExamSessionScreen() {
   const router = useRouter();
@@ -29,6 +34,8 @@ export default function ExamSessionScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [attempt, setAttempt] = useState<UserAttempt | null>(null);
+  const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
+  const [subscriptionMessage, setSubscriptionMessage] = useState<string | undefined>();
 
   // Active indices
   const [activeSubjectIndex, setActiveSubjectIndex] = useState(0);
@@ -118,10 +125,15 @@ export default function ExamSessionScreen() {
             }
           } catch (err: any) {
             console.error('Backend start exam call failed:', err);
-            const errorMsg = err?.response?.data?.error 
-              || err?.response?.data?.detail 
-              || err?.message 
-              || 'Failed to start exam session.';
+            const errorMsg = getSubscriptionErrorMessage(
+              err,
+              'Failed to start exam session.'
+            );
+            if (isSubscriptionError(err)) {
+              setSubscriptionMessage(errorMsg);
+              setShowSubscriptionModal(true);
+              return;
+            }
             Alert.alert('Unable to Start Exam', errorMsg, [
               { text: 'Go Back', onPress: () => router.canGoBack() ? router.back() : router.replace('/') }
             ]);
@@ -132,18 +144,23 @@ export default function ExamSessionScreen() {
         if (isMounted && currentAttempt) {
           setAttempt(currentAttempt);
           
-          // Populate existing answers if any
+          // Populate existing answers and bookmarks if any
           const initialAnswers: Record<number, number> = {};
+          const initialBookmarks: number[] = [];
           currentAttempt.sections?.forEach(sec => {
             sec.question_groups?.forEach(grp => {
               grp.responses?.forEach(resp => {
                 if (resp.selected_choice) {
                   initialAnswers[resp.question.id] = resp.selected_choice;
                 }
+                if (resp.is_bookmarked && resp.question?.id) {
+                  initialBookmarks.push(resp.question.id);
+                }
               });
             });
           });
           setUserAnswers(initialAnswers);
+          setBookmarkedQuestions(initialBookmarks);
 
           // Time limit fallback if not set by resume timer_info
           if (!currentAttempt.time_limit_override && currentAttempt.time_limit_override) {
@@ -229,24 +246,27 @@ export default function ExamSessionScreen() {
     const isCurrentlyBookmarked = bookmarkedQuestions.includes(qId);
     const nextState = !isCurrentlyBookmarked;
 
-    if (isCurrentlyBookmarked) {
-      setBookmarkedQuestions(bookmarkedQuestions.filter(id => id !== qId));
-    } else {
-      setBookmarkedQuestions([...bookmarkedQuestions, qId]);
-    }
+    setBookmarkedQuestions(prev => 
+      isCurrentlyBookmarked ? prev.filter(id => id !== qId) : [...prev, qId]
+    );
 
     if (attempt?.id) {
       try {
         await examService.autoSave(attempt.id, {
           responses: [{ question_id: qId, is_bookmarked: nextState }]
         });
+      } catch (err) {
+        console.warn('Bookmark sync error:', err);
+      }
+
+      try {
         if (nextState) {
           await examService.saveQuestion(qId);
         } else {
           await examService.removeSavedQuestion(qId);
         }
       } catch (err) {
-        console.warn('Bookmark sync error:', err);
+        console.warn('Saved-question sync error:', err);
       }
     }
   };
@@ -261,9 +281,13 @@ export default function ExamSessionScreen() {
     try {
       setIsSubmitting(true);
       if (attempt?.id) {
-        const responsesPayload = Object.entries(userAnswers).map(([qId, cId]) => ({
-          question_id: Number(qId),
-          choice_id: cId,
+        const allAnsweredQIds = new Set(Object.keys(userAnswers).map(Number));
+        const allBookmarkedQIds = new Set(bookmarkedQuestions);
+        const allQIds = new Set([...allAnsweredQIds, ...allBookmarkedQIds]);
+        const responsesPayload = Array.from(allQIds).map(qId => ({
+          question_id: qId,
+          choice_id: userAnswers[qId] || null,
+          is_bookmarked: allBookmarkedQIds.has(qId),
         }));
         await examService.submitExam(attempt.id, { responses: responsesPayload });
       }
@@ -577,6 +601,7 @@ export default function ExamSessionScreen() {
             <View style={styles.paletteLegend}>
               <View style={styles.legendItem}><View style={[styles.legendDot, { backgroundColor: '#6D28D9' }]} /><AppText style={styles.legendText}>Answered</AppText></View>
               <View style={styles.legendItem}><View style={[styles.legendDot, { backgroundColor: '#F59E0B' }]} /><AppText style={styles.legendText}>Current</AppText></View>
+              <View style={styles.legendItem}><Ionicons name="bookmark" size={13} color="#F59E0B" style={{ marginRight: 4 }} /><AppText style={styles.legendText}>Bookmarked</AppText></View>
               <View style={styles.legendItem}><View style={[styles.legendDot, { backgroundColor: '#FFF', borderWidth: 1, borderColor: '#D1D5DB' }]} /><AppText style={styles.legendText}>Unanswered</AppText></View>
             </View>
             <ScrollView style={styles.paletteScroll}>
@@ -586,6 +611,7 @@ export default function ExamSessionScreen() {
                   const qId = item?.response?.question?.id;
                   const isAnswered = qId ? !!userAnswers[qId] : false;
                   const isCurrent = i === activeQuestionIndex;
+                  const isBookmarked = qId ? bookmarkedQuestions.includes(qId) : false;
 
                   return (
                     <TouchableOpacity 
@@ -594,7 +620,8 @@ export default function ExamSessionScreen() {
                         styles.paletteBtn, 
                         styles.paletteBtnDefault,
                         isAnswered && styles.paletteBtnAnswered,
-                        isCurrent && styles.paletteBtnCurrent
+                        isCurrent && styles.paletteBtnCurrent,
+                        isBookmarked && !isAnswered && styles.paletteBtnBookmarked,
                       ]}
                       onPress={() => {
                         setActiveQuestionIndex(i);
@@ -606,6 +633,11 @@ export default function ExamSessionScreen() {
                         styles.paletteBtnTextDefault,
                         (isAnswered || isCurrent) && styles.paletteBtnTextAnswered
                       ]}>{num}</AppText>
+                      {isBookmarked && (
+                        <View style={styles.paletteBookmarkDot}>
+                          <Ionicons name="bookmark" size={9} color="#F59E0B" />
+                        </View>
+                      )}
                     </TouchableOpacity>
                   );
                 })}
@@ -723,6 +755,19 @@ export default function ExamSessionScreen() {
         </View>
       </Modal>
 
+      <SubscriptionRequiredModal
+        visible={showSubscriptionModal}
+        onClose={() => {
+          setShowSubscriptionModal(false);
+          if (router.canGoBack()) router.back();
+          else router.replace('/');
+        }}
+        customMessage={subscriptionMessage}
+        onViewBundles={() => {
+          setShowSubscriptionModal(false);
+          router.replace('/(tabs)/bundles' as any);
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -1052,6 +1097,16 @@ const styles = StyleSheet.create({
   },
   paletteBtnCurrent: {
     backgroundColor: '#F59E0B',
+  },
+  paletteBtnBookmarked: {
+    borderColor: '#F59E0B',
+    borderWidth: 1.5,
+    backgroundColor: '#FFFBEB',
+  },
+  paletteBookmarkDot: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
   },
   paletteBtnText: {
     fontSize: 12,

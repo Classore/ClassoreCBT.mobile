@@ -6,8 +6,53 @@ import { useAuth } from '@/context/AuthContext';
 import { api } from '@/services/api';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Alert, KeyboardAvoidingView, Platform, SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import * as SecureStore from 'expo-secure-store';
+
+const REMEMBER_CREDENTIALS_KEY = 'classore_remembered_credentials';
+
+const getRememberedCredentials = async () => {
+  try {
+    let json = null;
+    if (Platform.OS === 'web') {
+      json = localStorage.getItem(REMEMBER_CREDENTIALS_KEY);
+    } else {
+      json = await SecureStore.getItemAsync(REMEMBER_CREDENTIALS_KEY);
+    }
+    if (json) {
+      return JSON.parse(json);
+    }
+  } catch (e) {
+    console.warn('Failed to load remembered credentials:', e);
+  }
+  return null;
+};
+
+const saveRememberedCredentials = async (email: string, pass: string) => {
+  try {
+    const payload = JSON.stringify({ email, password: pass });
+    if (Platform.OS === 'web') {
+      localStorage.setItem(REMEMBER_CREDENTIALS_KEY, payload);
+    } else {
+      await SecureStore.setItemAsync(REMEMBER_CREDENTIALS_KEY, payload);
+    }
+  } catch (e) {
+    console.warn('Failed to save remembered credentials:', e);
+  }
+};
+
+const clearRememberedCredentials = async () => {
+  try {
+    if (Platform.OS === 'web') {
+      localStorage.removeItem(REMEMBER_CREDENTIALS_KEY);
+    } else {
+      await SecureStore.deleteItemAsync(REMEMBER_CREDENTIALS_KEY);
+    }
+  } catch (e) {
+    console.warn('Failed to clear remembered credentials:', e);
+  }
+};
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -17,6 +62,18 @@ export default function LoginScreen() {
   const [rememberMe, setRememberMe] = useState(false);
   const [loading, setLoading] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const loadRemembered = async () => {
+      const creds = await getRememberedCredentials();
+      if (creds && creds.email && creds.password) {
+        setEmail(creds.email);
+        setPassword(creds.password);
+        setRememberMe(true);
+      }
+    };
+    loadRemembered();
+  }, []);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -102,6 +159,12 @@ export default function LoginScreen() {
                     throw new Error('No authentication token received from the server.');
                   }
                   
+                  if (rememberMe) {
+                    await saveRememberedCredentials(email, password);
+                  } else {
+                    await clearRememberedCredentials();
+                  }
+
                   login(token).catch(err => console.error("Login storage failed:", err));
                   router.replace('/(tabs)');
                 } catch (error: any) {

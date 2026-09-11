@@ -74,6 +74,7 @@ export interface ChoiceItem {
   image?: string | null;
   order?: number;
 }
+export type Choice = ChoiceItem;
 
 export interface QuestionData {
   id: number;
@@ -87,6 +88,8 @@ export interface QuestionData {
   metadata?: Record<string, any>;
   section_id?: number;
   section_name?: string;
+  image?: string | null;
+  audio_file?: string | null;
 }
 
 export interface UserResponseItem {
@@ -97,6 +100,8 @@ export interface UserResponseItem {
   score_awarded?: number;
   ai_feedback?: string | null;
   time_spent_seconds?: number;
+  metadata?: Record<string, any> | null;
+  is_bookmarked?: boolean;
   question: QuestionData;
 }
 
@@ -193,6 +198,8 @@ export const examService = {
       if (Array.isArray(freshExams) && freshExams.length > 0) {
         memoryCachedExams = freshExams;
         await storage.set(EXAMS_CACHE_KEY, freshExams);
+        // Trigger background prefetch for sections & tier configs
+        examService.prefetchExamMetadata(freshExams).catch(() => {});
       }
       return freshExams;
     } catch (error) {
@@ -200,9 +207,28 @@ export const examService = {
       const cached = await examService.getCachedExams();
       if (cached && cached.length > 0) {
         console.warn('[examService] Network failed, falling back to cached exams');
+        // Trigger prefetch in case cached exams exist but sections need warming
+        examService.prefetchExamMetadata(cached).catch(() => {});
         return cached;
       }
       throw error;
+    }
+  },
+
+  prefetchExamMetadata: async (exams?: ExamType[]): Promise<void> => {
+    try {
+      const targetExams = exams || (await examService.getCachedExams()) || [];
+      if (!targetExams || targetExams.length === 0) return;
+
+      // Prefetch tier configs in background
+      examService.getExamTierConfigs().catch(() => {});
+
+      // Prefetch sections for all exams in parallel without blocking UI
+      await Promise.allSettled(
+        targetExams.map(exam => examService.getSections(exam.id))
+      );
+    } catch (e) {
+      console.warn('[examService] Background metadata prefetch failed:', e);
     }
   },
 
@@ -238,6 +264,20 @@ export const examService = {
         return cached;
       }
       throw error;
+    }
+  },
+
+  getSectionTopics: async (sectionId: number): Promise<string[]> => {
+    try {
+      const response = await api.get(`/api/exams/sections/${sectionId}/topics/`);
+      const topics = response.data?.topics || response.data?.results || response.data || [];
+      if (Array.isArray(topics) && topics.length > 0) {
+        return topics.map((t: any) => (typeof t === 'string' ? t : t.name || String(t)));
+      }
+      return [];
+    } catch (error) {
+      console.warn(`[examService] Failed to fetch topics for section ${sectionId}:`, error);
+      return [];
     }
   },
 
@@ -359,9 +399,25 @@ export const examService = {
     return response.data;
   },
 
+  getCachedAggregateReport: async (): Promise<any | null> => {
+    return await storage.get<any>('@classore_cached_aggregate_report');
+  },
+
   getAggregateReport: async (examType: string, timeframe: string): Promise<any> => {
-    const response = await api.get(`/api/user/exam/aggregate-report/?exam_type=${encodeURIComponent(examType)}&timeframe=${encodeURIComponent(timeframe)}`);
-    return response.data;
+    try {
+      const response = await api.get(`/api/user/exam/aggregate-report/?exam_type=${encodeURIComponent(examType)}&timeframe=${encodeURIComponent(timeframe)}`);
+      if (response.data) {
+        await storage.set('@classore_cached_aggregate_report', response.data);
+      }
+      return response.data;
+    } catch (error) {
+      const cached = await examService.getCachedAggregateReport();
+      if (cached) {
+        console.warn('[examService] Network failed for aggregate report, returning cached version');
+        return cached;
+      }
+      throw error;
+    }
   },
 
   resumeExam: async (attemptId: number): Promise<UserAttempt & { timer_info: { total_seconds: number; elapsed_seconds: number; remaining_seconds: number; is_expired: boolean } }> => {
@@ -381,21 +437,40 @@ export const examService = {
     return response.data;
   },
 
+  getCachedSavedQuestions: async (): Promise<any[]> => {
+    return (await storage.get<any[]>('@classore_cached_saved_questions')) || [];
+  },
+
   getSavedQuestions: async (params?: { exam_type_id?: number; section_id?: number }): Promise<any[]> => {
-    const query = new URLSearchParams();
-    if (params?.exam_type_id) query.append('exam_type_id', String(params.exam_type_id));
-    if (params?.section_id) query.append('section_id', String(params.section_id));
-    const response = await api.get(`/api/user/saved-questions/?${query.toString()}`);
-    return response.data.results ? response.data.results : response.data;
+    try {
+      const query = new URLSearchParams();
+      if (params?.exam_type_id) query.append('exam_type_id', String(params.exam_type_id));
+      if (params?.section_id) query.append('section_id', String(params.section_id));
+      const response = await api.get(`/api/user/saved-questions/?${query.toString()}`);
+      const freshQuestions = response.data.results ? response.data.results : response.data;
+      if (Array.isArray(freshQuestions)) {
+        await storage.set('@classore_cached_saved_questions', freshQuestions);
+      }
+      return freshQuestions;
+    } catch (error) {
+      console.warn('[examService] Network failed for saved questions, returning cached list:', error);
+      return await examService.getCachedSavedQuestions();
+    }
   },
 
   saveQuestion: async (questionId: number, notes?: string): Promise<any> => {
     const response = await api.post('/api/user/saved-questions/', { question: questionId, notes });
+    // Re-fetch or clear cache to ensure sync
+    examService.getSavedQuestions().catch(() => {});
     return response.data;
   },
 
   removeSavedQuestion: async (questionId: number): Promise<{ message: string }> => {
     const response = await api.delete(`/api/user/saved-questions/remove-by-question/${questionId}/`);
+    // Update local cache
+    const current = await examService.getCachedSavedQuestions();
+    const updated = current.filter((item: any) => item.question?.id !== questionId && item.question_id !== questionId);
+    await storage.set('@classore_cached_saved_questions', updated);
     return response.data;
   },
 

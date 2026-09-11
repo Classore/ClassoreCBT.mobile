@@ -107,7 +107,7 @@ export default function VerifyEmailScreen() {
                 onKeyPress={(e) => handleKeyPress(e, index)}
                 keyboardType="number-pad"
                 maxLength={6}
-                ref={(ref) => (inputs.current[index] = ref)}
+                ref={(ref) => { inputs.current[index] = ref; }}
                 selectTextOnFocus
               />
             ))}
