@@ -1,6 +1,8 @@
 import { AppText } from '@/components/AppText';
 import { CustomInput } from '@/components/CustomInput';
+import { GoogleIcon } from '@/components/GoogleIcon';
 import { api } from '@/services/api';
+
 import { GoogleSignin, isErrorWithCode, isSuccessResponse, statusCodes } from '@react-native-google-signin/google-signin';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
@@ -259,8 +261,11 @@ export default function SignupScreen() {
               <ActivityIndicator color="#111827" />
             ) : (
               <>
-                <Image source={require('../../../assets/images/google-icon.png')} style={styles.googleIcon} contentFit="contain" />
+                <View style={styles.googleIcon}>
+                  <GoogleIcon size={20} />
+                </View>
                 <AppText style={styles.googleButtonText}>Continue with Google</AppText>
+
               </>
             )}
           </TouchableOpacity>

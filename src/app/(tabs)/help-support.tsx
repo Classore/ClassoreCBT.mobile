@@ -103,7 +103,7 @@ export default function HelpSupportScreen() {
             <TouchableOpacity
               style={[styles.topicRow, { borderBottomWidth: 0 }]}
               activeOpacity={0.7}
-              onPress={() => navigateWithFrom('/contest', '/(tabs)/help-support')}
+              onPress={() => navigateWithFrom('/(tabs)/contest', '/(tabs)/help-support')}
             >
               <Text style={styles.topicRowText}>Contests and Leaderboards</Text>
               <Feather name="chevron-right" size={18} color="#9CA3AF" />

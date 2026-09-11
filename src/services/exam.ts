@@ -132,6 +132,17 @@ export interface UserAttempt {
   sections: AttemptSection[];
 }
 
+export interface RecentAttemptRecord {
+  id: number;
+  exam_type: number;
+  title: string;
+  total_questions?: number;
+  answered_questions?: number;
+  status: 'in_progress' | 'completed' | string;
+  is_section_based?: boolean;
+  timestamp: number;
+}
+
 export interface ExamStartRequest {
   exam_type_id: number;
   mode?: 'Standard' | 'Practice';
@@ -173,6 +184,7 @@ const memoryCachedSections: Record<number, ExamSection[]> = {};
 
 const TIER_CONFIGS_CACHE_KEY = '@classore_cached_tier_configs';
 let memoryCachedTierConfigs: ExamTierConfig[] | null = null;
+const memoryCachedAggregateReports: Record<string, any> = {};
 
 export const examService = {
   getCachedExamsSync: (): ExamType[] | null => {
@@ -399,21 +411,39 @@ export const examService = {
     return response.data;
   },
 
-  getCachedAggregateReport: async (): Promise<any | null> => {
-    return await storage.get<any>('@classore_cached_aggregate_report');
+  getCachedAggregateReportSync: (examType: string = 'Overview', timeframe: string = 'This Week'): any | null => {
+    const key = `${(examType || 'all').toLowerCase()}_${(timeframe || 'week').toLowerCase().replace(/\s+/g, '_')}`;
+    return memoryCachedAggregateReports[key] || null;
   },
 
-  getAggregateReport: async (examType: string, timeframe: string): Promise<any> => {
+  getCachedAggregateReport: async (examType: string = 'Overview', timeframe: string = 'This Week'): Promise<any | null> => {
+    const key = `${(examType || 'all').toLowerCase()}_${(timeframe || 'week').toLowerCase().replace(/\s+/g, '_')}`;
+    if (memoryCachedAggregateReports[key]) {
+      return memoryCachedAggregateReports[key];
+    }
+    const storageKey = `@classore_cached_aggregate_report_${key}`;
+    const stored = await storage.get<any>(storageKey);
+    if (stored) {
+      memoryCachedAggregateReports[key] = stored;
+      return stored;
+    }
+    return null;
+  },
+
+  getAggregateReport: async (examType: string = 'Overview', timeframe: string = 'This Week'): Promise<any> => {
+    const key = `${(examType || 'all').toLowerCase()}_${(timeframe || 'week').toLowerCase().replace(/\s+/g, '_')}`;
+    const storageKey = `@classore_cached_aggregate_report_${key}`;
     try {
       const response = await api.get(`/api/user/exam/aggregate-report/?exam_type=${encodeURIComponent(examType)}&timeframe=${encodeURIComponent(timeframe)}`);
       if (response.data) {
-        await storage.set('@classore_cached_aggregate_report', response.data);
+        memoryCachedAggregateReports[key] = response.data;
+        await storage.set(storageKey, response.data);
       }
       return response.data;
     } catch (error) {
-      const cached = await examService.getCachedAggregateReport();
+      const cached = await examService.getCachedAggregateReport(examType, timeframe);
       if (cached) {
-        console.warn('[examService] Network failed for aggregate report, returning cached version');
+        console.warn(`[examService] Network failed for ${examType} aggregate report, returning cached version`);
         return cached;
       }
       throw error;
@@ -593,5 +623,24 @@ export const examService = {
         },
       ],
     };
+  },
+
+  saveRecentAttempt: async (record: RecentAttemptRecord): Promise<void> => {
+    try {
+      const existing = (await storage.get<RecentAttemptRecord[]>('@classore_recent_attempts')) || [];
+      const filtered = existing.filter(a => a.id !== record.id);
+      const updated = [record, ...filtered].slice(0, 10);
+      await storage.set('@classore_recent_attempts', updated);
+    } catch (e) {
+      console.warn('Failed to save recent attempt locally:', e);
+    }
+  },
+
+  getRecentAttempts: async (): Promise<RecentAttemptRecord[]> => {
+    try {
+      return (await storage.get<RecentAttemptRecord[]>('@classore_recent_attempts')) || [];
+    } catch (e) {
+      return [];
+    }
   },
 };

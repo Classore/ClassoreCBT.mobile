@@ -3,9 +3,11 @@ import React, { useState } from 'react';
 import { View, StyleSheet, SafeAreaView, TouchableOpacity, Platform, TextInput } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useNotifications } from '@/context/NotificationContext';
 
 export default function WithdrawAmountScreen() {
   const router = useRouter();
+  const { hasUnread } = useNotifications();
   const [amount, setAmount] = useState('2,450.00');
 
   return (
@@ -16,9 +18,9 @@ export default function WithdrawAmountScreen() {
           <Feather name="chevron-left" size={24} color="#111827" />
         </TouchableOpacity>
         <AppText style={styles.headerTitle}>Withdraw Amount</AppText>
-        <TouchableOpacity style={styles.iconButton}>
+        <TouchableOpacity style={styles.iconButton} onPress={() => router.push('/notifications' as any)}>
           <Feather name="bell" size={20} color="#111827" />
-          <View style={styles.notificationDot} />
+          {hasUnread && <View style={styles.notificationDot} />}
         </TouchableOpacity>
       </View>
 

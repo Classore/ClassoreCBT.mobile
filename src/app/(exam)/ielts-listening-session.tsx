@@ -18,12 +18,14 @@ import {
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { examService, UserAttempt, AttemptSection, QuestionGroupItem, UserResponseItem } from '@/services/exam';
+import { storage } from '@/services/storage';
 import { Audio } from 'expo-av';
 import {
   SubscriptionRequiredModal,
   isSubscriptionError,
   getSubscriptionErrorMessage,
 } from '@/components/SubscriptionRequiredModal';
+import { formatQuestionText } from '@/utils/questionFormatter';
 
 export default function IELTSListeningSessionScreen() {
   const router = useRouter();
@@ -55,6 +57,7 @@ export default function IELTSListeningSessionScreen() {
   // Bookmarks & Overview Modal
   const [bookmarkedQuestions, setBookmarkedQuestions] = useState<number[]>([]);
   const [isOverviewVisible, setIsOverviewVisible] = useState(false);
+  const [showSubmitModal, setShowSubmitModal] = useState(false);
 
   // Audio Playback State
   const [sound, setSound] = useState<Audio.Sound | null>(null);
@@ -369,6 +372,10 @@ export default function IELTSListeningSessionScreen() {
   const isBookmarked = currentQ?.id ? bookmarkedQuestions.includes(currentQ.id) : false;
   const currentAnswerText = (currentQ?.id && answers[currentQ.id]) || '';
 
+  const isLastQuestionOfSection = !activeGroup || currentResponseIndex >= activeGroup.responses.length - 1;
+  const isLastSection = !listeningSection || activeGroupIndex >= listeningSection.question_groups.length - 1;
+  const isLastQuestionOfTest = isLastQuestionOfSection && isLastSection;
+
   const handleNextQuestion = () => {
     if (activeGroup && currentResponseIndex < activeGroup.responses.length - 1) {
       setCurrentResponseIndex(prev => prev + 1);
@@ -382,38 +389,121 @@ export default function IELTSListeningSessionScreen() {
     }
   };
 
+  const examStats = useMemo(() => {
+    if (!listeningSection?.question_groups) {
+      return { total: 0, answered: 0, unanswered: 0, bookmarked: 0 };
+    }
+    let total = 0;
+    let answered = 0;
+    let bookmarked = 0;
+
+    listeningSection.question_groups.forEach(grp => {
+      grp.responses?.forEach(resp => {
+        total += 1;
+        const qId = resp.question?.id;
+        if (qId && answers[qId] && answers[qId].trim().length > 0) {
+          answered += 1;
+        }
+        if (qId && bookmarkedQuestions.includes(qId)) {
+          bookmarked += 1;
+        }
+      });
+    });
+
+    return {
+      total,
+      answered,
+      unanswered: Math.max(0, total - answered),
+      bookmarked,
+    };
+  }, [listeningSection, answers, bookmarkedQuestions]);
+
   const handleSubmit = () => {
-    Alert.alert(
-      'Submit Listening Test',
-      'Are you sure you want to finish and submit your listening assessment?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Submit',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              setIsSubmitting(true);
-              if (params.attempt_id) {
-                await examService.submitExam(Number(params.attempt_id), { responses: [] });
-              }
-              router.replace({
-                pathname: '/(exam)/test-result',
-                params: { attempt_id: params.attempt_id },
-              });
-            } catch (err: any) {
-              console.warn('Submit warning:', err);
-              router.replace({
-                pathname: '/(exam)/test-result',
-                params: { attempt_id: params.attempt_id },
-              });
-            } finally {
-              setIsSubmitting(false);
-            }
-          },
+    setIsOverviewVisible(false);
+    setShowSubmitModal(true);
+  };
+
+  const executeSubmit = async () => {
+    try {
+      setIsSubmitting(true);
+
+      // 1. Stop audio playback immediately
+      if (sound) {
+        sound.unloadAsync().catch(() => {});
+        setSound(null);
+        setIsPlaying(false);
+      }
+
+      // 2. Build responses payload
+      const responsesPayload: any[] = [];
+      listeningSection?.question_groups?.forEach(grp => {
+        grp.responses?.forEach(resp => {
+          const qId = resp.question?.id;
+          if (!qId) return;
+
+          const item: any = { question_id: qId };
+          let hasData = false;
+
+          const answerText = answers[qId];
+          if (answerText && answerText.trim().length > 0) {
+            item.written_response = answerText.trim();
+            hasData = true;
+          }
+
+          if (bookmarkedQuestions.includes(qId)) {
+            item.is_bookmarked = true;
+            hasData = true;
+          }
+
+          if (hasData) {
+            responsesPayload.push(item);
+          }
+        });
+      });
+
+      const attemptId = attempt?.id || Number(params.attempt_id);
+
+      if (attemptId && !isNaN(attemptId)) {
+        await examService.submitExam(attemptId, { responses: responsesPayload });
+        await storage.remove('@classore_active_attempt');
+        examService.saveRecentAttempt({
+          id: attemptId,
+          exam_type: 42,
+          title: 'IELTS Listening Test',
+          total_questions: 40,
+          answered_questions: 40,
+          status: 'completed',
+          is_section_based: true,
+          timestamp: Date.now(),
+        }).catch(() => {});
+      }
+
+      setShowSubmitModal(false);
+      setIsOverviewVisible(false);
+
+      router.replace({
+        pathname: '/(exam)/test-result',
+        params: {
+          attempt_id: attemptId ? String(attemptId) : (params.attempt_id || ''),
+          exam_name: params.exam_name || 'IELTS Listening',
         },
-      ]
-    );
+      });
+    } catch (err: any) {
+      console.warn('Submit warning in listening session:', err);
+      const attemptId = attempt?.id || Number(params.attempt_id);
+      setShowSubmitModal(false);
+      setIsOverviewVisible(false);
+
+      router.replace({
+        pathname: '/(exam)/test-result',
+        params: {
+          attempt_id: attemptId ? String(attemptId) : (params.attempt_id || ''),
+          exam_name: params.exam_name || 'IELTS Listening',
+        },
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const screenTitle = useMemo(() => {
@@ -466,17 +556,15 @@ export default function IELTSListeningSessionScreen() {
         {/* Section Tabs Row */}
         <View style={styles.sectionTabsContainer}>
           {sectionTabs.map((tab, idx) => {
-            // As seen in Mockup 2, completed sections stay highlighted
             const isActive = idx === activeGroupIndex;
             const isCompleted = idx < activeGroupIndex;
-            const isHighlighted = isActive || isCompleted;
 
             return (
               <TouchableOpacity
                 key={idx}
                 style={[
                   styles.sectionTab,
-                  isHighlighted ? styles.sectionTabActive : styles.sectionTabInactive,
+                  isActive ? styles.sectionTabActive : styles.sectionTabInactive,
                 ]}
                 onPress={() => {
                   setActiveGroupIndex(idx);
@@ -484,18 +572,23 @@ export default function IELTSListeningSessionScreen() {
                 }}
                 activeOpacity={0.8}
               >
-                <Text
-                  style={[
-                    styles.sectionTabTitle,
-                    isHighlighted ? styles.sectionTabTitleActive : styles.sectionTabTitleInactive,
-                  ]}
-                >
-                  {tab.title}
-                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <Text
+                    style={[
+                      styles.sectionTabTitle,
+                      isActive ? styles.sectionTabTitleActive : styles.sectionTabTitleInactive,
+                    ]}
+                  >
+                    {tab.title}
+                  </Text>
+                  {isCompleted && !isActive && (
+                    <Feather name="check" size={12} color="#059669" />
+                  )}
+                </View>
                 <Text
                   style={[
                     styles.sectionTabSub,
-                    isHighlighted ? styles.sectionTabSubActive : styles.sectionTabSubInactive,
+                    isActive ? styles.sectionTabSubActive : styles.sectionTabSubInactive,
                   ]}
                 >
                   {tab.duration}
@@ -537,7 +630,7 @@ export default function IELTSListeningSessionScreen() {
             Question {currentResponseIndex + 1}
           </Text>
           <Text style={styles.questionPrompt}>
-            Listen to the recording and answer the question
+            {currentQ?.text ? formatQuestionText(currentQ.text) : (currentQ?.instructions || 'Listen to the recording and answer the question')}
           </Text>
 
           {/* Audio Player Section */}
@@ -652,11 +745,26 @@ export default function IELTSListeningSessionScreen() {
             </View>
 
             <TouchableOpacity
-              style={styles.nextButton}
+              style={[
+                styles.nextButton,
+                isLastQuestionOfTest && styles.submitButton,
+              ]}
               onPress={handleNextQuestion}
+              disabled={isSubmitting}
               activeOpacity={0.88}
             >
-              <Text style={styles.nextButtonText}>Next Question</Text>
+              {isSubmitting ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <View style={styles.nextButtonContent}>
+                  {isLastQuestionOfTest && (
+                    <Feather name="flag" size={15} color="#FFFFFF" style={{ marginRight: 6 }} />
+                  )}
+                  <Text style={styles.nextButtonText}>
+                    {isLastQuestionOfTest ? 'Submit' : isLastQuestionOfSection ? 'Next Section' : 'Next Question'}
+                  </Text>
+                </View>
+              )}
             </TouchableOpacity>
           </View>
         </View>
@@ -745,6 +853,78 @@ export default function IELTSListeningSessionScreen() {
                 <Feather name="flag" size={16} color="#DC2626" style={{ marginRight: 8 }} />
                 <Text style={styles.submitModalButtonText}>Finish & Submit Test</Text>
               </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+
+        {/* In-App Submit Confirmation Modal */}
+        <Modal 
+          visible={showSubmitModal} 
+          transparent 
+          animationType="fade"
+          onRequestClose={() => !isSubmitting && setShowSubmitModal(false)}
+        >
+          <View style={styles.modalBackdrop}>
+            <View style={styles.submitConfirmCard}>
+              <View style={styles.submitConfirmHeader}>
+                <View style={styles.submitConfirmIconBg}>
+                  <Feather name="check-circle" size={26} color="#6D28D9" />
+                </View>
+                <TouchableOpacity 
+                  onPress={() => !isSubmitting && setShowSubmitModal(false)} 
+                  style={styles.modalCloseBtn}
+                  disabled={isSubmitting}
+                >
+                  <Feather name="x" size={20} color="#6B7280" />
+                </TouchableOpacity>
+              </View>
+              <Text style={styles.submitConfirmTitle}>Submit Listening Test?</Text>
+              <Text style={styles.submitConfirmSubtitle}>
+                Are you sure you want to finalize and submit your listening assessment?
+              </Text>
+              
+              {/* Quick Stats Summary */}
+              <View style={styles.submitStatsBox}>
+                <View style={styles.submitStatItem}>
+                  <Text style={styles.submitStatValue}>{examStats.answered}</Text>
+                  <Text style={styles.submitStatLabel}>Answered</Text>
+                </View>
+                <View style={styles.submitStatDivider} />
+                <View style={styles.submitStatItem}>
+                  <Text style={styles.submitStatValue}>{examStats.unanswered}</Text>
+                  <Text style={styles.submitStatLabel}>Unanswered</Text>
+                </View>
+                <View style={styles.submitStatDivider} />
+                <View style={styles.submitStatItem}>
+                  <Text style={styles.submitStatValue}>{examStats.total}</Text>
+                  <Text style={styles.submitStatLabel}>Total Qs</Text>
+                </View>
+              </View>
+
+              <Text style={styles.submitConfirmDesc}>
+                Once submitted, your responses will be evaluated and graded immediately.
+              </Text>
+              
+              <View style={styles.submitConfirmActions}>
+                <TouchableOpacity 
+                  style={styles.cancelSubmitBtn} 
+                  onPress={() => setShowSubmitModal(false)}
+                  disabled={isSubmitting}
+                >
+                  <Text style={styles.cancelSubmitBtnText}>Keep Practicing</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={[styles.confirmSubmitBtn, isSubmitting && { opacity: 0.7 }]} 
+                  onPress={executeSubmit}
+                  disabled={isSubmitting}
+                >
+                  {isSubmitting ? (
+                    <ActivityIndicator color="#FFF" size="small" />
+                  ) : (
+                    <Text style={styles.confirmSubmitBtnText}>Yes, Submit</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
         </Modal>
@@ -1087,6 +1267,14 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#FFFFFF',
   },
+  nextButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  submitButton: {
+    backgroundColor: '#DC2626',
+  },
 
   // Modal Styles
   modalBackdrop: {
@@ -1191,5 +1379,108 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: '#DC2626',
+  },
+
+  // Submit Confirmation Modal Styles
+  submitConfirmCard: {
+    width: '100%',
+    maxWidth: 380,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    padding: 22,
+  },
+  submitConfirmHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  submitConfirmIconBg: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: '#F3E8FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  submitConfirmTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#111827',
+    marginBottom: 6,
+  },
+  submitConfirmSubtitle: {
+    fontSize: 13,
+    color: '#4B5563',
+    marginBottom: 14,
+    lineHeight: 18,
+  },
+  submitStatsBox: {
+    flexDirection: 'row',
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+  },
+  submitStatItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  submitStatValue: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#6D28D9',
+  },
+  submitStatLabel: {
+    fontSize: 11,
+    color: '#6B7280',
+    marginTop: 2,
+    fontWeight: '600',
+  },
+  submitStatDivider: {
+    width: 1,
+    height: 24,
+    backgroundColor: '#E5E7EB',
+  },
+  submitConfirmDesc: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    marginBottom: 20,
+    lineHeight: 16,
+  },
+  submitConfirmActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  cancelSubmitBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cancelSubmitBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#4B5563',
+  },
+  confirmSubmitBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: '#6D28D9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  confirmSubmitBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
 });

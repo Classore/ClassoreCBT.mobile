@@ -3,12 +3,17 @@ import { CustomButton } from '@/components/CustomButton';
 import { CustomCheckbox } from '@/components/CustomCheckbox';
 import { CustomInput } from '@/components/CustomInput';
 import { useAuth } from '@/context/AuthContext';
-import { api } from '@/services/api';
-import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
+import { Image } from 'expo-image';
 import { useState, useEffect } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+
+import { Alert, KeyboardAvoidingView, Platform, SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View, ActivityIndicator } from 'react-native';
+
 import * as SecureStore from 'expo-secure-store';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { GoogleSignin, isErrorWithCode, isSuccessResponse, statusCodes } from '@react-native-google-signin/google-signin';
+import { GoogleIcon } from '@/components/GoogleIcon';
+
 
 const REMEMBER_CREDENTIALS_KEY = 'classore_remembered_credentials';
 
@@ -18,7 +23,14 @@ const getRememberedCredentials = async () => {
     if (Platform.OS === 'web') {
       json = localStorage.getItem(REMEMBER_CREDENTIALS_KEY);
     } else {
-      json = await SecureStore.getItemAsync(REMEMBER_CREDENTIALS_KEY);
+      try {
+        json = await SecureStore.getItemAsync(REMEMBER_CREDENTIALS_KEY);
+      } catch {
+        json = null;
+      }
+      if (!json) {
+        json = await AsyncStorage.getItem(REMEMBER_CREDENTIALS_KEY);
+      }
     }
     if (json) {
       return JSON.parse(json);
@@ -35,7 +47,12 @@ const saveRememberedCredentials = async (email: string, pass: string) => {
     if (Platform.OS === 'web') {
       localStorage.setItem(REMEMBER_CREDENTIALS_KEY, payload);
     } else {
-      await SecureStore.setItemAsync(REMEMBER_CREDENTIALS_KEY, payload);
+      try {
+        await SecureStore.setItemAsync(REMEMBER_CREDENTIALS_KEY, payload);
+      } catch (err) {
+        console.warn('SecureStore setItem failed, falling back to AsyncStorage:', err);
+      }
+      await AsyncStorage.setItem(REMEMBER_CREDENTIALS_KEY, payload);
     }
   } catch (e) {
     console.warn('Failed to save remembered credentials:', e);
@@ -47,12 +64,23 @@ const clearRememberedCredentials = async () => {
     if (Platform.OS === 'web') {
       localStorage.removeItem(REMEMBER_CREDENTIALS_KEY);
     } else {
-      await SecureStore.deleteItemAsync(REMEMBER_CREDENTIALS_KEY);
+      try {
+        await SecureStore.deleteItemAsync(REMEMBER_CREDENTIALS_KEY);
+      } catch {
+        // Ignore
+      }
+      await AsyncStorage.removeItem(REMEMBER_CREDENTIALS_KEY);
     }
   } catch (e) {
     console.warn('Failed to clear remembered credentials:', e);
   }
 };
+
+
+GoogleSignin.configure({
+  webClientId: 'PLACEHOLDER_WEB_CLIENT_ID',
+  iosClientId: 'PLACEHOLDER_IOS_CLIENT_ID',
+});
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -61,7 +89,77 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  const handleToggleRemember = async (checked: boolean) => {
+    setRememberMe(checked);
+    if (!checked) {
+      await clearRememberedCredentials();
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    try {
+      setIsGoogleLoading(true);
+      setFormError(null);
+
+      await GoogleSignin.hasPlayServices();
+      const response = await GoogleSignin.signIn();
+
+      if (isSuccessResponse(response)) {
+        const idToken = response.data.idToken;
+        if (!idToken) {
+          throw new Error('No ID token received from Google.');
+        }
+
+        const API_URL = process.env.EXPO_PUBLIC_API_URL || (Platform.OS === 'android' ? 'http://10.0.2.2:8000' : 'http://127.0.0.1:8000');
+        const res = await fetch(`${API_URL}/api/auth/google/`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ id_token: idToken }),
+        });
+
+        if (!res.ok) {
+          const errorData = await res.json().catch(() => ({}));
+          throw new Error(errorData.message || errorData.error || 'Google authentication failed with server.');
+        }
+
+        const data = await res.json();
+        const token = data.token || data.key || data.access;
+        if (token) {
+          await login(token);
+          router.replace('/(tabs)');
+        } else {
+          router.replace('/(tabs)');
+        }
+      } else {
+        console.log('Google sign in cancelled by user');
+      }
+    } catch (error: any) {
+      if (isErrorWithCode(error)) {
+        switch (error.code) {
+          case statusCodes.IN_PROGRESS:
+            Alert.alert('Google Sign-In', 'Sign in is already in progress');
+            break;
+          case statusCodes.PLAY_SERVICES_NOT_AVAILABLE:
+            Alert.alert('Google Sign-In', 'Google Play Services is not available or outdated on this device.');
+            break;
+          case statusCodes.SIGN_IN_CANCELLED:
+            break;
+          default:
+            Alert.alert('Google Sign-In Error', error.message || 'An unknown error occurred with Google Sign-In.');
+        }
+      } else {
+        Alert.alert('Google Sign-In Failed', error.message || 'Could not complete Google Sign-In.');
+      }
+    } finally {
+      setIsGoogleLoading(false);
+    }
+  };
+
 
   useEffect(() => {
     const loadRemembered = async () => {
@@ -117,12 +215,13 @@ export default function LoginScreen() {
               <CustomCheckbox 
                 label="Remember my password" 
                 checked={rememberMe} 
-                onChange={setRememberMe} 
+                onChange={handleToggleRemember} 
               />
               <TouchableOpacity onPress={() => router.push('/auth/forgot-password')}>
                 <AppText style={styles.forgotPassword}>Forgot Password ?</AppText>
               </TouchableOpacity>
             </View>
+
 
             {formError && (
               <AppText style={styles.errorText}>{formError}</AppText>
@@ -148,13 +247,47 @@ export default function LoginScreen() {
                   });
                   
                   if (!res.ok) {
-                    const errorText = await res.text();
-                    throw new Error(`Login failed (${res.status}): ${errorText}`);
+                    const errorData = await res.json().catch(() => null);
+                    
+                    // Comprehensive check for unverified account
+                    const errorStr = JSON.stringify(errorData || '').toLowerCase();
+                    const isUnverified = 
+                      errorData?.error === 'account_unverified' ||
+                      errorStr.includes('account_unverified') ||
+                      (res.status === 403 && errorStr.includes('verif')) ||
+                      (typeof errorData?.message === 'string' && errorData.message.toLowerCase().includes('not verified'));
+
+                    if (isUnverified) {
+                      const targetEmail = errorData?.email || email.trim();
+                      router.push({
+                        pathname: '/(auth)/verify-email',
+                        params: { email: targetEmail }
+                      });
+                      return;
+                    }
+
+                    // Best practice: Extract clean, friendly error messages without raw dumps
+                    let cleanMsg = 'Invalid email or password. Please try again.';
+                    if (errorData) {
+                      if (errorData.error === 'invalid_credentials') {
+                        cleanMsg = 'Invalid email or password. Please check your credentials and try again.';
+                      } else if (typeof errorData.message === 'string' && errorData.message.trim()) {
+                        cleanMsg = errorData.message;
+                      } else if (Array.isArray(errorData.non_field_errors) && typeof errorData.non_field_errors[0] === 'string') {
+                        cleanMsg = errorData.non_field_errors[0];
+                      } else if (typeof errorData.detail === 'string') {
+                        cleanMsg = errorData.detail;
+                      } else if (typeof errorData.error === 'string') {
+                        cleanMsg = errorData.error;
+                      }
+                    }
+
+                    setFormError(cleanMsg);
+                    return;
                   }
                   
-                  const response = { data: await res.json() };
-                  
-                  const token = response.data.token || response.data.key || response.data.access;
+                  const responseData = await res.json();
+                  const token = responseData.token || responseData.key || responseData.access;
                   if (!token) {
                     throw new Error('No authentication token received from the server.');
                   }
@@ -168,43 +301,13 @@ export default function LoginScreen() {
                   login(token).catch(err => console.error("Login storage failed:", err));
                   router.replace('/(tabs)');
                 } catch (error: any) {
-                  const data = error.response?.data;
-                  console.log("Login error response:", data);
-                  
-                  // Comprehensive check for unverified account
-                  const errorStr = JSON.stringify(data || '').toLowerCase();
-                  const isUnverified = errorStr.includes('account_unverified') || 
-                    (error.response?.status === 403 && errorStr.includes('verif')) ||
-                    (typeof data?.message === 'string' && data.message.toLowerCase().includes('not verified')) ||
-                    (typeof data?.error === 'string' && data.error.toLowerCase().includes('account_unverified'));
-
-                  if (isUnverified) {
-                    const targetEmail = data?.email || (typeof data?.email === 'string' ? data.email : email.trim());
-                    
-                    // Direct navigation to the OTP verification screen
-                    router.push({
-                      pathname: '/(auth)/verify-email',
-                      params: { email: targetEmail }
-                    });
-                    return;
+                  console.log("Login error:", error);
+                  // Provide clean fallback message if network or unexpected error occurs
+                  if (error.message?.includes('Network request failed') || error.message?.includes('Failed to fetch')) {
+                    setFormError('Unable to connect to server. Please check your internet connection.');
+                  } else {
+                    setFormError(error.message || 'An unexpected error occurred. Please try again.');
                   }
-
-                  let errorMsg = error.message || 'Login failed';
-                  if (data) {
-                    if (typeof data === 'string') {
-                      errorMsg = data;
-                    } else if (data.non_field_errors && Array.isArray(data.non_field_errors)) {
-                      const err = data.non_field_errors[0];
-                      errorMsg = typeof err === 'string' ? err : (err.message || err.error || JSON.stringify(err));
-                    } else if (data.message) {
-                      errorMsg = typeof data.message === 'string' ? data.message : JSON.stringify(data.message);
-                    } else if (data.error) {
-                      errorMsg = typeof data.error === 'string' ? data.error : (data.error.message || JSON.stringify(data.error));
-                    } else {
-                      errorMsg = JSON.stringify(data);
-                    }
-                  }
-                  setFormError(errorMsg);
                 } finally {
                   setLoading(false);
                 }
@@ -231,10 +334,13 @@ export default function LoginScreen() {
           <CustomButton 
             title="Continue with Google" 
             variant="secondary"
-            onPress={() => {}} 
-            icon={<Image source={require('../../../assets/images/google-icon.png')} style={{ width: 20, height: 20, marginRight: 10 }} contentFit="contain" />} 
+            loading={isGoogleLoading}
+            onPress={handleGoogleSignIn} 
+            icon={<View style={{ marginRight: 10 }}><GoogleIcon size={20} /></View>} 
             style={styles.googleButton}
           />
+
+
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>

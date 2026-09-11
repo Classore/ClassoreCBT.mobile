@@ -12,6 +12,7 @@ import {
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams } from 'expo-router';
 import { handleHelpBack } from '@/utils/helpNavigation';
+import { LinearGradient } from 'expo-linear-gradient';
 import { getVideoTutorials, VideoTutorialItem } from '@/services/support';
 
 interface VideoItem {

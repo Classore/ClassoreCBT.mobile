@@ -1,7 +1,7 @@
 import { AppText } from '@/components/AppText';
 import React from 'react';
 import { TouchableOpacity, View, Text, StyleSheet } from 'react-native';
-import { SymbolView } from 'expo-symbols';
+import { Feather } from '@expo/vector-icons';
 
 interface CustomCheckboxProps {
   label: string;
@@ -18,13 +18,14 @@ export function CustomCheckbox({ label, checked, onChange }: CustomCheckboxProps
     >
       <View style={[styles.checkbox, checked && styles.checkboxChecked]}>
         {checked && (
-          <SymbolView name="checkmark" size={14} tintColor="#fff" />
+          <Feather name="check" size={13} color="#FFFFFF" />
         )}
       </View>
       <AppText style={styles.label}>{label}</AppText>
     </TouchableOpacity>
   );
 }
+
 
 const styles = StyleSheet.create({
   container: {

@@ -21,11 +21,13 @@ import { WebView } from 'react-native-webview';
 import * as WebBrowser from 'expo-web-browser';
 import { RNIap } from '@/utils/iap';
 import { Modal } from 'react-native';
+import { useNotifications } from '@/context/NotificationContext';
 
 export default function BuyTokensScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const { user, refreshUser } = useAuth();
+  const { hasUnread } = useNotifications();
 
   const [selectedPayment, setSelectedPayment] = useState<'paystack' | 'flutterwave' | 'applepay'>('paystack');
   const [customAmount, setCustomAmount] = useState('');
@@ -197,7 +199,7 @@ export default function BuyTokensScreen() {
             activeOpacity={0.7}
           >
             <Feather name="bell" size={20} color="#111827" />
-            <View style={styles.notificationDot} />
+            {hasUnread && <View style={styles.notificationDot} />}
           </TouchableOpacity>
         </View>
 

@@ -12,6 +12,7 @@ import {
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { walletService } from '@/services/wallet';
+import { useNotifications } from '@/context/NotificationContext';
 
 interface TransactionItem {
   id: string;
@@ -29,6 +30,7 @@ interface TransactionItem {
 
 export default function TransactionHistoryScreen() {
   const router = useRouter();
+  const { hasUnread } = useNotifications();
   const [activeFilter, setActiveFilter] = useState<'All' | 'Sent' | 'Received' | 'Purchase'>('All');
   const [transactions, setTransactions] = useState<TransactionItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -124,7 +126,7 @@ export default function TransactionHistoryScreen() {
             activeOpacity={0.7}
           >
             <Feather name="bell" size={20} color="#111827" />
-            <View style={styles.notificationDot} />
+            {hasUnread && <View style={styles.notificationDot} />}
           </TouchableOpacity>
         </View>
 

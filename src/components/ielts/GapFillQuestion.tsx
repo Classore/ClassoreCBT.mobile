@@ -30,8 +30,8 @@ export const GapFillQuestion: React.FC<GapFillQuestionProps> = ({
   const activeSentence = sentence || activeBlanks[0]?.prompt || "The city's population has grown rapidly in the _____ decade.";
 
   const renderInlineSentence = () => {
-    // Check if the sentence has placeholders like "_____" or "[blank]"
-    const placeholderRegex = /(___+|\[blank\]|\{blank\}|\(\.\.\.\))/i;
+    // Check if the sentence has placeholders like "_____", "[blank_1]", "[blank]" or similar tags
+    const placeholderRegex = /(___+|\[blank(?:_[a-zA-Z0-9_]+)?\]|\{blank(?:_[a-zA-Z0-9_]+)?\}|\(blank(?:_[a-zA-Z0-9_]+)?\)|\(\.\.\.\))/i;
     if (placeholderRegex.test(activeSentence)) {
       const parts = activeSentence.split(placeholderRegex);
       return (
@@ -81,10 +81,10 @@ export const GapFillQuestion: React.FC<GapFillQuestionProps> = ({
       {/* If there are multiple blanks in this group, render subsequent ones */}
       {activeBlanks.length > 1 && (
         <View style={styles.multiBlanksList}>
-          {activeBlanks.slice(1).map((b) => {
+          {activeBlanks.slice(1).map((b, index) => {
             const val = blanks[b.id] || '';
             return (
-              <View key={b.id} style={styles.multiBlankCard}>
+              <View key={`gap-blank-${b.id || index}-${index}`} style={styles.multiBlankCard}>
                 <AppText style={styles.multiBlankLabel}>{b.label || `Blank ${b.id}`}</AppText>
                 <TextInput
                   style={styles.standardInput}

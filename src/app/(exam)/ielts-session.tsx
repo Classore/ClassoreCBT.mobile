@@ -18,6 +18,7 @@ import { Image } from 'expo-image';
 import { Audio } from 'expo-av';
 import { mediaCache } from '@/services/mediaCache';
 import { examService, UserAttempt, AttemptSection, QuestionGroupItem, UserResponseItem } from '@/services/exam';
+import { storage } from '@/services/storage';
 import { 
   MultiSelectQuestion, 
   TFNGQuestion, 
@@ -34,6 +35,7 @@ import {
   isSubscriptionError, 
   getSubscriptionErrorMessage 
 } from '@/components/SubscriptionRequiredModal';
+import { formatQuestionText } from '@/utils/questionFormatter';
 
 export default function IELTSSessionScreen() {
   const router = useRouter();
@@ -130,6 +132,22 @@ export default function IELTSSessionScreen() {
         
         if (isMounted) {
           setAttempt(currentAttempt);
+          storage.set('@classore_active_attempt', {
+            id: currentAttempt.id,
+            exam_type: currentAttempt.exam_type || 42,
+            title: 'IELTS Examination',
+            is_section_based: true,
+          }).catch(() => {});
+          examService.saveRecentAttempt({
+            id: currentAttempt.id,
+            exam_type: currentAttempt.exam_type || 42,
+            title: 'IELTS Examination',
+            total_questions: 40,
+            answered_questions: 0,
+            status: 'in_progress',
+            is_section_based: true,
+            timestamp: Date.now(),
+          }).catch(() => {});
           const initialBookmarks: number[] = [];
           currentAttempt.sections?.forEach(sec => {
             sec.question_groups?.forEach(grp => {
@@ -270,7 +288,7 @@ export default function IELTSSessionScreen() {
       return activeSection.question_groups.map((group, idx) => {
         const isTask2 = idx === 1 || (group.group_title || '').toLowerCase().includes('task 2');
         return {
-          id: group.group_id,
+          id: group.group_id || idx,
           title: group.group_title || `Task ${idx + 1}`,
           subtitle: isTask2 ? '40 mins · 250 words' : '20 mins · 150 words',
           groupIndices: [idx],
@@ -293,86 +311,153 @@ export default function IELTSSessionScreen() {
       cumulativeQ += len;
     });
 
-    // Check if groups can be merged by Passage or Part
+    // Intelligent Passage & Part Grouping
     const passageKeyRegex = /(Passage\s+\d+|Part\s+\d+|Section\s+\d+)/i;
-    const groupsWithKeys = activeSection.question_groups.map((group, idx) => {
+
+    const mergedTabs: {
+      id: string | number;
+      title: string;
+      subtitle: string;
+      groupIndices: number[];
+      startQuestionNumber: number;
+      endQuestionNumber: number;
+      firstGroupIndex: number;
+    }[] = [];
+
+    let currentTab: typeof mergedTabs[0] | null = null;
+    let currentTabKey = '';
+    let currentPassageContextText = '';
+
+    activeSection.question_groups.forEach((group, idx) => {
       const tag = (group as any).topic_tag;
       const titleMatch = (group.group_title || '').match(passageKeyRegex);
-      const key = tag || (titleMatch ? titleMatch[1] : null);
-      return { group, idx, key };
-    });
+      const explicitKey = (titleMatch ? titleMatch[1] : tag) || null;
+      const groupContext = (group.context_text || '').trim();
 
-    const hasPassageKeys = groupsWithKeys.some(g => g.key !== null);
+      // Determine if this group introduces a new passage / part:
+      let isNewPassage = false;
 
-    if (hasPassageKeys) {
-      const mergedTabs: {
-        id: string | number;
-        title: string;
-        subtitle: string;
-        groupIndices: number[];
-        startQuestionNumber: number;
-        endQuestionNumber: number;
-        firstGroupIndex: number;
-      }[] = [];
-      let currentTab: typeof mergedTabs[0] | null = null;
-      let lastKey = '';
-
-      groupsWithKeys.forEach(({ group, idx, key }) => {
-        const tabKey = key || `Part ${mergedTabs.length + 1}`;
-        if (currentTab && tabKey.toLowerCase() === lastKey.toLowerCase()) {
-          currentTab.groupIndices.push(idx);
-          currentTab.endQuestionNumber = groupRanges[idx].endQ;
-          currentTab.subtitle = `Questions ${currentTab.startQuestionNumber}–${currentTab.endQuestionNumber}`;
-        } else {
-          const cleanTitle = tabKey.replace(/\b\w/g, (c: string) => c.toUpperCase());
-          const startQ = groupRanges[idx].startQ;
-          const endQ = groupRanges[idx].endQ;
-          const subtitle = startQ === endQ ? `Question ${startQ}` : `Questions ${startQ}–${endQ}`;
-
-          currentTab = {
-            id: `tab-${tabKey}-${idx}`,
-            title: cleanTitle,
-            subtitle,
-            groupIndices: [idx],
-            startQuestionNumber: startQ,
-            endQuestionNumber: endQ,
-            firstGroupIndex: idx,
-          };
-          mergedTabs.push(currentTab);
-          lastKey = tabKey;
+      if (idx === 0 || !currentTab) {
+        isNewPassage = true;
+      } else if (explicitKey) {
+        // If an explicit key is present (e.g. "Passage 2" vs current "Passage 1"):
+        if (currentTabKey && explicitKey.toLowerCase() !== currentTabKey.toLowerCase()) {
+          isNewPassage = true;
+        } else if (!currentTabKey) {
+          isNewPassage = true;
         }
-      });
-
-      return mergedTabs;
-    }
-
-    // Fallback: each group is its own tab
-    return activeSection.question_groups.map((group, idx) => {
-      const startQ = groupRanges[idx].startQ;
-      const endQ = groupRanges[idx].endQ;
-      const subtitle = startQ === endQ ? `Question ${startQ}` : `Questions ${startQ}–${endQ}`;
-
-      let cleanTitle = group.group_title?.trim() || `Part ${idx + 1}`;
-      if (cleanTitle.length > 20) {
-        const parenMatch = cleanTitle.match(/\(([^)]+)\)/);
-        cleanTitle = parenMatch ? parenMatch[1] : `Part ${idx + 1}`;
+      } else if (groupContext && currentPassageContextText) {
+        // No explicit key in title. Compare context_text:
+        // If both have substantial reading texts (> 80 chars) and they are distinctly different, it's a new passage
+        if (groupContext.length > 80 && currentPassageContextText.length > 80) {
+          const isSameText = groupContext === currentPassageContextText ||
+            groupContext.startsWith(currentPassageContextText.slice(0, 100)) ||
+            currentPassageContextText.startsWith(groupContext.slice(0, 100));
+          if (!isSameText) {
+            isNewPassage = true;
+          }
+        }
       }
 
-      return {
-        id: group.group_id || idx,
-        title: cleanTitle,
-        subtitle,
-        groupIndices: [idx],
-        startQuestionNumber: startQ,
-        endQuestionNumber: endQ,
-        firstGroupIndex: idx,
-      };
+      if (isNewPassage) {
+        const tabNumber = mergedTabs.length + 1;
+        let cleanTitle = explicitKey
+          ? explicitKey.replace(/\b\w/g, (c: string) => c.toUpperCase())
+          : (group.group_title?.trim() || `Passage ${tabNumber}`);
+
+        if (cleanTitle.length > 25) {
+          const parenMatch = cleanTitle.match(/\(([^)]+)\)/);
+          if (parenMatch) {
+            cleanTitle = parenMatch[1];
+          } else {
+            cleanTitle = `Passage ${tabNumber}`;
+          }
+        }
+
+        const startQ = groupRanges[idx].startQ;
+        const endQ = groupRanges[idx].endQ;
+        const subtitle = startQ === endQ ? `Question ${startQ}` : `Questions ${startQ}–${endQ}`;
+
+        currentTab = {
+          id: `tab-${cleanTitle}-${idx}`,
+          title: cleanTitle,
+          subtitle,
+          groupIndices: [idx],
+          startQuestionNumber: startQ,
+          endQuestionNumber: endQ,
+          firstGroupIndex: idx,
+        };
+        mergedTabs.push(currentTab);
+        currentTabKey = explicitKey || cleanTitle;
+        if (groupContext.length > 80) {
+          currentPassageContextText = groupContext;
+        }
+      } else if (currentTab) {
+        // Merge into current passage tab
+        currentTab.groupIndices.push(idx);
+        currentTab.endQuestionNumber = groupRanges[idx].endQ;
+        currentTab.subtitle = `Questions ${currentTab.startQuestionNumber}–${currentTab.endQuestionNumber}`;
+        if (!currentPassageContextText && groupContext.length > 80) {
+          currentPassageContextText = groupContext;
+        }
+      }
     });
+
+    return mergedTabs;
   }, [activeSection]);
 
   const activeTab = useMemo(() => {
     return navigationTabs.find(tab => tab.groupIndices.includes(activeGroupIndex)) || navigationTabs[0];
   }, [navigationTabs, activeGroupIndex]);
+
+  // Context-aware Next Button text to avoid saying "Next Passage" when still under the same passage
+  const nextButtonLabel = useMemo(() => {
+    if (!activeGroup || !activeSection) return 'Next';
+
+    const isWriting = (activeSection.section_name || '').toLowerCase().includes('writing');
+    const isSpeaking = (activeSection.section_name || '').toLowerCase().includes('speaking');
+    const isListening = (activeSection.section_name || '').toLowerCase().includes('listening');
+    const isReading = (activeSection.section_name || '').toLowerCase().includes('reading');
+
+    // 1. If not at the last question of the current group:
+    if (currentResponseIndex < activeGroup.responses.length - 1) {
+      return 'Next';
+    }
+
+    // 2. At the last question of the current group: check if there is a next group in this section
+    if (activeGroupIndex < activeSection.question_groups.length - 1) {
+      const nextGroupIndex = activeGroupIndex + 1;
+
+      // Does the next group belong to the SAME passage/tab?
+      const isNextGroupInSameTab = activeTab?.groupIndices?.includes(nextGroupIndex);
+
+      if (isNextGroupInSameTab) {
+        // Still under the same passage! Do NOT say "Next Passage"!
+        return 'Next';
+      }
+
+      // Next group is in a NEW passage / part
+      if (isWriting) {
+        return 'Next Task';
+      }
+      if (isReading) {
+        return 'Next Passage';
+      }
+      if (isListening || isSpeaking) {
+        return 'Next Part';
+      }
+      return 'Next Passage';
+    }
+
+    // 3. At the last question of the last group of this section:
+    const hasNextSection = !!attempt && activeSectionIndex < (attempt.sections?.length || 0) - 1;
+    if (hasNextSection) {
+      return 'Next Section';
+    }
+
+    // 4. Final question of the entire exam
+    return 'Submit Test';
+  }, [activeGroup, activeSection, currentResponseIndex, activeGroupIndex, activeTab, attempt, activeSectionIndex]);
 
   useEffect(() => {
     if (activeTab && tabsScrollViewRef.current && navigationTabs.length > 3) {
@@ -588,7 +673,7 @@ export default function IELTSSessionScreen() {
     const resp = grp.responses[currentResponseIndex];
     const newMeta = { ...(resp.metadata || {}), audio_uri: audioUri };
     resp.metadata = newMeta;
-    resp.audio_response_url = audioUri;
+    resp.audio_response = audioUri;
     setAttempt(updatedAttempt);
 
     try {
@@ -596,7 +681,6 @@ export default function IELTSSessionScreen() {
         responses: [{
           question_id: questionId,
           metadata: newMeta,
-          audio_response_url: audioUri,
           time_spent_seconds: 30,
         }]
       });
@@ -804,6 +888,17 @@ export default function IELTSSessionScreen() {
       });
 
       await examService.submitExam(attempt.id, { responses: responsesPayload });
+      await storage.remove('@classore_active_attempt');
+      examService.saveRecentAttempt({
+        id: attempt.id,
+        exam_type: attempt.exam_type || 42,
+        title: 'IELTS Examination',
+        total_questions: 40,
+        answered_questions: 40,
+        status: 'completed',
+        is_section_based: true,
+        timestamp: Date.now(),
+      }).catch(() => {});
       setShowSubmitModal(false);
       router.replace({
         pathname: '/(exam)/test-result',
@@ -864,9 +959,10 @@ export default function IELTSSessionScreen() {
     const qType = q.question_type;
 
     if (format === 'TFNG') {
+      const passageName = activeTab ? activeTab.title : `Reading Passage ${activeGroupIndex + 1}`;
       return {
         title: 'True / False / Not Given',
-        subtitle: q.instructions || `Do the following statements agree with the information given in Reading Passage ${activeGroupIndex + 1}?`,
+        subtitle: q.instructions || `Do the following statements agree with the information given in ${passageName}?`,
       };
     }
     if (format === 'YNNG') {
@@ -1069,7 +1165,9 @@ export default function IELTSSessionScreen() {
                   activeOpacity={0.8}
                 >
                   <Text style={styles.fullNextButtonText}>
-                    {activeGroupIndex < activeSection.question_groups.length - 1 ? 'Next Task' : 'Submit Test'}
+                    {activeGroupIndex < activeSection.question_groups.length - 1 
+                      ? 'Next Task' 
+                      : (attempt && activeSectionIndex < (attempt.sections?.length || 0) - 1 ? 'Next Section' : 'Submit Test')}
                   </Text>
                 </TouchableOpacity>
 
@@ -1088,31 +1186,41 @@ export default function IELTSSessionScreen() {
           })() : (
             <>
               {/* Passage Reading Card */}
-              {(activeGroup.context_text || activeGroup.context_media) && (
-                <View style={styles.passageCard}>
-                  <View style={styles.passageHeaderRow}>
-                    <Text style={styles.passageNumberText}>
-                      {activeTab ? activeTab.title : (activeGroup.group_title || `Passage ${activeGroupIndex + 1}`)}
-                    </Text>
-                    <TouchableOpacity 
-                      style={styles.bookmarkButton}
-                      onPress={() => currentResponse?.question && toggleBookmark(currentResponse.question.id)}
-                      activeOpacity={0.7}
-                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                    >
-                      <Ionicons 
-                        name={currentResponse?.question && bookmarkedQuestions.includes(currentResponse.question.id) ? "bookmark" : "bookmark-outline"} 
-                        size={20} 
-                        color={currentResponse?.question && bookmarkedQuestions.includes(currentResponse.question.id) ? '#F59E0B' : '#6B7280'} 
-                      />
-                    </TouchableOpacity>
-                  </View>
+              {(() => {
+                const passageText = activeGroup.context_text ||
+                  (activeTab ? activeSection.question_groups[activeTab.firstGroupIndex]?.context_text : '') ||
+                  '';
+                const passageMedia = activeGroup.context_media ||
+                  (activeTab ? activeSection.question_groups[activeTab.firstGroupIndex]?.context_media : '') ||
+                  '';
+                if (!passageText && !passageMedia) return null;
 
-                  {activeGroup.context_text && (
-                    <Text style={styles.passageBodyText}>{activeGroup.context_text}</Text>
-                  )}
-                </View>
-              )}
+                return (
+                  <View style={styles.passageCard}>
+                    <View style={styles.passageHeaderRow}>
+                      <Text style={styles.passageNumberText}>
+                        {activeTab ? activeTab.title : (activeGroup.group_title || `Passage ${activeGroupIndex + 1}`)}
+                      </Text>
+                      <TouchableOpacity 
+                        style={styles.bookmarkButton}
+                        onPress={() => currentResponse?.question && toggleBookmark(currentResponse.question.id)}
+                        activeOpacity={0.7}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <Ionicons 
+                          name={currentResponse?.question && bookmarkedQuestions.includes(currentResponse.question.id) ? "bookmark" : "bookmark-outline"} 
+                          size={20} 
+                          color={currentResponse?.question && bookmarkedQuestions.includes(currentResponse.question.id) ? '#F59E0B' : '#6B7280'} 
+                        />
+                      </TouchableOpacity>
+                    </View>
+
+                    {passageText ? (
+                      <Text style={styles.passageBodyText}>{passageText}</Text>
+                    ) : null}
+                  </View>
+                );
+              })()}
 
               {/* Listening Audio Control Card */}
               {activeSection.section_name.toLowerCase().includes('listening') && (activeGroup.context_media || (activeGroup as any).audio_file || currentResponse.question.audio_file) && (
@@ -1169,7 +1277,7 @@ export default function IELTSSessionScreen() {
 
                       return (
                         <TouchableOpacity
-                          key={grp.group_id}
+                          key={`subgroup-${grp.group_id || gIdx}-${gIdx}`}
                           style={[styles.subGroupChip, isCurrentGroup && styles.subGroupChipActive]}
                           onPress={() => {
                             setActiveGroupIndex(gIdx);
@@ -1244,12 +1352,14 @@ export default function IELTSSessionScreen() {
                     options={currentResponse.question.metadata?.options}
                     onChangeLabel={handleUpdateDiagramLabel}
                   />
-                ) : currentResponse.question.question_type === 'GAP_FILL' && currentResponse.question.metadata?.word_bank ? (
+                ) : currentResponse.question.question_type === 'GAP_FILL' && (currentResponse.question.metadata?.word_bank || currentResponse.question.metadata?.options) ? (
                   /* FORMAT 4: Summary Completion with Word Bank */
                   <WordBankQuestion
+                    summaryText={currentResponse.question.text}
+                    instructionText={currentResponse.question.instructions}
                     blanks={currentResponse.metadata?.blanks || {}}
                     blanksConfig={currentResponse.question.metadata?.blanks || []}
-                    wordBank={currentResponse.question.metadata?.word_bank || []}
+                    wordBank={currentResponse.question.metadata?.word_bank || currentResponse.question.metadata?.options || []}
                     onSelectWord={(blankId, wordId) => handleUpdateGapFill(blankId, wordId)}
                     onClearBlank={(blankId) => handleUpdateGapFill(blankId, '')}
                   />
@@ -1266,7 +1376,7 @@ export default function IELTSSessionScreen() {
                 ) : currentResponse.question.question_type === 'AUDIO' ? (
                   /* FORMAT 6: Audio Response / Speaking Question */
                   <AudioResponseQuestion
-                    audioUri={currentResponse.metadata?.audio_uri || currentResponse.audio_response_url}
+                    audioUri={currentResponse.metadata?.audio_uri || currentResponse.audio_response}
                     instructionText={currentResponse.question.instructions || 'Record your audio response for this question.'}
                     onRecordComplete={(uri) => {
                       handleUpdateAudioResponse(currentResponse.question.id, uri);
@@ -1309,7 +1419,7 @@ export default function IELTSSessionScreen() {
                             </View>
                             <Text style={[styles.optionText, isSelected && styles.optionTextSelected]}>
                               <Text style={styles.optionLabel}>{label}. </Text>
-                              {opt.text}
+                              {formatQuestionText(opt.text)}
                             </Text>
                           </TouchableOpacity>
                         );
@@ -1326,11 +1436,7 @@ export default function IELTSSessionScreen() {
                 activeOpacity={0.8}
               >
                 <Text style={styles.fullNextButtonText}>
-                  {currentResponseIndex < activeGroup.responses.length - 1 
-                    ? 'Next' 
-                    : activeGroupIndex < activeSection.question_groups.length - 1 
-                      ? 'Next Passage' 
-                      : 'Submit Test'}
+                  {nextButtonLabel}
                 </Text>
               </TouchableOpacity>
 

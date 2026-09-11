@@ -15,6 +15,8 @@ import {
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { examService, UserAttempt, UserResponseItem, isSectionBasedExam } from '@/services/exam';
+import { storage } from '@/services/storage';
+import { formatQuestionText } from '@/utils/questionFormatter';
 import {
   SubscriptionRequiredModal,
   isSubscriptionError,
@@ -143,6 +145,12 @@ export default function ExamSessionScreen() {
 
         if (isMounted && currentAttempt) {
           setAttempt(currentAttempt);
+          storage.set('@classore_active_attempt', {
+            id: currentAttempt.id,
+            exam_type: targetExamId,
+            title: targetExamObj?.name || 'Standard Exam',
+            is_section_based: false,
+          }).catch(() => {});
           
           // Populate existing answers and bookmarks if any
           const initialAnswers: Record<number, number> = {};
@@ -290,6 +298,7 @@ export default function ExamSessionScreen() {
           is_bookmarked: allBookmarkedQIds.has(qId),
         }));
         await examService.submitExam(attempt.id, { responses: responsesPayload });
+        await storage.remove('@classore_active_attempt');
       }
       setShowSubmitModal(false);
       router.replace({
@@ -415,13 +424,13 @@ export default function ExamSessionScreen() {
           {currentItem?.group?.context_text ? (
             <View style={styles.passageCard}>
               <AppText style={styles.passageTitle}>{currentItem.group.group_title || 'Reading Passage'}</AppText>
-              <AppText style={styles.passageText}>{currentItem.group.context_text}</AppText>
+              <AppText style={styles.passageText}>{formatQuestionText(currentItem.group.context_text)}</AppText>
             </View>
           ) : null}
 
           {/* Question Text */}
           <AppText style={styles.questionText}>
-            {currentQuestion?.text || 'Which of the following is the correct formula for calculating the area of a circle?'}
+            {formatQuestionText(currentQuestion?.text) || 'Which of the following is the correct formula for calculating the area of a circle?'}
           </AppText>
 
           {/* Options */}

@@ -8,7 +8,6 @@ import {
   TouchableOpacity,
   TextInput,
   Platform,
-  Alert,
   ActivityIndicator,
 } from 'react-native';
 import { Feather, Ionicons } from '@expo/vector-icons';
@@ -27,6 +26,8 @@ export default function AddPasswordScreen() {
   const [showConfirm, setShowConfirm] = useState(false);
 
   const [updating, setUpdating] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   // Criteria validation
   const hasMinLength = newPassword.length >= 8;
@@ -53,16 +54,19 @@ export default function AddPasswordScreen() {
   }, [newPassword, strengthScore]);
 
   const handleSetPassword = async () => {
+    setErrorMessage(null);
+    setSuccessMessage(null);
+
     if (!newPassword) {
-      Alert.alert('Required', 'Please enter your new password.');
+      setErrorMessage('Please enter your new password.');
       return;
     }
     if (!hasMinLength || !hasUppercase || !hasNumber || !hasSpecial) {
-      Alert.alert('Password Criteria', 'Please satisfy all required password conditions.');
+      setErrorMessage('Please satisfy all required password security conditions: 8+ characters, 1 uppercase letter, 1 number, and 1 special character.');
       return;
     }
     if (newPassword !== confirmPassword) {
-      Alert.alert('Mismatch', 'New password and confirmation do not match.');
+      setErrorMessage('New password and confirmation do not match.');
       return;
     }
 
@@ -72,22 +76,14 @@ export default function AddPasswordScreen() {
         new_password: newPassword,
       });
 
-      Alert.alert(
-        'Password Added',
-        'Your password has been successfully set. You can now use it to sign in.',
-        [
-          {
-            text: 'OK',
-            onPress: () => handleHelpBack(params.from, '/settings'),
-          },
-        ]
-      );
+      setSuccessMessage('Your password has been successfully set. You can now use it to sign in. Redirecting…');
+      setTimeout(() => handleHelpBack(params.from, '/settings'), 1800);
     } catch (error: any) {
       const errMsg =
         error?.response?.data?.message ||
         error?.response?.data?.detail ||
         'Failed to set password. Please check your connection and try again.';
-      Alert.alert('Update Failed', errMsg);
+      setErrorMessage(errMsg);
     } finally {
       setUpdating(false);
     }
@@ -258,6 +254,21 @@ export default function AddPasswordScreen() {
               </Text>
             </View>
           </View>
+
+          {/* Error & Success Banners */}
+          {errorMessage ? (
+            <View style={styles.errorBanner}>
+              <Feather name="alert-circle" size={16} color="#EF4444" style={{ marginRight: 8 }} />
+              <Text style={styles.errorBannerText}>{errorMessage}</Text>
+            </View>
+          ) : null}
+
+          {successMessage ? (
+            <View style={styles.successBanner}>
+              <Feather name="check-circle" size={16} color="#10B981" style={{ marginRight: 8 }} />
+              <Text style={styles.successBannerText}>{successMessage}</Text>
+            </View>
+          ) : null}
 
           {/* Update Button */}
           <TouchableOpacity
@@ -473,5 +484,37 @@ const styles = StyleSheet.create({
   switchTextBold: {
     color: '#6D28D9',
     fontWeight: '700',
+  },
+  errorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FCA5A5',
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 14,
+    marginTop: 20,
+  },
+  errorBannerText: {
+    flex: 1,
+    color: '#991B1B',
+    fontSize: 13.5,
+    fontWeight: '600',
+  },
+  successBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ECFDF5',
+    borderColor: '#6EE7B7',
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 14,
+    marginTop: 20,
+  },
+  successBannerText: {
+    flex: 1,
+    color: '#065F46',
+    fontSize: 13.5,
+    fontWeight: '600',
   },
 });

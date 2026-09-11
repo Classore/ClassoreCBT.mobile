@@ -46,7 +46,7 @@ export const MultiSelectQuestion: React.FC<MultiSelectQuestionProps> = ({
           const label = String.fromCharCode(65 + i);
           return (
             <TouchableOpacity
-              key={opt.id}
+              key={`choice-${opt.id || i}-${i}`}
               style={[styles.optionItem, isSelected && styles.optionItemSelected]}
               onPress={() => toggleChoice(opt.id)}
               activeOpacity={0.8}

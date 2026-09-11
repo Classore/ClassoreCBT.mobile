@@ -15,11 +15,47 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { AppText } from '@/components/AppText';
 import { contestService, Contest, ContestStats } from '@/services/contest';
+import { useNotifications } from '@/context/NotificationContext';
+
+// Animated Skeleton Card for Contest Lists
+function ContestCardsSkeleton({ shimmerAnim }: { shimmerAnim: Animated.Value }) {
+  return (
+    <Animated.View style={{ opacity: shimmerAnim, gap: 16 }}>
+      {[1, 2, 3].map((i) => (
+        <View key={i} style={styles.contestCard}>
+          <View style={styles.cardHeader}>
+            <View style={styles.skeletonIconBox} />
+            <View style={{ flex: 1, marginLeft: 12, gap: 8 }}>
+              <View style={[styles.skeletonLine, { width: '70%', height: 16 }]} />
+              <View style={[styles.skeletonLine, { width: '45%', height: 12 }]} />
+            </View>
+          </View>
+          <View style={styles.cardStatsRow}>
+            <View style={styles.statCol}>
+              <View style={[styles.skeletonLine, { width: 44, height: 10, marginBottom: 6 }]} />
+              <View style={[styles.skeletonLine, { width: 55, height: 14 }]} />
+            </View>
+            <View style={styles.statCol}>
+              <View style={[styles.skeletonLine, { width: 50, height: 10, marginBottom: 6 }]} />
+              <View style={[styles.skeletonLine, { width: 45, height: 14 }]} />
+            </View>
+            <View style={styles.statCol}>
+              <View style={[styles.skeletonLine, { width: 48, height: 10, marginBottom: 6 }]} />
+              <View style={[styles.skeletonLine, { width: 60, height: 14 }]} />
+            </View>
+          </View>
+          <View style={[styles.skeletonLine, { width: '100%', height: 44, borderRadius: 12, marginTop: 4 }]} />
+        </View>
+      ))}
+    </Animated.View>
+  );
+}
 
 export default function ContestZoneListScreen() {
   const router = useRouter();
+  const { hasUnread } = useNotifications();
   const [activeTab, setActiveTab] = useState<'live' | 'upcoming' | 'past'>('upcoming');
-  const [contests, setContests] = useState<Contest[]>([]);
+  const [contestsCache, setContestsCache] = useState<Record<string, Contest[]>>({});
   const [loadingContests, setLoadingContests] = useState(false);
   const [stats, setStats] = useState<ContestStats | null>(null);
   const [loadingStats, setLoadingStats] = useState(true);
@@ -27,52 +63,79 @@ export default function ContestZoneListScreen() {
   const shimmerAnim = useRef(new Animated.Value(0.35)).current;
 
   useEffect(() => {
-    if (loadingStats) {
-      const animation = Animated.loop(
-        Animated.sequence([
-          Animated.timing(shimmerAnim, {
-            toValue: 0.75,
-            duration: 850,
-            useNativeDriver: true,
-          }),
-          Animated.timing(shimmerAnim, {
-            toValue: 0.35,
-            duration: 850,
-            useNativeDriver: true,
-          }),
-        ])
-      );
-      animation.start();
-      return () => animation.stop();
-    }
-  }, [loadingStats, shimmerAnim]);
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(shimmerAnim, {
+          toValue: 0.85,
+          duration: 850,
+          useNativeDriver: true,
+        }),
+        Animated.timing(shimmerAnim, {
+          toValue: 0.35,
+          duration: 850,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    animation.start();
+    return () => animation.stop();
+  }, [shimmerAnim]);
 
-  const loadData = useCallback(async () => {
-    try {
-      const myStats = await contestService.getMyStats();
-      setStats(myStats);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoadingStats(false);
+  const currentKey = activeTab;
+  const currentContests = contestsCache[currentKey];
+
+  useEffect(() => {
+    let isCancelled = false;
+    const cacheKey = activeTab;
+
+    // Check synchronous cache
+    if (!contestsCache[cacheKey]) {
+      const syncData = contestService.getCachedContestsSync(activeTab);
+      if (syncData) {
+        setContestsCache((prev) => ({ ...prev, [cacheKey]: syncData }));
+      }
     }
 
-    setLoadingContests(true);
-    try {
-      const data = await contestService.getContests(activeTab);
-      setContests(data);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoadingContests(false);
-    }
+    const loadData = async () => {
+      const hasContests = !!contestsCache[cacheKey] || !!contestService.getCachedContestsSync(activeTab);
+      if (!hasContests) {
+        setLoadingContests(true);
+      }
+
+      try {
+        const [statsRes, contestsRes] = await Promise.allSettled([
+          stats ? Promise.resolve(stats) : contestService.getMyStats(),
+          contestService.getContests(activeTab),
+        ]);
+
+        if (isCancelled) return;
+
+        if (statsRes.status === 'fulfilled' && statsRes.value) {
+          setStats(statsRes.value);
+          setLoadingStats(false);
+        }
+
+        if (contestsRes.status === 'fulfilled' && contestsRes.value) {
+          setContestsCache((prev) => ({ ...prev, [cacheKey]: contestsRes.value }));
+        }
+      } catch (err) {
+        if (!isCancelled) {
+          console.error('[ContestZone] Error fetching data:', err);
+        }
+      } finally {
+        if (!isCancelled) {
+          setLoadingContests(false);
+          setLoadingStats(false);
+        }
+      }
+    };
+
+    loadData();
+
+    return () => {
+      isCancelled = true;
+    };
   }, [activeTab]);
-
-  useFocusEffect(
-    useCallback(() => {
-      loadData();
-    }, [loadData])
-  );
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -93,7 +156,7 @@ export default function ContestZoneListScreen() {
             activeOpacity={0.7}
           >
             <Feather name="bell" size={20} color="#111827" />
-            <View style={styles.notificationDot} />
+            {hasUnread && <View style={styles.notificationDot} />}
           </TouchableOpacity>
         </View>
 
@@ -238,12 +301,30 @@ export default function ContestZoneListScreen() {
 
           {/* Contest Cards List */}
           <View style={styles.contestList}>
-            {loadingContests ? (
-              <ActivityIndicator size="large" color="#6D28D9" style={{ marginVertical: 40 }} />
-            ) : contests.length === 0 ? (
-              <AppText style={styles.emptyText}>No {activeTab} contests found.</AppText>
+            {!currentContests ? (
+              <ContestCardsSkeleton shimmerAnim={shimmerAnim} />
+            ) : currentContests.length === 0 ? (
+              <View style={styles.emptyCard}>
+                <View style={styles.emptyIconCircle}>
+                  <Feather
+                    name={activeTab === 'live' ? 'target' : activeTab === 'upcoming' ? 'calendar' : 'clock'}
+                    size={28}
+                    color="#6D28D9"
+                  />
+                </View>
+                <AppText style={styles.emptyTitle}>
+                  No {activeTab === 'live' ? 'Live' : activeTab === 'upcoming' ? 'Upcoming' : 'Past'} Contests
+                </AppText>
+                <AppText style={styles.emptySubtitle}>
+                  {activeTab === 'live'
+                    ? 'There are no active contests running at this moment. Tap Upcoming to see what is scheduled next!'
+                    : activeTab === 'upcoming'
+                    ? 'New contests will be announced soon. Keep practicing to stay sharp!'
+                    : 'You have not participated in any completed contests yet.'}
+                </AppText>
+              </View>
             ) : (
-              contests.map((contest, index) => {
+              currentContests.map((contest, index) => {
                 const isFirst = index === 0;
                 const isRegistered = Boolean(contest.has_joined);
 
@@ -623,5 +704,48 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: 'rgba(255, 255, 255, 0.25)',
     marginTop: 4,
+  },
+  skeletonLine: {
+    backgroundColor: '#E5E7EB',
+    borderRadius: 6,
+  },
+  skeletonIconBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#F3F4F6',
+  },
+  emptyCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
+    marginVertical: 10,
+  },
+  emptyIconCircle: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    backgroundColor: '#F5F3FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
+  },
+  emptyTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1F2937',
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  emptySubtitle: {
+    fontSize: 13,
+    color: '#6B7280',
+    textAlign: 'center',
+    lineHeight: 19,
+    paddingHorizontal: 12,
   },
 });

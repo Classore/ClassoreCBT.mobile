@@ -2,7 +2,7 @@ import { useAuth } from '@/context/AuthContext';
 import { Feather } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { navigateWithFrom } from '@/utils/helpNavigation';
 import {
   Alert,
@@ -40,6 +40,13 @@ export default function EditProfileScreen() {
     : require('@/assets/images/default-avatar.png');
 
   const [isSaving, setIsSaving] = useState(false);
+  const [focusedField, setFocusedField] = useState<string | null>(null);
+
+  const focusProps = useCallback((fieldName: string) => ({
+    onFocus: () => setFocusedField(fieldName),
+    onBlur: () => setFocusedField(null),
+  }), []);
+
 
   const [modalVisible, setModalVisible] = useState(false);
   const [modalType, setModalType] = useState<'gender' | 'state' | 'classLevel' | null>(null);
@@ -162,22 +169,24 @@ export default function EditProfileScreen() {
           <View style={styles.form}>
             {/* Full Name */}
             <View style={styles.fieldGroup}>
-              <Text style={styles.fieldLabel}>Full Name</Text>
-              <View style={styles.inputContainer}>
+              <Text style={[styles.fieldLabel, focusedField === 'fullName' && styles.fieldLabelFocused]}>Full Name</Text>
+              <View style={[styles.inputContainer, focusedField === 'fullName' && styles.inputContainerFocused]}>
                 <TextInput
                   style={styles.textInput}
                   value={fullName}
                   onChangeText={setFullName}
                   placeholder="Enter full name"
                   placeholderTextColor="#9CA3AF"
+                  underlineColorAndroid="transparent"
+                  {...focusProps('fullName')}
                 />
               </View>
             </View>
 
             {/* Email Address */}
             <View style={styles.fieldGroup}>
-              <Text style={styles.fieldLabel}>Email Address</Text>
-              <View style={styles.inputContainer}>
+              <Text style={[styles.fieldLabel, focusedField === 'email' && styles.fieldLabelFocused]}>Email Address</Text>
+              <View style={[styles.inputContainer, focusedField === 'email' && styles.inputContainerFocused]}>
                 <TextInput
                   style={styles.textInput}
                   value={email}
@@ -186,14 +195,16 @@ export default function EditProfileScreen() {
                   placeholderTextColor="#9CA3AF"
                   keyboardType="email-address"
                   autoCapitalize="none"
+                  underlineColorAndroid="transparent"
+                  {...focusProps('email')}
                 />
               </View>
             </View>
 
             {/* Phone Number with Flag */}
             <View style={styles.fieldGroup}>
-              <Text style={styles.fieldLabel}>Phone Number</Text>
-              <View style={[styles.inputContainer, styles.phoneInputContainer]}>
+              <Text style={[styles.fieldLabel, focusedField === 'phone' && styles.fieldLabelFocused]}>Phone Number</Text>
+              <View style={[styles.inputContainer, styles.phoneInputContainer, focusedField === 'phone' && styles.inputContainerFocused]}>
                 <View style={styles.flagContainer}>
                   <Text style={{ fontSize: 18, marginRight: 6 }}>🇳🇬</Text>
                   <Feather name="chevron-down" size={12} color="#6B7280" />
@@ -205,22 +216,26 @@ export default function EditProfileScreen() {
                   placeholder="+234 800 000 0000"
                   placeholderTextColor="#9CA3AF"
                   keyboardType="phone-pad"
+                  underlineColorAndroid="transparent"
+                  {...focusProps('phone')}
                 />
               </View>
             </View>
 
             {/* Date of Birth */}
             <View style={styles.fieldGroup}>
-              <Text style={styles.fieldLabel}>Date of Birth</Text>
-              <View style={[styles.inputContainer, styles.dropdownContainer]}>
+              <Text style={[styles.fieldLabel, focusedField === 'dob' && styles.fieldLabelFocused]}>Date of Birth</Text>
+              <View style={[styles.inputContainer, styles.dropdownContainer, focusedField === 'dob' && styles.inputContainerFocused]}>
                 <TextInput
                   style={styles.textInput}
                   value={dateOfBirth}
                   onChangeText={setDateOfBirth}
                   placeholder="DD/MM/YYYY"
                   placeholderTextColor="#9CA3AF"
+                  underlineColorAndroid="transparent"
+                  {...focusProps('dob')}
                 />
-                <Feather name="calendar" size={16} color="#9CA3AF" />
+                <Feather name="calendar" size={16} color={focusedField === 'dob' ? '#6D28D9' : '#9CA3AF'} />
               </View>
             </View>
 
@@ -228,7 +243,7 @@ export default function EditProfileScreen() {
             <View style={styles.fieldGroup}>
               <Text style={styles.fieldLabel}>Gender</Text>
               <TouchableOpacity style={[styles.inputContainer, styles.dropdownContainer]} activeOpacity={0.7} onPress={() => openModal('gender')}>
-                <Text style={styles.dropdownValueText}>{gender}</Text>
+                <Text style={gender ? styles.dropdownValueText : styles.dropdownPlaceholderText}>{gender || 'Select gender'}</Text>
                 <Feather name="chevron-down" size={16} color="#9CA3AF" />
               </TouchableOpacity>
             </View>
@@ -237,21 +252,23 @@ export default function EditProfileScreen() {
             <View style={styles.fieldGroup}>
               <Text style={styles.fieldLabel}>State</Text>
               <TouchableOpacity style={[styles.inputContainer, styles.dropdownContainer]} activeOpacity={0.7} onPress={() => openModal('state')}>
-                <Text style={styles.dropdownValueText}>{state}</Text>
+                <Text style={state ? styles.dropdownValueText : styles.dropdownPlaceholderText}>{state || 'Select state'}</Text>
                 <Feather name="chevron-down" size={16} color="#9CA3AF" />
               </TouchableOpacity>
             </View>
 
             {/* School (Optional) */}
             <View style={styles.fieldGroup}>
-              <Text style={styles.fieldLabel}>School (Optional)</Text>
-              <View style={styles.inputContainer}>
+              <Text style={[styles.fieldLabel, focusedField === 'school' && styles.fieldLabelFocused]}>School <Text style={styles.optionalTag}>(Optional)</Text></Text>
+              <View style={[styles.inputContainer, focusedField === 'school' && styles.inputContainerFocused]}>
                 <TextInput
                   style={styles.textInput}
                   value={school}
                   onChangeText={setSchool}
                   placeholder="Enter school name"
                   placeholderTextColor="#9CA3AF"
+                  underlineColorAndroid="transparent"
+                  {...focusProps('school')}
                 />
               </View>
             </View>
@@ -260,7 +277,7 @@ export default function EditProfileScreen() {
             <View style={styles.fieldGroup}>
               <Text style={styles.fieldLabel}>Class / Level</Text>
               <TouchableOpacity style={[styles.inputContainer, styles.dropdownContainer]} activeOpacity={0.7} onPress={() => openModal('classLevel')}>
-                <Text style={styles.dropdownValueText}>{classLevel}</Text>
+                <Text style={classLevel ? styles.dropdownValueText : styles.dropdownPlaceholderText}>{classLevel || 'Select class'}</Text>
                 <Feather name="chevron-down" size={16} color="#9CA3AF" />
               </TouchableOpacity>
             </View>
@@ -436,8 +453,31 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     paddingHorizontal: 16,
     paddingVertical: Platform.OS === 'ios' ? 14 : 10,
-    borderWidth: 1,
-    borderColor: '#F1F5F9',
+    borderWidth: 1.5,
+    borderColor: '#E8EDF2',
+  },
+  inputContainerFocused: {
+    borderColor: '#7C3AED',
+    backgroundColor: '#FAF5FF',
+    // subtle elevation on Android for depth
+    elevation: 2,
+    shadowColor: '#7C3AED',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+  },
+  fieldLabelFocused: {
+    color: '#7C3AED',
+  },
+  optionalTag: {
+    fontSize: 12,
+    fontWeight: '400',
+    color: '#9CA3AF',
+  },
+  dropdownPlaceholderText: {
+    fontSize: 14,
+    color: '#9CA3AF',
+    fontWeight: '400',
   },
   phoneInputContainer: {
     flexDirection: 'row',
@@ -460,6 +500,7 @@ const styles = StyleSheet.create({
     color: '#111827',
     fontWeight: '500',
     flex: 1,
+    backgroundColor: 'transparent', // strips Android native EditText focus rectangle
   },
   dropdownValueText: {
     fontSize: 14,

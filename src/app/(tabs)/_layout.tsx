@@ -1,6 +1,8 @@
 import { Tabs, usePathname } from 'expo-router';
 import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
+import { Feather, Ionicons } from '@expo/vector-icons';
 import { SymbolView } from 'expo-symbols';
+
 import { Image } from 'expo-image';
 
 // Custom tab bar button for the center action
@@ -11,7 +13,7 @@ const CustomTabBarButton = ({ children, onPress }: any) => (
     activeOpacity={0.8}
   >
     <View style={styles.customButton}>
-      <Image source={require('../../../assets/images/plus-icon.png')} style={{ width: 24, height: 24 }} contentFit="contain" />
+      <Feather name="plus" size={26} color="#FFFFFF" />
     </View>
   </TouchableOpacity>
 );
@@ -54,8 +56,8 @@ export default function TabsLayout() {
         name="index"
         options={{
           title: 'Home',
-          tabBarIcon: ({ color }) => (
-            <Image source={require('../../../assets/images/home-icon.png')} style={{ width: 24, height: 24 }} tintColor={color as string} contentFit="contain" />
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? 'home' : 'home-outline'} size={22} color={color} />
           ),
         }}
       />
@@ -64,8 +66,8 @@ export default function TabsLayout() {
         name="practice"
         options={{
           title: 'Practice',
-          tabBarIcon: ({ color }) => (
-            <Image source={require('../../../assets/images/practice-icon.png')} style={{ width: 24, height: 24 }} tintColor={color as string} contentFit="contain" />
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? 'book' : 'book-outline'} size={22} color={color} />
           ),
         }}
       />
@@ -84,8 +86,8 @@ export default function TabsLayout() {
         name="reports"
         options={{
           title: 'Reports',
-          tabBarIcon: ({ color }) => (
-            <Image source={require('../../../assets/images/reports-icon.png')} style={{ width: 24, height: 24 }} tintColor={color as string} contentFit="contain" />
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? 'stats-chart' : 'stats-chart-outline'} size={21} color={color} />
           ),
         }}
       />
@@ -94,12 +96,11 @@ export default function TabsLayout() {
         name="profile"
         options={{
           title: 'Profile',
-          tabBarIcon: ({ color }) => (
-            <Image
-              source={require('../../../assets/images/profile-icon.png')}
-              style={{ width: 24, height: 24 }}
-              tintColor={(isProfileActive ? '#6D28D9' : color) as string}
-              contentFit="contain"
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons
+              name={focused || isProfileActive ? 'person' : 'person-outline'}
+              size={22}
+              color={isProfileActive ? '#6D28D9' : color}
             />
           ),
           tabBarLabel: ({ color }) => (

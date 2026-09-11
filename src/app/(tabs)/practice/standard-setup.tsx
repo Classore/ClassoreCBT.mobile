@@ -1,10 +1,10 @@
 import { AppText } from '@/components/AppText';
 import { useAuth } from '@/context/AuthContext';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, Platform, ActivityIndicator, Alert } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { examService, ExamSection, ExamTierConfig, isSectionBasedExam } from '@/services/exam';
 import {
@@ -15,7 +15,7 @@ import {
 
 
 export default function StandardSetupScreen() {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const router = useRouter();
   const params = useLocalSearchParams<{ exam?: string; exam_name?: string }>();
 
@@ -46,6 +46,13 @@ export default function StandardSetupScreen() {
   const [isStarting, setIsStarting] = useState(false);
   const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
   const [subscriptionMessage, setSubscriptionMessage] = useState<string | undefined>();
+
+  // Refresh user profile (and streak) silently every time the screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      refreshUser().catch(() => {/* silent – stale data is fine if offline */});
+    }, [])
+  );
 
 
   useEffect(() => {

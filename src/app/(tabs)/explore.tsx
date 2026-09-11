@@ -1,385 +1,782 @@
 import { AppText } from '@/components/AppText';
-import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, ScrollView, TextInput, TouchableOpacity, Platform, ActivityIndicator } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  SafeAreaView,
+  ScrollView,
+  TouchableOpacity,
+  Platform,
+} from 'react-native';
 import { Image } from 'expo-image';
-import { useRouter } from 'expo-router';
-import { examService, ExamType } from '@/services/exam';
-import { searchService, SearchHistoryItem, SearchResults } from '@/services/search';
+import { Feather, Ionicons } from '@expo/vector-icons';
+import { useRouter, useFocusEffect } from 'expo-router';
+import { useAuth } from '@/context/AuthContext';
+import { examService, isSectionBasedExam } from '@/services/exam';
+import { storage } from '@/services/storage';
 
-export default function ExploreScreen() {
+interface PracticeItem {
+  id: string | number;
+  title: string;
+  totalQuestions: number;
+  answeredQuestions: number;
+  lastPracticed: string;
+  status: 'in_progress' | 'completed' | string;
+  attemptId?: number;
+  examTypeId?: number;
+  isSectionBased?: boolean;
+}
+
+const formatRelativeTime = (dateStr?: string | number | null): string => {
+  if (!dateStr) return 'Last practiced recently';
+  const timeMs = typeof dateStr === 'number' ? dateStr : new Date(dateStr).getTime();
+  const diffMs = Date.now() - timeMs;
+  if (isNaN(diffMs) || diffMs < 0) return 'Last practiced recently';
+  const diffMinutes = Math.floor(diffMs / (1000 * 60));
+  const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+  if (diffMinutes < 1) return 'Last practiced just now';
+  if (diffMinutes < 60) return `Last practiced ${diffMinutes}m ago`;
+  if (diffHours < 24) return `Last practiced ${diffHours} hr${diffHours > 1 ? 's' : ''} ago`;
+  if (diffDays === 1) return 'Last practiced yesterday';
+  if (diffDays < 30) return `Last practiced ${diffDays} days ago`;
+  return 'Last practiced recently';
+};
+
+const isIeltsAttempt = (item: any, examsList?: any[]): boolean => {
+  const examId = Number(item.exam_type || item.exam_type_id || item.examTypeId);
+  if (examId === 42) return true;
+
+  const examObj = examsList?.find((e: any) => e.id === examId);
+  const nameStr = [
+    item.title,
+    item.exam_name,
+    item.exam_type_name,
+    item.name,
+    examObj?.name,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
+  if (
+    nameStr.includes('ielts') ||
+    nameStr.includes('english') ||
+    nameStr.includes('toefl') ||
+    nameStr.includes('speaking') ||
+    nameStr.includes('listening') ||
+    nameStr.includes('writing') ||
+    nameStr.includes('reading')
+  ) {
+    return true;
+  }
+
+  if (Array.isArray(item.sections)) {
+    return item.sections.some((s: any) => {
+      const sName = (s.name || s.section_name || '').toLowerCase();
+      return ['listening', 'reading', 'writing', 'speaking'].includes(sName);
+    });
+  }
+
+  return false;
+};
+
+export default function PracticeHubScreen() {
   const router = useRouter();
-  const [searchQuery, setSearchQuery] = useState('');
-  const [recentSearches, setRecentSearches] = useState<SearchHistoryItem[]>([]);
-  const [exams, setExams] = useState<ExamType[]>(() => examService.getCachedExamsSync() || []);
-  const [loading, setLoading] = useState(() => !examService.getCachedExamsSync() || (examService.getCachedExamsSync()?.length === 0));
+  const { user } = useAuth();
 
-  // Search Results State
-  const [searchResults, setSearchResults] = useState<SearchResults | null>(null);
-  const [isSearching, setIsSearching] = useState(false);
-  const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const userStreak = user?.streak ?? 120;
 
-  useEffect(() => {
-    fetchInitialData();
+  // Default fallback items with both JAMB and IELTS representation
+  const defaultItems: PracticeItem[] = [
+    {
+      id: 'default-ongoing',
+      title: 'JAMB Practice Test',
+      totalQuestions: 400,
+      answeredQuestions: 250,
+      lastPracticed: 'Last practiced 2 hrs ago',
+      status: 'in_progress',
+      examTypeId: 41,
+      isSectionBased: false,
+    },
+    {
+      id: 'default-completed',
+      title: 'IELTS Academic Test',
+      totalQuestions: 40,
+      answeredQuestions: 40,
+      lastPracticed: 'Last practiced 1 day ago',
+      status: 'completed',
+      examTypeId: 42,
+      isSectionBased: true,
+    },
+  ];
+
+  const [practiceItems, setPracticeItems] = useState<PracticeItem[]>(defaultItems);
+
+  const loadPracticeHistory = useCallback(async () => {
+    try {
+      // 1. Fetch from multiple sources in parallel: local recent cache, active attempt, backend history, and last attempt details
+      const [
+        localRecent,
+        activeLocal,
+        allExams,
+        backendHistory,
+        ieltsLastAttempt,
+        jambLastAttempt,
+      ] = await Promise.all([
+        examService.getRecentAttempts().catch(() => []),
+        storage.get<any>('@classore_active_attempt').catch(() => null),
+        examService.getExams().catch(() => examService.getCachedExamsSync() || []),
+        examService.getExamHistory().catch(() => []),
+        examService.getLastAttemptDetails(42).catch(() => null),
+        examService.getLastAttemptDetails(41).catch(() => null),
+      ]);
+
+      const gatheredAttempts: any[] = [];
+      const seenIds = new Set<number>();
+
+      const addAttemptIfNew = (raw: any, defaultStatus?: string) => {
+        if (!raw) return;
+        const id = Number(raw.id || raw.attempt_id);
+        if (id && seenIds.has(id)) return;
+        if (id) seenIds.add(id);
+
+        const isIelts = isIeltsAttempt(raw, allExams);
+        const examId = Number(raw.exam_type || raw.exam_type_id || (isIelts ? 42 : 41));
+        const examObj = allExams?.find((e: any) => e.id === examId);
+
+        let title = raw.title || raw.exam_name || raw.exam_type_name || examObj?.name;
+        if (!title || title === 'Standard Exam' || title === 'In-Progress Exam') {
+          title = isIelts ? 'IELTS Academic Test' : 'JAMB Practice Test';
+        }
+
+        let total = raw.total_questions || raw.totalQuestions;
+        let answered = raw.answered_questions || raw.answeredQuestions;
+
+        if (!total && Array.isArray(raw.sections)) {
+          let secTotal = 0;
+          let secAns = 0;
+          raw.sections.forEach((sec: any) => {
+            sec.question_groups?.forEach((grp: any) => {
+              secTotal += grp.responses?.length || 0;
+              grp.responses?.forEach((r: any) => {
+                if (r.selected_choice || r.written_response) secAns++;
+              });
+            });
+          });
+          if (secTotal > 0) {
+            total = secTotal;
+            answered = secAns;
+          }
+        }
+
+        if (!total || total <= 0) {
+          total = isIelts ? 40 : 400;
+        }
+
+        const status = raw.status || defaultStatus || 'completed';
+        if (status === 'completed' && (!answered || answered === 0)) {
+          answered = total;
+        } else if (!answered) {
+          answered = isIelts ? 30 : 250;
+        }
+
+        gatheredAttempts.push({
+          id: id || `item-${Date.now()}-${Math.random()}`,
+          title,
+          totalQuestions: total,
+          answeredQuestions: Math.min(total, answered),
+          lastPracticed: formatRelativeTime(raw.timestamp || raw.end_time || raw.start_time),
+          status,
+          attemptId: id,
+          examTypeId: examId,
+          isSectionBased: isIelts || isSectionBasedExam(title, raw.sections),
+          rawTime: new Date(raw.timestamp || raw.end_time || raw.start_time || 0).getTime(),
+        });
+      };
+
+      // In-progress local active attempt
+      if (activeLocal?.id) {
+        addAttemptIfNew({ ...activeLocal, status: 'in_progress' }, 'in_progress');
+      }
+
+      // Local recent records
+      if (Array.isArray(localRecent)) {
+        localRecent.forEach(rec => addAttemptIfNew(rec));
+      }
+
+      // Backend IELTS last attempt
+      if (ieltsLastAttempt?.attempt) {
+        addAttemptIfNew({ ...ieltsLastAttempt.attempt, exam_type: 42, title: 'IELTS Academic Test' });
+      } else if (ieltsLastAttempt?.id) {
+        addAttemptIfNew({ ...ieltsLastAttempt, exam_type: 42, title: 'IELTS Academic Test' });
+      }
+
+      // Backend JAMB last attempt
+      if (jambLastAttempt?.attempt) {
+        addAttemptIfNew({ ...jambLastAttempt.attempt, exam_type: 41 });
+      } else if (jambLastAttempt?.id) {
+        addAttemptIfNew({ ...jambLastAttempt, exam_type: 41 });
+      }
+
+      // Backend history list
+      if (Array.isArray(backendHistory)) {
+        backendHistory.forEach(item => addAttemptIfNew(item));
+      }
+
+      if (gatheredAttempts.length > 0) {
+        // Sort: in_progress first, then newest completed
+        gatheredAttempts.sort((a, b) => {
+          if (a.status === 'in_progress' && b.status !== 'in_progress') return -1;
+          if (b.status === 'in_progress' && a.status !== 'in_progress') return 1;
+          return (b.rawTime || 0) - (a.rawTime || 0);
+        });
+
+        setPracticeItems(gatheredAttempts.slice(0, 6));
+        return;
+      }
+
+      setPracticeItems(defaultItems);
+    } catch (e) {
+      console.warn('Failed to load practice history:', e);
+      setPracticeItems(defaultItems);
+    }
   }, []);
 
-  const fetchInitialData = async () => {
-    try {
-      const [fetchedExams, history] = await Promise.all([
-        examService.getExams(),
-        searchService.getHistory()
-      ]);
-      setExams(fetchedExams);
-      setRecentSearches(history);
-    } catch (error) {
-      console.error('Failed to fetch initial data:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  useFocusEffect(
+    useCallback(() => {
+      loadPracticeHistory();
+    }, [loadPracticeHistory])
+  );
 
-  const handleSearchChange = (text: string) => {
-    setSearchQuery(text);
-    if (typingTimer.current) {
-      clearTimeout(typingTimer.current);
-    }
-
-    if (text.trim().length === 0) {
-      setSearchResults(null);
-      setIsSearching(false);
-      return;
-    }
-
-    setIsSearching(true);
-    typingTimer.current = setTimeout(async () => {
-      try {
-        const results = await searchService.search(text);
-        setSearchResults(results);
-      } catch (e) {
-        console.error(e);
-      } finally {
-        setIsSearching(false);
+  const handleContinue = (item: PracticeItem) => {
+    if (item.attemptId) {
+      if (item.isSectionBased) {
+        router.push({
+          pathname: '/(exam)/ielts-session',
+          params: { attempt_id: String(item.attemptId) }
+        });
+      } else {
+        router.push({
+          pathname: '/(exam)/session',
+          params: { attempt_id: String(item.attemptId) }
+        });
       }
-    }, 500); // 500ms debounce
-  };
-
-  const executeSearch = async (query: string) => {
-    if (!query.trim()) return;
-    try {
-      await searchService.addHistory(query);
-      const history = await searchService.getHistory();
-      setRecentSearches(history);
-    } catch (e) {
-      console.error(e);
+    } else {
+      router.push({
+        pathname: '/(tabs)/practice/practice-setup',
+        params: {
+          exam: item.examTypeId ? String(item.examTypeId) : '41',
+          exam_name: item.title,
+        }
+      });
     }
   };
 
-  const handleRecentPress = (query: string) => {
-    setSearchQuery(query);
-    handleSearchChange(query);
+  const handleReview = (item: PracticeItem) => {
+    router.push({
+      pathname: '/(exam)/test-result',
+      params: {
+        attempt_id: item.attemptId ? String(item.attemptId) : '1',
+      }
+    });
   };
 
-  const removeRecent = async (id: number) => {
-    try {
-      await searchService.deleteHistoryItem(id);
-      setRecentSearches(prev => prev.filter(item => item.id !== id));
-    } catch (e) {
-      console.error(e);
+  const handleCardPress = (item: PracticeItem) => {
+    if (item.status === 'in_progress') {
+      handleContinue(item);
+    } else {
+      handleReview(item);
     }
   };
 
-  const clearAll = async () => {
-    try {
-      await searchService.clearHistory();
-      setRecentSearches([]);
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  const getExamIcon = (name: string) => {
-    const lowerName = name.toLowerCase();
-    if (lowerName.includes('jamb')) return require('../../../assets/images/search-jamb-cap.png');
-    if (lowerName.includes('waec')) return require('../../../assets/images/search-waec-cross.png');
-    if (lowerName.includes('ielts')) return require('../../../assets/images/search-ielts-headphones.png');
-    if (lowerName.includes('neco')) return require('../../../assets/images/search-neco-clock.png');
-    return null;
+  const handleViewBundle = (bundleName: string, tokens: number) => {
+    router.push({
+      pathname: '/buy-tokens',
+      params: {
+        packName: bundleName,
+        tokens: `${tokens} Tokens / month`,
+      }
+    });
   };
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <View style={styles.container}>
-        
-        {/* Search Bar */}
-        <View style={styles.searchContainer}>
-          <Image 
-            source={require('../../../assets/images/tag-maths-wave.png')} 
-            style={{ width: 16, height: 16 }} 
-            contentFit="contain" 
-          />
-          <TextInput 
-            style={styles.searchInput}
-            placeholder="Search exams, subjects..."
-            placeholderTextColor="#9CA3AF"
-            value={searchQuery}
-            onChangeText={handleSearchChange}
-            onSubmitEditing={() => executeSearch(searchQuery)}
-            returnKeyType="search"
-            autoFocus
-          />
-          {searchQuery.length > 0 ? (
-            <TouchableOpacity onPress={() => handleSearchChange('')} activeOpacity={0.7}>
-              <Image 
-                source={require('../../../assets/images/search-input-close.png')} 
-                style={{ width: 12, height: 12, opacity: 0.6 }} 
-                contentFit="contain" 
-              />
-            </TouchableOpacity>
-          ) : (
-            <TouchableOpacity onPress={() => router.canGoBack() ? router.back() : router.replace('/')} activeOpacity={0.7}>
-              <Image 
-                source={require('../../../assets/images/search-input-close.png')} 
-                style={{ width: 14, height: 14 }} 
-                contentFit="contain" 
-              />
-            </TouchableOpacity>
-          )}
+      {/* Top Header */}
+      <View style={styles.header}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)'))}
+          activeOpacity={0.7}
+        >
+          <Feather name="chevron-left" size={20} color="#0F172A" />
+        </TouchableOpacity>
+
+        <AppText style={styles.headerTitle}>Practice</AppText>
+
+        <View style={styles.streakBadge}>
+          <AppText style={styles.streakEmoji}>🔥</AppText>
+          <AppText style={styles.streakText}>{userStreak}</AppText>
+        </View>
+      </View>
+
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+      >
+        {/* Section 1: Continue Practicing */}
+        <View style={styles.sectionHeader}>
+          <AppText style={styles.sectionTitle}>Continue Practicing</AppText>
         </View>
 
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-          
-          {/* SEARCH RESULTS VIEW */}
-          {searchQuery.trim().length > 0 ? (
-            <View>
-              {isSearching ? (
-                <ActivityIndicator size="large" color="#4C1D95" style={{ marginTop: 40 }} />
-              ) : searchResults ? (
-                <>
-                  <AppText style={styles.sectionTitle}>Search Results</AppText>
-                  
-                  {searchResults.exams.length === 0 && searchResults.subjects.length === 0 ? (
-                    <AppText style={{ color: '#6B7280', marginTop: 10 }}>No results found for "{searchQuery}"</AppText>
-                  ) : null}
+        {practiceItems.map((item) => {
+          const isOngoing = item.status === 'in_progress';
+          const progressPct = Math.min(
+            100,
+            Math.max(0, (item.answeredQuestions / item.totalQuestions) * 100)
+          );
 
-                  {searchResults.exams.length > 0 && (
-                    <View style={styles.section}>
-                      <AppText style={styles.resultsSubtitle}>Exams</AppText>
-                      {searchResults.exams.map(exam => (
-                        <TouchableOpacity 
-                          key={exam.id} 
-                          style={styles.resultItem}
-                          onPress={() => { executeSearch(exam.name); router.push({ pathname: '/(tabs)/practice', params: { exam: exam.name } }); }}
-                        >
-                          <View style={[styles.examIconContainer, { backgroundColor: '#9CA3AF', marginBottom: 0, marginRight: 12 }]}>
-                            {getExamIcon(exam.name) ? (
-                              <Image source={getExamIcon(exam.name)} style={{ width: 18, height: 18 }} contentFit="contain" />
-                            ) : (
-                              <AppText style={{ color: '#FFF', fontWeight: 'bold' }}>{exam.name.charAt(0)}</AppText>
-                            )}
-                          </View>
-                          <View style={{ flex: 1 }}>
-                            <AppText style={styles.resultItemTitle}>{exam.name}</AppText>
-                            <AppText style={styles.resultItemDesc}>{exam.description || 'Practice Exam'}</AppText>
-                          </View>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  )}
+          const isIelts = Boolean(item.isSectionBased || isIeltsAttempt(item));
+          const iconSource = isIelts
+            ? require('../../../assets/images/exam-ielts-icon.png')
+            : require('../../../assets/images/exam-jamb-icon.png');
 
-                  {searchResults.subjects.length > 0 && (
-                    <View style={styles.section}>
-                      <AppText style={styles.resultsSubtitle}>Subjects / Topics</AppText>
-                      {searchResults.subjects.map((sub, idx) => (
-                        <TouchableOpacity 
-                          key={idx} 
-                          style={styles.resultItem} 
-                          onPress={() => {
-                            executeSearch(sub);
-                            router.push({ pathname: '/(tabs)/practice', params: { exam: sub } });
-                          }}
-                        >
-                          <View style={[styles.examIconContainer, { backgroundColor: '#4F46E5', marginBottom: 0, marginRight: 12 }]}>
-                            <AppText style={{ color: '#FFF', fontWeight: 'bold' }}>#</AppText>
-                          </View>
-                          <AppText style={styles.resultItemTitle}>{sub}</AppText>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  )}
-                </>
-              ) : null}
+          return (
+            <TouchableOpacity
+              key={item.id}
+              style={styles.practiceCard}
+              activeOpacity={0.9}
+              onPress={() => handleCardPress(item)}
+            >
+              {/* Card Top Row */}
+              <View style={styles.cardTopRow}>
+                <View
+                  style={[
+                    styles.iconContainer,
+                    isIelts && styles.ieltsIconContainer,
+                  ]}
+                >
+                  <Image
+                    source={iconSource}
+                    style={styles.examIcon}
+                    contentFit="contain"
+                  />
+                </View>
+                <View style={styles.cardHeaderInfo}>
+                  <AppText style={styles.cardTitle}>{item.title}</AppText>
+                  <AppText style={styles.cardSubtitle}>
+                    {item.totalQuestions} Questions
+                  </AppText>
+                </View>
+                <Feather name="chevron-right" size={18} color="#CBD5E1" />
+              </View>
+
+              {/* Progress Bar Row */}
+              <View style={styles.progressRow}>
+                <View style={styles.progressTrack}>
+                  <View
+                    style={[styles.progressFill, { width: `${progressPct}%` }]}
+                  />
+                </View>
+                <AppText style={styles.progressNumber}>
+                  {item.answeredQuestions} / {item.totalQuestions}
+                </AppText>
+              </View>
+
+              {/* Card Footer Row */}
+              <View style={styles.cardFooterRow}>
+                <View style={styles.timeRow}>
+                  <Feather name="clock" size={14} color="#94A3B8" />
+                  <AppText style={styles.lastPracticedText}>
+                    {item.lastPracticed}
+                  </AppText>
+                </View>
+
+                {/* Continue / Review Button */}
+                <TouchableOpacity
+                  style={isOngoing ? styles.continueButton : styles.reviewButton}
+                  activeOpacity={0.8}
+                  onPress={() => (isOngoing ? handleContinue(item) : handleReview(item))}
+                >
+                  <AppText
+                    style={isOngoing ? styles.continueButtonText : styles.reviewButtonText}
+                  >
+                    {isOngoing ? 'Continue' : 'Review'}
+                  </AppText>
+                </TouchableOpacity>
+              </View>
+            </TouchableOpacity>
+          );
+        })}
+
+        {/* Section 2: Popular Bundles */}
+        <View style={[styles.sectionHeader, { marginTop: 24 }]}>
+          <AppText style={styles.sectionTitle}>Popular Bundles</AppText>
+        </View>
+
+        {/* Bundle 1: Full JAMB Package */}
+        <View style={styles.jambBundleCard}>
+          <View style={styles.bundleTopRow}>
+            <View style={styles.jambIconBox}>
+              <Image
+                source={require('../../../assets/images/exam-jamb-icon.png')}
+                style={styles.bundleIcon}
+                contentFit="contain"
+              />
             </View>
-          ) : (
-            /* DEFAULT EXPLORE VIEW */
-            <>
-              {/* Recent Searches */}
-              {recentSearches.length > 0 && (
-                <View style={styles.section}>
-                  <View style={styles.sectionHeader}>
-                    <AppText style={styles.sectionTitle}>Recent Searches</AppText>
-                    <TouchableOpacity onPress={clearAll} activeOpacity={0.7}>
-                      <AppText style={styles.linkText}>Clear All</AppText>
-                    </TouchableOpacity>
-                  </View>
-                  
-                  {recentSearches.map((item) => (
-                    <TouchableOpacity key={item.id} style={styles.recentItem} onPress={() => handleRecentPress(item.query)}>
-                      <Image 
-                        source={require('../../../assets/images/search-recent-clock.png')} 
-                        style={styles.recentClockIcon} 
-                        contentFit="contain" 
-                      />
-                      <AppText style={styles.recentText}>{item.query}</AppText>
-                      <TouchableOpacity onPress={() => removeRecent(item.id)} activeOpacity={0.7} style={{ padding: 4 }}>
-                        <Image 
-                          source={require('../../../assets/images/search-input-close.png')} 
-                          style={{ width: 10, height: 10, opacity: 0.4 }} 
-                          contentFit="contain" 
-                        />
-                      </TouchableOpacity>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              )}
+            <View style={styles.bundleInfo}>
+              <AppText style={styles.bundleTitle}>Full JAMB Package</AppText>
+              <AppText style={styles.bundleDescLine}>
+                Best for 2026 candidates
+              </AppText>
+              <AppText style={styles.bundleDescLine}>
+                English, Mathematics, Biology, Chemistry
+              </AppText>
+              <AppText style={styles.bundleDescLine}>
+                Unlimited practice
+              </AppText>
+            </View>
+          </View>
 
-              {/* Popular Exams */}
-              <View style={styles.section}>
-                <View style={styles.sectionHeader}>
-                  <AppText style={styles.sectionTitle}>Popular Exams</AppText>
-                  <TouchableOpacity onPress={() => router.push('/(tabs)/practice')} activeOpacity={0.7}>
-                    <AppText style={styles.linkText}>View all</AppText>
-                  </TouchableOpacity>
-                </View>
-                
-                <View style={styles.examsGrid}>
-                  {loading ? (
-                    <ActivityIndicator size="small" color="#4C1D95" />
-                  ) : (
-                    exams.slice(0, 4).map((exam) => (
-                      <TouchableOpacity 
-                        key={exam.id} 
-                        style={[styles.examCard, { backgroundColor: '#F3F4F6' }]}
-                        activeOpacity={0.8}
-                        onPress={() => { executeSearch(exam.name); router.push({ pathname: '/(tabs)/practice', params: { exam: exam.name } }); }}
-                      >
-                        <View style={[styles.examIconContainer, { backgroundColor: '#9CA3AF' }]}>
-                          {getExamIcon(exam.name) ? (
-                            <Image source={getExamIcon(exam.name)} style={{ width: 18, height: 18 }} contentFit="contain" />
-                          ) : (
-                            <AppText style={{ color: '#FFF', fontWeight: 'bold' }}>{exam.name.charAt(0)}</AppText>
-                          )}
-                        </View>
-                        <AppText style={[styles.examTitle, { color: '#111827' }]}>{exam.name}</AppText>
-                        <AppText style={styles.examDesc}>{exam.description || 'Practice'}</AppText>
-                      </TouchableOpacity>
-                    ))
-                  )}
-                </View>
-              </View>
+          <View style={styles.bundleBottomRow}>
+            <AppText style={styles.bundlePriceText}>6 tokens / month</AppText>
+            <TouchableOpacity
+              style={styles.bundleButton}
+              activeOpacity={0.8}
+              onPress={() => handleViewBundle('Full JAMB Package', 6)}
+            >
+              <AppText style={styles.bundleButtonText}>View</AppText>
+            </TouchableOpacity>
+          </View>
+        </View>
 
-              {/* Suggested Subjects */}
-              <View style={styles.section}>
-                <AppText style={styles.sectionTitle}>Suggested Subjects</AppText>
-                
-                <View style={styles.subjectsCloud}>
-                  {[
-                    { name: 'Mathematics', image: require('../../../assets/images/tag-english-bubble.png') },
-                    { name: 'English Language', image: require('../../../assets/images/search-input-mag.png') },
-                    { name: 'Physics', image: require('../../../assets/images/tag-physics-atom.png') },
-                    { name: 'Chemistry', image: require('../../../assets/images/tag-chemistry-flask.png') },
-                    { name: 'Biology', image: require('../../../assets/images/tag-biology-cross.png') },
-                    { name: 'Economics', image: require('../../../assets/images/tag-economics-bar.png') },
-                  ].map((subject, i) => (
-                    <TouchableOpacity key={i} style={styles.subjectPill} activeOpacity={0.8} onPress={() => handleRecentPress(subject.name)}>
-                      <Image source={subject.image} style={{ width: 15, height: 15 }} contentFit="contain" />
-                      <AppText style={styles.subjectText}>{subject.name}</AppText>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-            </>
-          )}
+        {/* Bundle 2: English Bundle */}
+        <View style={styles.englishBundleCard}>
+          {/* Popular Tag */}
+          <View style={styles.popularBadge}>
+            <AppText style={styles.popularBadgeText}>Popular</AppText>
+          </View>
 
-          <View style={{ height: 100 }} />
-        </ScrollView>
-      </View>
+          <View style={styles.bundleTopRow}>
+            <View style={styles.ieltsIconBox}>
+              <Image
+                source={require('../../../assets/images/exam-ielts-icon.png')}
+                style={styles.bundleIcon}
+                contentFit="contain"
+              />
+            </View>
+            <View style={styles.bundleInfo}>
+              <AppText style={styles.bundleTitle}>English Bundle</AppText>
+              <AppText style={styles.bundleDescLine}>
+                Listening, Reading, Speaking & Writing
+              </AppText>
+              <AppText style={styles.bundleDescLine}>
+                Listening & Reading Unlimited
+              </AppText>
+              <AppText style={styles.bundleDescLine}>
+                Speaking: 3 assessments
+              </AppText>
+              <AppText style={styles.bundleDescLine}>
+                Writing: 3 assessments
+              </AppText>
+            </View>
+          </View>
+
+          <View style={styles.bundleBottomRow}>
+            <AppText style={styles.bundlePriceText}>100 tokens / month</AppText>
+            <TouchableOpacity
+              style={styles.bundleButton}
+              activeOpacity={0.8}
+              onPress={() => handleViewBundle('English Bundle', 100)}
+            >
+              <AppText style={styles.bundleButtonText}>View</AppText>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Bottom space for tab bar */}
+        <View style={{ height: 100 }} />
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#FFF' },
-  container: { 
-    flex: 1, 
-    paddingHorizontal: 16, 
-    paddingTop: 12,
-    marginTop: Platform.OS === 'android' ? 12 : 4 
+  safeArea: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    paddingTop: Platform.OS === 'android' ? 24 : 0,
   },
-  scrollContent: { paddingTop: 4 },
-  searchContainer: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    backgroundColor: '#F8FAFC', 
-    borderRadius: 16, 
-    paddingHorizontal: 14, 
-    paddingVertical: 11, 
-    marginBottom: 20,
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    backgroundColor: '#FFFFFF',
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#F1F5F9'
-  },
-  searchInput: { flex: 1, marginLeft: 10, fontSize: 14, color: '#111827' },
-  section: { marginBottom: 26 },
-  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  sectionTitle: { fontSize: 16, fontWeight: '800', color: '#111827', marginBottom: 12 },
-  linkText: { fontSize: 12, color: '#4F46E5', fontWeight: '600' },
-  recentItem: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    paddingVertical: 13, 
-    paddingHorizontal: 14, 
-    backgroundColor: '#FFF', 
-    borderRadius: 14, 
-    borderWidth: 1, 
-    borderColor: '#F1F5F9', 
-    marginBottom: 8, 
-    shadowColor: '#000', 
-    shadowOffset: { width: 0, height: 1 }, 
-    shadowOpacity: 0.02, 
-    shadowRadius: 3, 
-    elevation: 1 
-  },
-  recentClockIcon: { width: 15, height: 15 },
-  recentText: { flex: 1, marginLeft: 10, fontSize: 13, color: '#374151', fontWeight: '500' },
-  examsGrid: { flexDirection: 'row', justifyContent: 'space-between', gap: 10 },
-  examCard: { 
-    flex: 1, 
-    borderRadius: 16, 
-    paddingVertical: 14, 
-    paddingHorizontal: 6, 
-    alignItems: 'center', 
+    borderColor: '#F1F5F9',
+    alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 120,
+    shadowColor: '#64748B',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 3,
+    elevation: 1,
   },
-  examIconContainer: { width: 36, height: 36, borderRadius: 18, justifyContent: 'center', alignItems: 'center', marginBottom: 8 },
-  examTitle: { fontSize: 13, fontWeight: '800', marginBottom: 3 },
-  examDesc: { fontSize: 9.5, color: '#6B7280', textAlign: 'center', lineHeight: 13, fontWeight: '500' },
-  subjectsCloud: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 12 },
-  subjectPill: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    backgroundColor: '#FFF', 
-    borderRadius: 20, 
-    paddingVertical: 8, 
-    paddingHorizontal: 14, 
-    borderWidth: 1, 
-    borderColor: '#E2E8F0' 
+  headerTitle: {
+    fontSize: 18,
+    fontFamily: 'Inter_700Bold',
+    color: '#0F172A',
   },
-  subjectText: { marginLeft: 6, fontSize: 12.5, color: '#1E293B', fontWeight: '600' },
+  streakBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F3E8FF',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    gap: 4,
+  },
+  streakEmoji: {
+    fontSize: 14,
+  },
+  streakText: {
+    fontSize: 14,
+    fontFamily: 'Inter_700Bold',
+    color: '#6D28D9',
+  },
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingTop: 10,
+  },
+  sectionHeader: {
+    marginBottom: 14,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontFamily: 'Inter_700Bold',
+    color: '#0F172A',
+  },
 
-  // Search Results
-  resultsSubtitle: { fontSize: 13, fontWeight: '700', color: '#6B7280', marginBottom: 8, marginTop: 10, textTransform: 'uppercase' },
-  resultItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
-  resultItemTitle: { fontSize: 15, fontWeight: '600', color: '#111827' },
-  resultItemDesc: { fontSize: 12, color: '#6B7280', marginTop: 2 }
+  // Practice Card
+  practiceCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+    padding: 16,
+    marginBottom: 16,
+    shadowColor: '#64748B',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  cardTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  iconContainer: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  ieltsIconContainer: {
+    backgroundColor: '#FFE4E6',
+  },
+  examIcon: {
+    width: 28,
+    height: 28,
+  },
+  cardHeaderInfo: {
+    flex: 1,
+  },
+  cardTitle: {
+    fontSize: 15,
+    fontFamily: 'Inter_700Bold',
+    color: '#0F172A',
+    marginBottom: 2,
+  },
+  cardSubtitle: {
+    fontSize: 13,
+    fontFamily: 'Inter_400Regular',
+    color: '#94A3B8',
+  },
+  progressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 14,
+    marginBottom: 14,
+  },
+  progressTrack: {
+    flex: 1,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: '#F3E8FF',
+    overflow: 'hidden',
+    marginRight: 12,
+  },
+  progressFill: {
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: '#6D28D9',
+  },
+  progressNumber: {
+    fontSize: 14,
+    fontFamily: 'Inter_700Bold',
+    color: '#0F172A',
+  },
+  cardFooterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  timeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  lastPracticedText: {
+    fontSize: 12,
+    fontFamily: 'Inter_400Regular',
+    color: '#94A3B8',
+  },
+  continueButton: {
+    borderWidth: 1.5,
+    borderColor: '#6D28D9',
+    borderRadius: 10,
+    paddingVertical: 7,
+    paddingHorizontal: 22,
+    backgroundColor: '#FFFFFF',
+  },
+  continueButtonText: {
+    fontSize: 13,
+    fontFamily: 'Inter_600SemiBold',
+    color: '#6D28D9',
+  },
+  reviewButton: {
+    borderWidth: 1.5,
+    borderColor: '#6D28D9',
+    borderRadius: 10,
+    paddingVertical: 7,
+    paddingHorizontal: 24,
+    backgroundColor: '#FFFFFF',
+  },
+  reviewButtonText: {
+    fontSize: 13,
+    fontFamily: 'Inter_600SemiBold',
+    color: '#6D28D9',
+  },
+
+  // Popular Bundles
+  jambBundleCard: {
+    backgroundColor: '#F0FDF4',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#DCFCE7',
+    padding: 18,
+    marginBottom: 16,
+  },
+  englishBundleCard: {
+    backgroundColor: '#FFF1F2',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#FFE4E6',
+    padding: 18,
+    marginBottom: 16,
+    position: 'relative',
+  },
+  popularBadge: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    backgroundColor: '#FCE7F3',
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 12,
+  },
+  popularBadgeText: {
+    fontSize: 11,
+    fontFamily: 'Inter_600SemiBold',
+    color: '#BE123C',
+  },
+  bundleTopRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  jambIconBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#DCFCE7',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  ieltsIconBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#FFE4E6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  bundleIcon: {
+    width: 28,
+    height: 28,
+  },
+  bundleInfo: {
+    flex: 1,
+  },
+  bundleTitle: {
+    fontSize: 16,
+    fontFamily: 'Inter_700Bold',
+    color: '#0F172A',
+    marginBottom: 6,
+  },
+  bundleDescLine: {
+    fontSize: 12.5,
+    fontFamily: 'Inter_400Regular',
+    color: '#64748B',
+    lineHeight: 18,
+  },
+  bundleBottomRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 18,
+    paddingTop: 10,
+  },
+  bundlePriceText: {
+    fontSize: 15,
+    fontFamily: 'Inter_700Bold',
+    color: '#0F172A',
+  },
+  bundleButton: {
+    borderWidth: 1.5,
+    borderColor: '#6D28D9',
+    borderRadius: 10,
+    paddingVertical: 7,
+    paddingHorizontal: 22,
+    backgroundColor: '#FFFFFF',
+  },
+  bundleButtonText: {
+    fontSize: 13,
+    fontFamily: 'Inter_600SemiBold',
+    color: '#6D28D9',
+  },
 });
-
-

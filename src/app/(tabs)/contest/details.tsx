@@ -14,9 +14,11 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { AppText } from '@/components/AppText';
 import { contestService, Contest } from '@/services/contest';
+import { useNotifications } from '@/context/NotificationContext';
 
 export default function ContestDetailsScreen() {
   const router = useRouter();
+  const { hasUnread } = useNotifications();
   const params = useLocalSearchParams<{ id?: string; registered?: string }>();
   const [contest, setContest] = useState<Contest | null>(null);
   const [loading, setLoading] = useState(true);
@@ -41,7 +43,7 @@ export default function ContestDetailsScreen() {
         if (params.registered !== undefined) {
           setIsRegistered(params.registered === 'true');
         } else {
-          setIsRegistered(Boolean(data.has_joined));
+          setIsRegistered(Boolean(data?.has_joined));
         }
       } catch (err) {
         console.error(err);
@@ -107,7 +109,7 @@ export default function ContestDetailsScreen() {
             activeOpacity={0.7}
           >
             <Feather name="bell" size={20} color="#111827" />
-            <View style={styles.notificationDot} />
+            {hasUnread && <View style={styles.notificationDot} />}
           </TouchableOpacity>
         </View>
 

@@ -15,6 +15,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { examService } from '@/services/exam';
 import { useAuth } from '@/context/AuthContext';
+import { useNotifications } from '@/context/NotificationContext';
 
 interface LeaderboardUser {
   rank: number;
@@ -29,6 +30,7 @@ interface LeaderboardUser {
 
 export default function LeaderboardScreen() {
   const router = useRouter();
+  const { hasUnread } = useNotifications();
   const params = useLocalSearchParams<{ exam_type_id?: string }>();
   const { user } = useAuth();
 
@@ -143,9 +145,13 @@ export default function LeaderboardScreen() {
             <Feather name="chevron-left" size={24} color="#111827" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>JAMB Leaderboard</Text>
-          <TouchableOpacity style={styles.headerButton} activeOpacity={0.7}>
+          <TouchableOpacity 
+            style={styles.headerButton} 
+            activeOpacity={0.7}
+            onPress={() => router.push('/notifications' as any)}
+          >
             <Feather name="bell" size={20} color="#111827" />
-            <View style={styles.notificationDot} />
+            {hasUnread && <View style={styles.notificationDot} />}
           </TouchableOpacity>
         </View>
 

@@ -1,4 +1,5 @@
 import { paymentService, TokenPackage } from '@/services/payment';
+import { useNotifications } from '@/context/NotificationContext';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
@@ -15,6 +16,7 @@ import {
 
 export default function TokenPackagesScreen() {
   const router = useRouter();
+  const { hasUnread } = useNotifications();
   const [activeTab, setActiveTab] = useState<'Popular' | 'Best Value'>('Popular');
   const [selectedPackId, setSelectedPackId] = useState<number | null>(null);
   const [packages, setPackages] = useState<TokenPackage[]>([]);
@@ -67,7 +69,7 @@ export default function TokenPackagesScreen() {
             activeOpacity={0.7}
           >
             <Feather name="bell" size={20} color="#111827" />
-            <View style={styles.notificationDot} />
+            {hasUnread && <View style={styles.notificationDot} />}
           </TouchableOpacity>
         </View>
 

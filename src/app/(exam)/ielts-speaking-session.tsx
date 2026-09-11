@@ -17,6 +17,7 @@ import {
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { examService, UserAttempt, AttemptSection, QuestionGroupItem, UserResponseItem } from '@/services/exam';
+import { storage } from '@/services/storage';
 import { Audio } from 'expo-av';
 import {
   SubscriptionRequiredModal,
@@ -56,6 +57,7 @@ export default function IELTSSpeakingSessionScreen() {
   // Bookmarks & Modal
   const [bookmarkedQuestions, setBookmarkedQuestions] = useState<number[]>([]);
   const [isOverviewVisible, setIsOverviewVisible] = useState(false);
+  const [showSubmitModal, setShowSubmitModal] = useState(false);
 
   // Audio Recording & Playback
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
@@ -524,40 +526,55 @@ export default function IELTSSpeakingSessionScreen() {
   };
 
   const handleSubmit = () => {
-    Alert.alert(
-      'Submit Speaking Assessment',
-      'Are you sure you want to finish and submit your speaking test?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Submit',
-          style: 'destructive',
-          onPress: async () => {
-            if (recording) {
-              await stopRecording();
-            }
-            try {
-              setIsSubmitting(true);
-              if (params.attempt_id) {
-                await examService.submitExam(Number(params.attempt_id), { responses: [] });
-              }
-              router.replace({
-                pathname: '/(exam)/test-result',
-                params: { attempt_id: params.attempt_id }
-              });
-            } catch (err: any) {
-              console.warn('Submit warning:', err);
-              router.replace({
-                pathname: '/(exam)/test-result',
-                params: { attempt_id: params.attempt_id }
-              });
-            } finally {
-              setIsSubmitting(false);
-            }
-          },
-        },
-      ]
-    );
+    setIsOverviewVisible(false);
+    setShowSubmitModal(true);
+  };
+
+  const executeSubmit = async () => {
+    if (recording) {
+      await stopRecording();
+    }
+    try {
+      setIsSubmitting(true);
+      const attemptId = attempt?.id || Number(params.attempt_id);
+      if (attemptId && !isNaN(attemptId)) {
+        await examService.submitExam(attemptId, { responses: [] });
+        await storage.remove('@classore_active_attempt');
+        examService.saveRecentAttempt({
+          id: attemptId,
+          exam_type: 42,
+          title: 'IELTS Speaking Test',
+          total_questions: 10,
+          answered_questions: 10,
+          status: 'completed',
+          is_section_based: true,
+          timestamp: Date.now(),
+        }).catch(() => {});
+      }
+      setShowSubmitModal(false);
+      setIsOverviewVisible(false);
+      router.replace({
+        pathname: '/(exam)/test-result',
+        params: {
+          attempt_id: attemptId ? String(attemptId) : (params.attempt_id || ''),
+          exam_name: params.exam_name || 'IELTS Speaking',
+        }
+      });
+    } catch (err: any) {
+      console.warn('Submit warning:', err);
+      const attemptId = attempt?.id || Number(params.attempt_id);
+      setShowSubmitModal(false);
+      setIsOverviewVisible(false);
+      router.replace({
+        pathname: '/(exam)/test-result',
+        params: {
+          attempt_id: attemptId ? String(attemptId) : (params.attempt_id || ''),
+          exam_name: params.exam_name || 'IELTS Speaking',
+        }
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const activeGroup = speakingSection?.question_groups[activeGroupIndex];
@@ -976,12 +993,66 @@ export default function IELTSSpeakingSessionScreen() {
                 style={styles.submitModalButton}
                 onPress={() => {
                   setIsOverviewVisible(false);
-                  handleSubmit();
+                  setShowSubmitModal(true);
                 }}
               >
                 <Feather name="flag" size={16} color="#DC2626" style={{ marginRight: 8 }} />
                 <Text style={styles.submitModalButtonText}>Finish & Submit Test</Text>
               </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+
+        {/* In-App Submit Confirmation Modal */}
+        <Modal 
+          visible={showSubmitModal} 
+          transparent 
+          animationType="fade"
+          onRequestClose={() => !isSubmitting && setShowSubmitModal(false)}
+        >
+          <View style={styles.modalBackdrop}>
+            <View style={styles.submitConfirmCard}>
+              <View style={styles.submitConfirmHeader}>
+                <View style={styles.submitConfirmIconBg}>
+                  <Feather name="check-circle" size={26} color="#6D28D9" />
+                </View>
+                <TouchableOpacity 
+                  onPress={() => !isSubmitting && setShowSubmitModal(false)} 
+                  style={styles.modalCloseBtn}
+                  disabled={isSubmitting}
+                >
+                  <Feather name="x" size={20} color="#6B7280" />
+                </TouchableOpacity>
+              </View>
+              <Text style={styles.submitConfirmTitle}>Submit Speaking Test?</Text>
+              <Text style={styles.submitConfirmSubtitle}>
+                Are you sure you want to finalize and submit your speaking assessment?
+              </Text>
+
+              <Text style={styles.submitConfirmDesc}>
+                Once submitted, your recorded audio responses will be uploaded and evaluated.
+              </Text>
+              
+              <View style={styles.submitConfirmActions}>
+                <TouchableOpacity 
+                  style={styles.cancelSubmitBtn} 
+                  onPress={() => setShowSubmitModal(false)}
+                  disabled={isSubmitting}
+                >
+                  <Text style={styles.cancelSubmitBtnText}>Keep Practicing</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={[styles.confirmSubmitBtn, isSubmitting && { opacity: 0.7 }]} 
+                  onPress={executeSubmit}
+                  disabled={isSubmitting}
+                >
+                  {isSubmitting ? (
+                    <ActivityIndicator color="#FFF" size="small" />
+                  ) : (
+                    <Text style={styles.confirmSubmitBtnText}>Yes, Submit</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
         </Modal>
@@ -1547,5 +1618,76 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: '#DC2626',
+  },
+
+  // Submit Confirmation Modal Styles
+  submitConfirmCard: {
+    width: '100%',
+    maxWidth: 380,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    padding: 22,
+  },
+  submitConfirmHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  submitConfirmIconBg: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: '#F3E8FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  submitConfirmTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#111827',
+    marginBottom: 6,
+  },
+  submitConfirmSubtitle: {
+    fontSize: 13,
+    color: '#4B5563',
+    marginBottom: 14,
+    lineHeight: 18,
+  },
+  submitConfirmDesc: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    marginBottom: 20,
+    lineHeight: 16,
+  },
+  submitConfirmActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  cancelSubmitBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cancelSubmitBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#4B5563',
+  },
+  confirmSubmitBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: '#6D28D9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  confirmSubmitBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
 });

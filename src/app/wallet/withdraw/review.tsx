@@ -4,9 +4,11 @@ import { View, StyleSheet, SafeAreaView, TouchableOpacity, Platform, ScrollView,
 import { Feather } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { walletService } from '@/services/wallet';
+import { useNotifications } from '@/context/NotificationContext';
 
 export default function ReviewDetailsScreen() {
   const router = useRouter();
+  const { hasUnread } = useNotifications();
   const { amount, bank_id, bank_name, account_number, account_name } = useLocalSearchParams<{
     amount: string;
     bank_id: string;
@@ -49,9 +51,9 @@ export default function ReviewDetailsScreen() {
           <Feather name="chevron-left" size={24} color="#111827" />
         </TouchableOpacity>
         <AppText style={styles.headerTitle}>Review Details</AppText>
-        <TouchableOpacity style={styles.iconButton}>
+        <TouchableOpacity style={styles.iconButton} onPress={() => router.push('/notifications' as any)}>
           <Feather name="bell" size={20} color="#111827" />
-          <View style={styles.notificationDot} />
+          {hasUnread && <View style={styles.notificationDot} />}
         </TouchableOpacity>
       </View>
 

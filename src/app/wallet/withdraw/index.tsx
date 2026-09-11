@@ -5,9 +5,11 @@ import { Feather, FontAwesome5 } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useNotifications } from '@/context/NotificationContext';
 
 export default function BankTransferScreen() {
   const router = useRouter();
+  const { hasUnread } = useNotifications();
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -17,9 +19,9 @@ export default function BankTransferScreen() {
           <Feather name="chevron-left" size={24} color="#111827" />
         </TouchableOpacity>
         <AppText style={styles.headerTitle}>Bank Transfer</AppText>
-        <TouchableOpacity style={styles.iconButton}>
+        <TouchableOpacity style={styles.iconButton} onPress={() => router.push('/notifications' as any)}>
           <Feather name="bell" size={20} color="#111827" />
-          <View style={styles.notificationDot} />
+          {hasUnread && <View style={styles.notificationDot} />}
         </TouchableOpacity>
       </View>
 

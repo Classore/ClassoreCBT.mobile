@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, StyleSheet, TouchableOpacity } from 'react-native';
 import { AppText } from '@/components/AppText';
+import { formatQuestionText } from '@/utils/questionFormatter';
 
 interface TFNGQuestionProps {
   statement?: string;
@@ -32,7 +33,7 @@ export const TFNGQuestion: React.FC<TFNGQuestionProps> = ({
       {/* Statement Card */}
       {statement ? (
         <View style={styles.statementCard}>
-          <AppText style={styles.statementText}>{statement}</AppText>
+          <AppText style={styles.statementText}>{formatQuestionText(statement)}</AppText>
         </View>
       ) : null}
 

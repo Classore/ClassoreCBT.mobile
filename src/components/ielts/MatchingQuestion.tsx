@@ -28,18 +28,44 @@ export const MatchingQuestion: React.FC<MatchingQuestionProps> = ({
   onMatch,
   onClearMatch,
 }) => {
-  // If items or options are empty, provide representative defaults
-  const activeItems: MatchingItem[] = items.length > 0 ? items : [
+  // Ensure items and options are normalized with guaranteed unique string IDs and prompts
+  const activeItems: MatchingItem[] = (items && items.length > 0 ? items : [
     { id: '1', prompt: 'Paragraph A' },
     { id: '2', prompt: 'Paragraph B' },
     { id: '3', prompt: 'Paragraph C' },
-  ];
+  ]).map((item: any, index: number) => {
+    if (typeof item === 'string') {
+      return { id: String(index + 1), prompt: item };
+    }
+    const rawId = item?.id ?? item?.item_id ?? item?.key ?? item?.name ?? (index + 1);
+    const resolvedId = String(rawId || (index + 1));
+    const resolvedPrompt = String(item?.prompt ?? item?.text ?? item?.statement ?? item?.title ?? resolvedId);
+    return {
+      ...item,
+      id: resolvedId,
+      prompt: resolvedPrompt,
+    };
+  });
 
-  const activeOptions: MatchingOption[] = options.length > 0 ? options : [
+  const activeOptions: MatchingOption[] = (options && options.length > 0 ? options : [
     { id: 'A', text: 'Environmental impact' },
     { id: 'B', text: 'Economic benefits' },
     { id: 'C', text: 'Social changes' },
-  ];
+  ]).map((opt: any, index: number) => {
+    const charCode = 65 + index;
+    const defaultLetter = String.fromCharCode(charCode);
+    if (typeof opt === 'string') {
+      return { id: defaultLetter, text: opt };
+    }
+    const rawId = opt?.id ?? opt?.option_id ?? opt?.key ?? opt?.letter ?? defaultLetter;
+    const resolvedId = String(rawId || defaultLetter);
+    const resolvedText = String(opt?.text ?? opt?.prompt ?? opt?.title ?? opt?.value ?? resolvedId);
+    return {
+      ...opt,
+      id: resolvedId,
+      text: resolvedText,
+    };
+  });
 
   const [selectedItemId, setSelectedItemId] = useState<string | null>(activeItems[0]?.id || null);
 
@@ -83,7 +109,7 @@ export const MatchingQuestion: React.FC<MatchingQuestionProps> = ({
 
             return (
               <TouchableOpacity
-                key={item.id}
+                key={`matching-item-${item.id}-${index}`}
                 style={[
                   styles.itemRow,
                   isSelected && styles.itemRowSelected,
@@ -123,14 +149,14 @@ export const MatchingQuestion: React.FC<MatchingQuestionProps> = ({
 
         {/* Right Card: Options */}
         <View style={styles.columnCard}>
-          {activeOptions.map((opt) => {
+          {activeOptions.map((opt, index) => {
             // Check if this option is already assigned to an item
             const assignedItemKey = Object.keys(matches).find(k => matches[k] === opt.id);
             const isAssigned = !!assignedItemKey;
 
             return (
               <TouchableOpacity
-                key={opt.id}
+                key={`matching-opt-${opt.id}-${index}`}
                 style={[
                   styles.optionRow,
                   isAssigned && styles.optionRowAssigned,

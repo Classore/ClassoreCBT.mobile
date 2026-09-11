@@ -4,6 +4,7 @@ import { useColorScheme } from 'react-native';
 import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router';
 import { AuthProvider } from '@/context/AuthContext';
 import { DevMenu } from '@/components/DevMenu';
+import { NotificationProvider } from '@/context/NotificationContext';
 import { useFonts } from 'expo-font';
 import { 
   Inter_400Regular, 
@@ -38,16 +39,18 @@ export default function RootLayout() {
 
   return (
     <AuthProvider>
-      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-        <Stack screenOptions={{ headerShown: false }}>
-          <Stack.Screen name="index" />
-          <Stack.Screen name="(tabs)" />
-          <Stack.Screen name="(auth)" />
-          <Stack.Screen name="auth" />
-          <Stack.Screen name="(exam)" />
-        </Stack>
-        <DevMenu />
-      </ThemeProvider>
+      <NotificationProvider>
+        <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+          <Stack screenOptions={{ headerShown: false }}>
+            <Stack.Screen name="index" />
+            <Stack.Screen name="(tabs)" />
+            <Stack.Screen name="(auth)" />
+            <Stack.Screen name="auth" />
+            <Stack.Screen name="(exam)" />
+          </Stack>
+          <DevMenu />
+        </ThemeProvider>
+      </NotificationProvider>
     </AuthProvider>
   );
 }

@@ -12,37 +12,16 @@ import {
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { notificationService, NotificationItem } from '@/services/notification';
+import { useNotifications } from '@/context/NotificationContext';
 
 export default function NotificationsScreen() {
   const router = useRouter();
   const [filter, setFilter] = useState<'All' | 'Unread'>('All');
-  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { notifications, loading, refreshNotifications, markAllAsRead, markAsRead } = useNotifications();
 
   useEffect(() => {
-    fetchNotifications();
-  }, []);
-
-  const fetchNotifications = async () => {
-    setLoading(true);
-    try {
-      const data = await notificationService.getNotifications();
-      setNotifications(data);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const markAllAsRead = async () => {
-    try {
-      await notificationService.markAllAsRead();
-      setNotifications(prev => prev.map(n => ({ ...n, is_unread: false })));
-    } catch (e) {
-      console.error(e);
-    }
-  };
+    refreshNotifications();
+  }, [refreshNotifications]);
 
   const getStyleForType = (type: string) => {
     switch (type) {
@@ -156,7 +135,16 @@ export default function NotificationsScreen() {
                   <Text style={styles.sectionTitle}>Today</Text>
                   <View style={styles.cardsList}>
                     {todayItems.map((item) => (
-                      <TouchableOpacity key={item.id} style={styles.notificationCard} activeOpacity={0.7}>
+                      <TouchableOpacity 
+                        key={item.id} 
+                        style={styles.notificationCard} 
+                        activeOpacity={0.7}
+                        onPress={() => {
+                          if (item.is_unread) {
+                            markAsRead(item.id);
+                          }
+                        }}
+                      >
                         <View style={[styles.iconWrapper, { backgroundColor: getStyleForType(item.notification_type).iconBg }]}>
                           {renderIcon(item.notification_type)}
                         </View>
@@ -184,7 +172,16 @@ export default function NotificationsScreen() {
                   <Text style={styles.sectionTitle}>Earlier</Text>
                   <View style={styles.cardsList}>
                     {earlierItems.map((item) => (
-                      <TouchableOpacity key={item.id} style={styles.notificationCard} activeOpacity={0.7}>
+                      <TouchableOpacity 
+                        key={item.id} 
+                        style={styles.notificationCard} 
+                        activeOpacity={0.7}
+                        onPress={() => {
+                          if (item.is_unread) {
+                            markAsRead(item.id);
+                          }
+                        }}
+                      >
                         <View style={[styles.iconWrapper, { backgroundColor: getStyleForType(item.notification_type).iconBg }]}>
                           {renderIcon(item.notification_type)}
                         </View>

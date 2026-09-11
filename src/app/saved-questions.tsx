@@ -13,6 +13,7 @@ import {
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { examService } from '@/services/exam';
+import { formatQuestionText } from '@/utils/questionFormatter';
 
 interface SavedQuestionItem {
   id: string;
@@ -175,7 +176,7 @@ export default function SavedQuestionsScreen() {
                     {/* Question Body */}
                     <View style={styles.questionBodyRow}>
                       <Text style={styles.questionText}>
-                        {item.question}
+                        {formatQuestionText(item.question)}
                       </Text>
                       {item.hasDiagram && (
                         <View style={styles.diagramBox}>

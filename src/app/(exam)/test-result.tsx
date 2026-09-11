@@ -68,6 +68,18 @@ export default function TestResultScreen() {
           if (pct >= 70) setPerformanceTag('Excellent Performance');
           else if (pct >= 50) setPerformanceTag('Good Performance');
           else setPerformanceTag('Needs Improvement');
+
+          const isIeltsExam = data.exam_type === 42 || (data.exam_name || '').toLowerCase().includes('ielts');
+          examService.saveRecentAttempt({
+            id: Number(params.attempt_id),
+            exam_type: data.exam_type || (isIeltsExam ? 42 : 41),
+            title: data.exam_name || (isIeltsExam ? 'IELTS Academic Test' : 'JAMB Practice Test'),
+            total_questions: maxS,
+            answered_questions: (data.correct_answers || 0) + (data.wrong_answers || 0) || maxS,
+            status: 'completed',
+            is_section_based: isIeltsExam,
+            timestamp: Date.now(),
+          }).catch(() => {});
         } else {
           setError('Could not retrieve result data.');
         }

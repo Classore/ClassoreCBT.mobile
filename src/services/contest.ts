@@ -37,150 +37,117 @@ export interface ContestStats {
   total_participants?: number;
 }
 
-const REGISTERED_CONTESTS_KEY = '@classore_registered_contests';
+import { storage } from './storage';
 
-const MOCK_CONTESTS: Contest[] = [
-  {
-    id: 1,
-    title: 'Science Genius Contest',
-    description: 'Challenge your knowledge and compete with the best minds across the country. Top performers win amazing prizes!',
-    category: 'Science',
-    target_audience: 'Jambites',
-    questions_count: 100,
-    duration_minutes: 50,
-    total_marks: 100,
-    entry_fee_tokens: 12000,
-    entry_fee_formatted: '#12,000',
-    prize_pool: '₦1,000,000',
-    prize_fund: '#300,000',
-    sponsored_by: 'Classore',
-    participants_count: 1678,
-    starts_in: '6d 09h 30m',
-    date_formatted: 'Sat, 10th Sept 2026 - 10:00 AM',
-    start_time: new Date(Date.now() + 6 * 86400000 + 9 * 3600000 + 30 * 60000).toISOString(),
-    end_time: new Date(Date.now() + 6 * 86400000 + 11 * 3600000).toISOString(),
-    is_hot: true,
-    exam_type: 1,
-    has_joined: false,
-    user_rank: null,
-    user_score: null,
-    status: 'upcoming',
-  },
-  {
-    id: 2,
-    title: 'English Pro Contest',
-    description: 'Master the use of English, grammar, syntax, and vocabulary in this national speed contest.',
-    category: 'English',
-    target_audience: 'All Students',
-    questions_count: 40,
-    duration_minutes: 40,
-    total_marks: 40,
-    entry_fee_tokens: 5000,
-    entry_fee_formatted: '#5,000',
-    prize_pool: '₦500,000',
-    prize_fund: '#150,000',
-    sponsored_by: 'Classore',
-    participants_count: 2568,
-    starts_in: '5d 12h 45m',
-    date_formatted: 'Sun, 11th Sept 2026 - 02:00 PM',
-    start_time: new Date(Date.now() + 5 * 86400000 + 12 * 3600000).toISOString(),
-    end_time: new Date(Date.now() + 5 * 86400000 + 14 * 3600000).toISOString(),
-    is_hot: false,
-    exam_type: 1,
-    has_joined: false,
-    user_rank: null,
-    user_score: null,
-    status: 'upcoming',
-  },
-  {
-    id: 3,
-    title: 'JAMB Master Challenge',
-    description: 'Comprehensive 4-subject challenge covering Physics, Chemistry, Biology, and English.',
-    category: '4 Science Subjects',
-    target_audience: 'Jambites',
-    questions_count: 200,
-    duration_minutes: 40,
-    total_marks: 200,
-    entry_fee_tokens: 8000,
-    entry_fee_formatted: '#8,000',
-    prize_pool: '₦500,000',
-    prize_fund: '#200,000',
-    sponsored_by: 'Classore',
-    participants_count: 2568,
-    starts_in: '2d 12h 45m',
-    date_formatted: 'Fri, 16th Sept 2026 - 11:00 AM',
-    start_time: new Date(Date.now() + 2 * 86400000 + 12 * 3600000).toISOString(),
-    end_time: new Date(Date.now() + 2 * 86400000 + 15 * 3600000).toISOString(),
-    is_hot: true,
-    exam_type: 1,
-    has_joined: false,
-    user_rank: null,
-    user_score: null,
-    status: 'upcoming',
-  },
-];
+const REGISTERED_CONTESTS_KEY = '@classore_registered_contests';
+const memoryCachedContests: Record<string, Contest[]> = {};
+let memoryCachedStats: ContestStats | null = null;
 
 export const contestService = {
+  getCachedContestsSync: (status?: 'live' | 'upcoming' | 'past'): Contest[] | null => {
+    const key = status || 'all';
+    return memoryCachedContests[key] || null;
+  },
+
+  getCachedContests: async (status?: 'live' | 'upcoming' | 'past'): Promise<Contest[] | null> => {
+    const key = status || 'all';
+    if (memoryCachedContests[key]) {
+      return memoryCachedContests[key];
+    }
+    const stored = await storage.get<Contest[]>(`@classore_cached_contests_${key}`);
+    if (stored) {
+      memoryCachedContests[key] = stored;
+      return stored;
+    }
+    return null;
+  },
+
   getContests: async (status?: 'live' | 'upcoming' | 'past'): Promise<Contest[]> => {
+    const statusKey = status || 'all';
+    const storageKey = `@classore_cached_contests_${statusKey}`;
     try {
       const url = status ? `/api/user/contests/?status=${status}` : '/api/user/contests/';
       const response = await api.get(url);
       const data: Contest[] = response.data.results ? response.data.results : response.data;
-      if (Array.isArray(data) && data.length > 0) {
+      if (Array.isArray(data)) {
         const storedRegistered = await contestService.getRegisteredContestIds();
-        return data.map((c) => ({
+        const formatted = data.map((c) => ({
           ...c,
-          has_joined: storedRegistered.includes(c.id) || c.has_joined,
+          has_joined: storedRegistered.includes(c.id) || Boolean(c.has_joined),
         }));
+        memoryCachedContests[statusKey] = formatted;
+        await storage.set(storageKey, formatted);
+        return formatted;
       }
-    } catch {
-      // Fallback to mock data if API is offline
+    } catch (err) {
+      console.warn(`[contestService] Network error fetching ${statusKey} contests:`, err);
+      // Fallback to cache if network request fails
+      const cached = await contestService.getCachedContests(status);
+      if (cached) {
+        return cached;
+      }
     }
 
-    const storedRegistered = await contestService.getRegisteredContestIds();
-    const filtered = status
-      ? MOCK_CONTESTS.filter((c) => c.status === status)
-      : MOCK_CONTESTS;
-
-    return filtered.map((c) => ({
-      ...c,
-      has_joined: storedRegistered.includes(c.id) || c.has_joined,
-    }));
+    // Return cached in-memory if available, or empty array (never mock data)
+    return memoryCachedContests[statusKey] || [];
   },
 
-  getContestById: async (contestId: number | string): Promise<Contest> => {
+  getContestById: async (contestId: number | string): Promise<Contest | null> => {
     const idNum = Number(contestId);
     try {
       const response = await api.get(`/api/user/contests/${idNum}/`);
       if (response.data) {
         const storedRegistered = await contestService.getRegisteredContestIds();
-        return {
+        const res: Contest = {
           ...response.data,
-          has_joined: storedRegistered.includes(idNum) || response.data.has_joined,
+          has_joined: storedRegistered.includes(idNum) || Boolean(response.data.has_joined),
         };
+        await storage.set(`@classore_cached_contest_${idNum}`, res);
+        return res;
       }
     } catch {
-      // Fallback to mock search
+      // Fallback to cached item
+      const stored = await storage.get<Contest>(`@classore_cached_contest_${idNum}`);
+      if (stored) return stored;
+
+      // Look across cached contests
+      for (const key of Object.keys(memoryCachedContests)) {
+        const found = memoryCachedContests[key].find(c => c.id === idNum);
+        if (found) return found;
+      }
     }
 
-    const storedRegistered = await contestService.getRegisteredContestIds();
-    const found = MOCK_CONTESTS.find((c) => c.id === idNum) || MOCK_CONTESTS[0];
-    return {
-      ...found,
-      has_joined: storedRegistered.includes(found.id) || found.has_joined,
-    };
+    return null;
+  },
+
+  getCachedMyStatsSync: (): ContestStats | null => {
+    return memoryCachedStats;
+  },
+
+  getCachedMyStats: async (): Promise<ContestStats | null> => {
+    if (memoryCachedStats) return memoryCachedStats;
+    const stored = await storage.get<ContestStats>('@classore_cached_contest_stats');
+    if (stored) {
+      memoryCachedStats = stored;
+      return stored;
+    }
+    return null;
   },
 
   getMyStats: async (): Promise<ContestStats> => {
     try {
       const response = await api.get('/api/user/contests/my-stats/');
-      if (response.data) return response.data;
+      if (response.data) {
+        memoryCachedStats = response.data;
+        await storage.set('@classore_cached_contest_stats', response.data);
+        return response.data;
+      }
     } catch {
-      // Fallback
+      const cached = await contestService.getCachedMyStats();
+      if (cached) return cached;
     }
 
     const storedRegistered = await contestService.getRegisteredContestIds();
-
     return {
       contests_joined: storedRegistered.length,
       total_score: 0,
@@ -196,30 +163,22 @@ export const contestService = {
       await contestService.markAsRegistered(contestId);
       return response.data;
     } catch {
-      // If mock/demo mode, record registration locally
       await contestService.markAsRegistered(contestId);
       return { message: 'Successfully registered for contest' };
     }
   },
 
-  getLeaderboard: async (contestId: number): Promise<any[]> => {
+  getLeaderboard: async (contestId: number, period?: string): Promise<any[]> => {
     try {
-      const response = await api.get(`/api/user/contests/${contestId}/leaderboard/`);
-      if (response.data && Array.isArray(response.data)) return response.data;
+      const query = period ? `?period=${encodeURIComponent(period)}` : '';
+      const response = await api.get(`/api/user/contests/${contestId}/leaderboard/${query}`);
+      const data = response.data?.results ? response.data.results : response.data;
+      if (Array.isArray(data)) return data;
     } catch {
-      // Fallback mock leaderboard
+      // Fallback empty
     }
 
-    return [
-      { rank: 1, name: 'Blessing A.', score: 99, verified: true, is_current_user: false },
-      { rank: 2, name: 'Daniel O.', score: 98, verified: true, is_current_user: false },
-      { rank: 3, name: 'Victory M.', score: 98, verified: true, is_current_user: false },
-      { rank: 4, name: 'Faith N.', score: 93, verified: false, is_current_user: false },
-      { rank: 5, name: 'Michael T.', score: 91, verified: false, is_current_user: false },
-      { rank: 6, name: 'Precious K.', score: 90, verified: false, is_current_user: false },
-      { rank: 7, name: 'Emmanuel B.', score: 90, verified: false, is_current_user: false },
-      { rank: 8, name: 'Sarah L.', score: 90, verified: false, is_current_user: false },
-    ];
+    return [];
   },
 
   getRegisteredContestIds: async (): Promise<number[]> => {

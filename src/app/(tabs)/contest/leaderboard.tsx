@@ -15,9 +15,11 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { AppText } from '@/components/AppText';
 import { contestService, Contest } from '@/services/contest';
 import { useAuth } from '@/context/AuthContext';
+import { useNotifications } from '@/context/NotificationContext';
 
 export default function ContestLeaderboardScreen() {
   const router = useRouter();
+  const { hasUnread } = useNotifications();
   const params = useLocalSearchParams<{ contestId?: string; showCelebration?: string }>();
   const { user } = useAuth();
 
@@ -58,7 +60,7 @@ export default function ContestLeaderboardScreen() {
         const contestId = Number(params.contestId || 1);
         const [contestRes, lbRes] = await Promise.all([
           contestService.getContestById(contestId),
-          contestService.getLeaderboard(contestId),
+          contestService.getLeaderboard(contestId, period),
         ]);
 
         if (!isMounted) return;
@@ -111,7 +113,7 @@ export default function ContestLeaderboardScreen() {
             activeOpacity={0.7}
           >
             <Feather name="bell" size={20} color="#111827" />
-            <View style={styles.notificationDot} />
+            {hasUnread && <View style={styles.notificationDot} />}
           </TouchableOpacity>
         </View>
 

@@ -1,5 +1,6 @@
 import { AppText } from '@/components/AppText';
 import { useAuth } from '@/context/AuthContext';
+import { useNotifications } from '@/context/NotificationContext';
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, ScrollView, Dimensions, Platform } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -13,6 +14,7 @@ import { examService, ExamType, isSectionBasedExam } from '@/services/exam';
 
 export default function ExamSetupScreen() {
   const { user } = useAuth();
+  const { hasUnread } = useNotifications();
   const router = useRouter();
   const params = useLocalSearchParams<{ exam?: string }>();
   
@@ -134,9 +136,13 @@ export default function ExamSetupScreen() {
             <AppText style={styles.fireEmoji}>🔥</AppText>
             <AppText style={styles.fireText}>{user?.streak || 0}</AppText>
           </View>
-          <TouchableOpacity style={styles.notifButton}>
+          <TouchableOpacity 
+            style={styles.notifButton}
+            activeOpacity={0.7}
+            onPress={() => router.push('/notifications' as any)}
+          >
             <Feather name="bell" size={20} color="#000" />
-            <View style={styles.notifDot} />
+            {hasUnread && <View style={styles.notifDot} />}
           </TouchableOpacity>
         </View>
       </View>

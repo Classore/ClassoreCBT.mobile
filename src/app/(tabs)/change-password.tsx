@@ -8,7 +8,6 @@ import {
   TouchableOpacity,
   TextInput,
   Platform,
-  Alert,
   ActivityIndicator,
 } from 'react-native';
 import { Feather, Ionicons } from '@expo/vector-icons';
@@ -56,41 +55,24 @@ export default function ChangePasswordScreen() {
     return { label: 'Very Strong', color: '#059669' };
   }, [newPassword, strengthScore]);
 
-  const showAlert = (title: string, message: string, onOk?: () => void) => {
-    if (Platform.OS === 'web') {
-      alert(`${title}: ${message}`);
-      if (onOk) onOk();
-    } else {
-      Alert.alert(title, message, onOk ? [{ text: 'OK', onPress: onOk }] : undefined);
-    }
-  };
-
   const handleUpdatePassword = async () => {
     setErrorMessage(null);
     setSuccessMessage(null);
 
     if (!currentPassword) {
-      const msg = 'Please enter your current password.';
-      setErrorMessage(msg);
-      showAlert('Required', msg);
+      setErrorMessage('Please enter your current password.');
       return;
     }
     if (!newPassword) {
-      const msg = 'Please enter your new password.';
-      setErrorMessage(msg);
-      showAlert('Required', msg);
+      setErrorMessage('Please enter your new password.');
       return;
     }
     if (!hasMinLength || !hasUppercase || !hasNumber || !hasSpecial) {
-      const msg = 'Please satisfy all required password security conditions (8+ characters, 1 uppercase, 1 number, 1 special character).';
-      setErrorMessage(msg);
-      showAlert('Password Criteria', msg);
+      setErrorMessage('Please satisfy all required password security conditions: 8+ characters, 1 uppercase letter, 1 number, and 1 special character.');
       return;
     }
     if (newPassword !== confirmPassword) {
-      const msg = 'New password and confirmation do not match.';
-      setErrorMessage(msg);
-      showAlert('Mismatch', msg);
+      setErrorMessage('New password and confirmation do not match.');
       return;
     }
 
@@ -101,9 +83,8 @@ export default function ChangePasswordScreen() {
         new_password: newPassword,
       });
 
-      const msg = 'Your password has been successfully updated.';
-      setSuccessMessage(msg);
-      showAlert('Password Changed', msg, () => handleHelpBack(params.from, '/settings'));
+      setSuccessMessage('Your password has been successfully updated. Redirecting…');
+      setTimeout(() => handleHelpBack(params.from, '/settings'), 1800);
     } catch (error: any) {
       const data = error?.response?.data;
       let errMsg = 'Failed to change password. Please check your current password and try again.';
@@ -123,7 +104,6 @@ export default function ChangePasswordScreen() {
         }
       }
       setErrorMessage(errMsg);
-      showAlert('Update Failed', errMsg);
     } finally {
       setUpdating(false);
     }

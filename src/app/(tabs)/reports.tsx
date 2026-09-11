@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   View, 
   Text, 
@@ -6,11 +6,13 @@ import {
   SafeAreaView, 
   ScrollView, 
   TouchableOpacity, 
-  Platform 
+  Platform,
+  Animated,
 } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Path, Circle, Polyline } from 'react-native-svg';
+import { examService } from '@/services/exam';
 
 // Component for Circular Progress Ring using SVG
 function CircularProgress({ 
@@ -68,13 +70,92 @@ function CircularProgress({
   );
 }
 
-import { examService } from '@/services/exam';
+// Animated Skeleton Loader for Reports Dashboard
+function ReportsSkeleton({ shimmerAnim }: { shimmerAnim: Animated.Value }) {
+  return (
+    <Animated.View style={[styles.skeletonWrapper, { opacity: shimmerAnim }]}>
+      {/* 1. Overall Score Skeleton Card */}
+      <View style={styles.overallSkeletonCard}>
+        <View style={styles.overallSkeletonLeft}>
+          <View style={styles.skeletonScoreLabel} />
+          <View style={styles.skeletonDonut} />
+        </View>
+        <View style={styles.overallSkeletonRight}>
+          <View style={styles.statGridRow}>
+            <View style={styles.skeletonStatBox} />
+            <View style={styles.skeletonStatBox} />
+          </View>
+          <View style={[styles.statGridRow, { marginTop: 14 }]}>
+            <View style={styles.skeletonStatBox} />
+            <View style={styles.skeletonStatBox} />
+          </View>
+        </View>
+      </View>
+
+      {/* 2. Performance Trend Skeleton Card */}
+      <View style={styles.card}>
+        <View style={styles.cardHeader}>
+          <View style={[styles.skeletonLine, { width: 140, height: 16 }]} />
+          <View style={[styles.skeletonLine, { width: 60, height: 24, borderRadius: 12 }]} />
+        </View>
+        <View style={styles.skeletonChartBox}>
+          {[40, 70, 50, 85, 60, 90, 75].map((h, i) => (
+            <View key={i} style={styles.skeletonChartCol}>
+              <View style={[styles.skeletonChartBar, { height: h }]} />
+              <View style={[styles.skeletonLine, { width: 22, height: 10, marginTop: 8 }]} />
+            </View>
+          ))}
+        </View>
+      </View>
+
+      {/* 3. Breakdown Skeleton Card */}
+      <View style={styles.card}>
+        <View style={styles.cardHeader}>
+          <View style={[styles.skeletonLine, { width: 150, height: 16 }]} />
+          <View style={[styles.skeletonLine, { width: 50, height: 14 }]} />
+        </View>
+        <View style={{ gap: 14, marginTop: 6 }}>
+          {[1, 2, 3, 4].map(i => (
+            <View key={i} style={styles.skeletonListRow}>
+              <View style={[styles.skeletonLine, { width: 70, height: 12 }]} />
+              <View style={styles.skeletonTrack} />
+              <View style={[styles.skeletonLine, { width: 32, height: 12 }]} />
+            </View>
+          ))}
+        </View>
+      </View>
+    </Animated.View>
+  );
+}
 
 export default function ReportsScreen() {
   const [activeTab, setActiveTab] = useState<'Overview' | 'JAMB' | 'IELTS' | 'Mock Tests' | 'Subjects'>('Overview');
   const [timeframe, setTimeframe] = useState('This Week');
-  const [reportData, setReportData] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  
+  // Per-tab & timeframe isolated cache map to prevent showing previous tab data
+  const [reportsCache, setReportsCache] = useState<Record<string, any>>({});
+  const [loading, setLoading] = useState(false);
+
+  const shimmerAnim = useRef(new Animated.Value(0.35)).current;
+
+  useEffect(() => {
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(shimmerAnim, {
+          toValue: 0.95,
+          duration: 850,
+          useNativeDriver: true,
+        }),
+        Animated.timing(shimmerAnim, {
+          toValue: 0.35,
+          duration: 850,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    animation.start();
+    return () => animation.stop();
+  }, [shimmerAnim]);
 
   const tabs: ('Overview' | 'JAMB' | 'IELTS' | 'Mock Tests' | 'Subjects')[] = [
     'Overview',
@@ -86,19 +167,49 @@ export default function ReportsScreen() {
   
   const timeframes = ['This Week', 'This Month', 'All Time'];
 
-  React.useEffect(() => {
+  const currentKey = `${activeTab}_${timeframe}`;
+  const currentReport = reportsCache[currentKey];
+
+  useEffect(() => {
+    let isCancelled = false;
+    const cacheKey = `${activeTab}_${timeframe}`;
+
+    // 1. Check synchronous memory cache first if not yet in React state
+    if (!reportsCache[cacheKey]) {
+      const syncData = examService.getCachedAggregateReportSync(activeTab, timeframe);
+      if (syncData) {
+        setReportsCache(prev => ({ ...prev, [cacheKey]: syncData }));
+      }
+    }
+
     const fetchReport = async () => {
-      setLoading(true);
+      // If we don't have this tab's data in cache, set loading true to show skeleton
+      const hasData = !!reportsCache[cacheKey] || !!examService.getCachedAggregateReportSync(activeTab, timeframe);
+      if (!hasData) {
+        setLoading(true);
+      }
+
       try {
         const data = await examService.getAggregateReport(activeTab, timeframe);
-        setReportData(data);
+        if (!isCancelled && data) {
+          setReportsCache(prev => ({ ...prev, [cacheKey]: data }));
+        }
       } catch (e) {
-        console.error(e);
+        if (!isCancelled) {
+          console.error('Error fetching aggregate report:', e);
+        }
       } finally {
-        setLoading(false);
+        if (!isCancelled) {
+          setLoading(false);
+        }
       }
     };
+
     fetchReport();
+
+    return () => {
+      isCancelled = true;
+    };
   }, [activeTab, timeframe]);
 
   const toggleTimeframe = () => {
@@ -106,17 +217,7 @@ export default function ReportsScreen() {
     setTimeframe(timeframes[(idx + 1) % timeframes.length]);
   };
 
-  if (loading && !reportData) {
-    return (
-      <SafeAreaView style={styles.safeArea}>
-        <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
-          <Text style={{ marginTop: 10, color: '#6B7280' }}>Loading Reports...</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  const { overall, trend, sectional, subjects, recent_mocks, topics } = reportData || {};
+  const { overall, trend, sectional, subjects, recent_mocks, topics } = currentReport || {};
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -161,8 +262,12 @@ export default function ReportsScreen() {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.scrollContent}
         >
-          {/* 1. Overall Score Card */}
-          {overall && (
+          {!currentReport ? (
+            <ReportsSkeleton shimmerAnim={shimmerAnim} />
+          ) : (
+            <>
+              {/* 1. Overall Score Card */}
+              {overall && (
             <LinearGradient
               colors={['#1E1B4B', '#312E81']}
               start={{ x: 0, y: 0 }}
@@ -421,6 +526,19 @@ export default function ReportsScreen() {
               ))}
             </View>
           )}
+
+          {/* Empty State when test category has no attempts yet */}
+          {overall && overall.total_attempted === 0 && (!recent_mocks || recent_mocks.length === 0) && (
+            <View style={styles.emptyCard}>
+              <Feather name="bar-chart-2" size={38} color="#9CA3AF" />
+              <Text style={styles.emptyTitle}>No Data for {activeTab}</Text>
+              <Text style={styles.emptySubtitle}>
+                Complete a {activeTab === 'Overview' ? 'test' : activeTab} practice session or exam to view your analytics and progress report here.
+              </Text>
+            </View>
+          )}
+          </>
+        )}
 
           <View style={{ height: 100 }} />
         </ScrollView>
@@ -893,5 +1011,103 @@ const styles = StyleSheet.create({
   topicAccuracyFill: {
     height: '100%',
     borderRadius: 2,
+  },
+
+  // Skeleton & Empty States
+  skeletonWrapper: {
+    width: '100%',
+  },
+  overallSkeletonCard: {
+    backgroundColor: '#1E1B4B',
+    borderRadius: 20,
+    padding: 18,
+    flexDirection: 'row',
+    marginBottom: 16,
+  },
+  overallSkeletonLeft: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  skeletonScoreLabel: {
+    width: 80,
+    height: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: 6,
+    marginBottom: 12,
+  },
+  skeletonDonut: {
+    width: 78,
+    height: 78,
+    borderRadius: 39,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+  },
+  overallSkeletonRight: {
+    flex: 1.4,
+    paddingLeft: 10,
+    justifyContent: 'center',
+  },
+  skeletonStatBox: {
+    flex: 1,
+    height: 48,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 10,
+    marginHorizontal: 4,
+  },
+  skeletonLine: {
+    backgroundColor: '#E5E7EB',
+    borderRadius: 6,
+  },
+  skeletonChartBox: {
+    height: 140,
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'flex-end',
+    paddingTop: 20,
+    paddingBottom: 10,
+  },
+  skeletonChartCol: {
+    alignItems: 'center',
+  },
+  skeletonChartBar: {
+    width: 16,
+    backgroundColor: '#E0E7FF',
+    borderRadius: 4,
+  },
+  skeletonListRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  skeletonTrack: {
+    flex: 1,
+    height: 8,
+    backgroundColor: '#E5E7EB',
+    borderRadius: 4,
+  },
+  emptyCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    marginBottom: 16,
+  },
+  emptyTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#374151',
+    marginTop: 12,
+  },
+  emptySubtitle: {
+    fontSize: 13,
+    color: '#6B7280',
+    textAlign: 'center',
+    marginTop: 6,
+    lineHeight: 18,
+    paddingHorizontal: 12,
   },
 });

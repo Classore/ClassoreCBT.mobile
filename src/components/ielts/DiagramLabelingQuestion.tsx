@@ -39,10 +39,10 @@ export const DiagramLabelingQuestion: React.FC<DiagramLabelingQuestionProps> = (
       <View style={styles.labelsContainer}>
         <Text style={styles.sectionTitle}>Identify each labeled position:</Text>
         <View style={styles.targetsList}>
-          {targets.map((t) => {
+          {targets.map((t, index) => {
             const val = labels[t.id] || '';
             return (
-              <View key={t.id} style={styles.targetRow}>
+              <View key={`target-${t.id || index}-${index}`} style={styles.targetRow}>
                 <View style={styles.pinBadge}>
                   <Text style={styles.pinText}>{t.id}</Text>
                 </View>

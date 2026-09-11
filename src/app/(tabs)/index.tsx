@@ -1,17 +1,21 @@
 import { AppText } from '@/components/AppText';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, SafeAreaView, Platform, ActivityIndicator } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, Feather } from '@expo/vector-icons';
 import { Image } from 'expo-image';
+
 import { useAuth } from '@/context/AuthContext';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { examService } from '@/services/exam';
+import { useNotifications } from '@/context/NotificationContext';
+import { examService, isSectionBasedExam } from '@/services/exam';
 import { contestService, Contest } from '@/services/contest';
+import { storage } from '@/services/storage';
 
 export default function HomeScreen() {
   const router = useRouter();
   const { user } = useAuth();
+  const { hasUnread } = useNotifications();
   const [isDarkMode, setIsDarkMode] = useState(true);
   
   const userName = user?.first_name || user?.username || "Student";
@@ -25,6 +29,133 @@ export default function HomeScreen() {
   const [contestLeaderboard, setContestLeaderboard] = useState<any[]>([]);
   const [contestLoading, setContestLoading] = useState(true);
   const [now, setNow] = useState(Date.now());
+
+  // Active In-Progress Exam State
+  const [activeAttempt, setActiveAttempt] = useState<{
+    id: number;
+    title: string;
+    remaining_seconds: number;
+    is_section_based: boolean;
+    total_questions?: number;
+    answered_count?: number;
+  } | null>(null);
+
+  const checkActiveExam = useCallback(async () => {
+    try {
+      let attemptId: number | null = null;
+      const cached = await storage.get<any>('@classore_active_attempt');
+      if (cached?.id) {
+        attemptId = Number(cached.id);
+      } else {
+        const inProgressList = await examService.getExamHistory({ status: 'in_progress' });
+        if (Array.isArray(inProgressList) && inProgressList.length > 0) {
+          attemptId = inProgressList[0].id;
+        }
+      }
+
+      if (!attemptId) {
+        setActiveAttempt(null);
+        return;
+      }
+
+      const res = await examService.resumeExam(attemptId);
+      if (
+        res &&
+        res.status === 'in_progress' &&
+        !res.timer_info?.is_expired &&
+        (res.timer_info?.remaining_seconds ?? 0) > 0
+      ) {
+        const allExams = await examService.getCachedExams().catch(() => null) || [];
+        const examObj = allExams.find(e => e.id === res.exam_type);
+        const examTitle = cached?.title || examObj?.name || 'In-Progress Exam';
+        const isSectionBased = cached?.is_section_based ?? isSectionBasedExam(examObj?.name, res.sections);
+
+        let totalQuestions = 0;
+        let answeredQuestions = 0;
+        res.sections?.forEach(sec => {
+          sec.question_groups?.forEach(grp => {
+            totalQuestions += grp.responses?.length || 0;
+            grp.responses?.forEach(resp => {
+              if (resp.selected_choice || resp.written_response) {
+                answeredQuestions++;
+              }
+            });
+          });
+        });
+
+        setActiveAttempt({
+          id: res.id,
+          title: examTitle,
+          remaining_seconds: res.timer_info.remaining_seconds,
+          is_section_based: isSectionBased,
+          total_questions: totalQuestions,
+          answered_count: answeredQuestions,
+        });
+
+        await storage.set('@classore_active_attempt', {
+          id: res.id,
+          exam_type: res.exam_type,
+          title: examTitle,
+          is_section_based: isSectionBased,
+        });
+      } else {
+        await storage.remove('@classore_active_attempt');
+        setActiveAttempt(null);
+      }
+    } catch (e) {
+      console.warn('Failed to check active exam attempt:', e);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      checkActiveExam();
+    }, [checkActiveExam])
+  );
+
+  useEffect(() => {
+    if (!activeAttempt || activeAttempt.remaining_seconds <= 0) return;
+    const interval = setInterval(() => {
+      setActiveAttempt(prev => {
+        if (!prev) return null;
+        if (prev.remaining_seconds <= 1) {
+          storage.remove('@classore_active_attempt');
+          return null;
+        }
+        return { ...prev, remaining_seconds: prev.remaining_seconds - 1 };
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [activeAttempt?.id]);
+
+  const formatRemainingTime = (secs: number) => {
+    const hours = Math.floor(secs / 3600);
+    const minutes = Math.floor((secs % 3600) / 60);
+    const seconds = secs % 60;
+    if (hours > 0) {
+      return `${hours}h ${minutes}m ${seconds}s`;
+    }
+    return `${minutes}m ${seconds.toString().padStart(2, '0')}s`;
+  };
+
+  const handleResumeExam = (attemptInfo: { id: number; is_section_based: boolean }) => {
+    if (attemptInfo.is_section_based) {
+      router.push({
+        pathname: '/(exam)/ielts-session',
+        params: { attempt_id: String(attemptInfo.id) }
+      });
+    } else {
+      router.push({
+        pathname: '/(exam)/session',
+        params: { attempt_id: String(attemptInfo.id) }
+      });
+    }
+  };
+
+  const handleDismissActiveExam = async () => {
+    await storage.remove('@classore_active_attempt');
+    setActiveAttempt(null);
+  };
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 60000);
@@ -113,7 +244,7 @@ export default function HomeScreen() {
               onPress={() => router.push('/notifications')}
             >
               <Ionicons name="notifications-outline" size={20} color="#1E293B" />
-              <View style={styles.notificationDot} />
+              {hasUnread && <View style={styles.notificationDot} />}
             </TouchableOpacity>
             <TouchableOpacity 
               style={styles.iconButton} 
@@ -137,6 +268,52 @@ export default function HomeScreen() {
             </TouchableOpacity>
           </View>
         </View>
+
+        {/* In-Progress Exam Banner */}
+        {activeAttempt && (
+          <View style={styles.resumeCard}>
+            <View style={styles.resumeHeaderRow}>
+              <View style={styles.resumeBadge}>
+                <View style={styles.resumePulseDot} />
+                <AppText style={styles.resumeBadgeText}>UNFINISHED TEST IN PROGRESS</AppText>
+              </View>
+              <TouchableOpacity onPress={handleDismissActiveExam} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                <Ionicons name="close" size={18} color="#64748B" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.resumeBody}>
+              <View style={{ flex: 1, marginRight: 12 }}>
+                <AppText style={styles.resumeTitle} numberOfLines={1}>{activeAttempt.title}</AppText>
+                <View style={styles.resumeStatsRow}>
+                  <View style={styles.resumeStatItem}>
+                    <Ionicons name="time-outline" size={14} color="#D97706" />
+                    <AppText style={styles.resumeStatText}>
+                      {formatRemainingTime(activeAttempt.remaining_seconds)} remaining
+                    </AppText>
+                  </View>
+                  {activeAttempt.total_questions ? (
+                    <View style={styles.resumeStatItem}>
+                      <Ionicons name="checkbox-outline" size={14} color="#64748B" />
+                      <AppText style={styles.resumeStatText}>
+                        {activeAttempt.answered_count || 0}/{activeAttempt.total_questions} answered
+                      </AppText>
+                    </View>
+                  ) : null}
+                </View>
+              </View>
+
+              <TouchableOpacity
+                style={styles.resumeButton}
+                activeOpacity={0.85}
+                onPress={() => handleResumeExam(activeAttempt)}
+              >
+                <AppText style={styles.resumeButtonText}>Resume</AppText>
+                <Ionicons name="arrow-forward" size={15} color="#FFFFFF" />
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
 
         {/* Hero Banner */}
         <View style={styles.heroBanner}>
@@ -162,19 +339,20 @@ export default function HomeScreen() {
             <Image source={require('../../../assets/images/hero-student.png')} style={styles.heroImage} contentFit="contain" />
             
             <View style={[styles.badge, styles.improveBadge]}>
-              <Image source={require('../../../assets/images/improve-badge.png')} style={styles.badgeIcon} contentFit="contain" />
+              <Feather name="trending-up" size={13} color="#10B981" />
               <AppText style={styles.improveBadgeText}>Improve</AppText>
             </View>
             
             <View style={[styles.badge, styles.achieveBadge]}>
-              <Image source={require('../../../assets/images/achieve-badge.png')} style={styles.badgeIcon} contentFit="contain" />
+              <Feather name="award" size={13} color="#7C3AED" />
               <AppText style={styles.achieveBadgeText}>Achieve</AppText>
             </View>
             
             <View style={[styles.badge, styles.learnBadge]}>
-              <Image source={require('../../../assets/images/learn-badge.png')} style={styles.badgeIcon} contentFit="contain" />
+              <Feather name="book-open" size={13} color="#F59E0B" />
               <AppText style={styles.learnBadgeText}>Learn</AppText>
             </View>
+
           </View>
         </View>
 
@@ -271,7 +449,7 @@ export default function HomeScreen() {
                 </View>
                 <AppText style={styles.contestTitle}>{activeContest.title}</AppText>
                 <AppText style={styles.contestSubtitle}>{activeContest.description}</AppText>
-                <TouchableOpacity style={styles.contestButton} activeOpacity={0.85} onPress={() => router.push('/contest')}>
+                <TouchableOpacity style={styles.contestButton} activeOpacity={0.85} onPress={() => router.push('/(tabs)/contest' as any)}>
                   <AppText style={styles.contestButtonText}>View Contests</AppText>
                   <Image source={require('../../../assets/images/arrow-right-sm-icon.png')} style={{ width: 10, height: 10, tintColor: '#FFF' }} contentFit="contain" />
                 </TouchableOpacity>
@@ -529,23 +707,23 @@ const styles = StyleSheet.create({
     flexDirection: 'row', 
     alignItems: 'center', 
     backgroundColor: '#FFF', 
-    paddingHorizontal: 8, 
-    paddingVertical: 4, 
-    borderRadius: 12, 
+    paddingHorizontal: 9, 
+    paddingVertical: 5, 
+    borderRadius: 14, 
     shadowColor: '#000', 
     shadowOffset: { width: 0, height: 2 }, 
-    shadowOpacity: 0.1, 
+    shadowOpacity: 0.12, 
     shadowRadius: 4, 
     elevation: 3, 
-    gap: 4 
+    gap: 5 
   },
-  badgeIcon: { width: 12, height: 12 },
   improveBadge: { top: 6, left: -20 },
-  improveBadgeText: { fontSize: 10, fontWeight: '800', color: '#10B981' },
+  improveBadgeText: { fontSize: 11, fontWeight: '800', color: '#10B981' },
   achieveBadge: { top: 54, right: -12 },
-  achieveBadgeText: { fontSize: 10, fontWeight: '800', color: '#4C1D95' },
+  achieveBadgeText: { fontSize: 11, fontWeight: '800', color: '#7C3AED' },
   learnBadge: { bottom: 6, left: 10 },
-  learnBadgeText: { fontSize: 10, fontWeight: '800', color: '#F59E0B' },
+  learnBadgeText: { fontSize: 11, fontWeight: '800', color: '#F59E0B' },
+
 
   // Search Bar
   searchBar: { 
@@ -737,7 +915,98 @@ const styles = StyleSheet.create({
   dayActive: { backgroundColor: '#10B981' },
   dayInactive: { backgroundColor: '#FFF', borderWidth: 1.5, borderColor: '#D1D5DB' },
   dayText: { fontSize: 8, color: '#6B7280', fontWeight: '600' },
-  streakSubText: { color: '#6D28D9', fontSize: 11, fontWeight: '800' }
+  streakSubText: { color: '#6D28D9', fontSize: 11, fontWeight: '800' },
+
+  // Resume In-Progress Exam Card
+  resumeCard: {
+    backgroundColor: '#FFFBEB',
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: '#FDE68A',
+    padding: 14,
+    marginBottom: 16,
+    shadowColor: '#F59E0B',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  resumeHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  resumeBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+    gap: 6,
+    borderWidth: 1,
+    borderColor: '#FCD34D',
+  },
+  resumePulseDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: '#D97706',
+  },
+  resumeBadgeText: {
+    fontSize: 10,
+    fontFamily: 'Inter_700Bold',
+    color: '#92400E',
+    letterSpacing: 0.5,
+  },
+  resumeBody: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  resumeTitle: {
+    fontSize: 15,
+    fontFamily: 'Inter_700Bold',
+    color: '#1E293B',
+    marginBottom: 4,
+  },
+  resumeStatsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flexWrap: 'wrap',
+  },
+  resumeStatItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  resumeStatText: {
+    fontSize: 12,
+    fontFamily: 'Inter_500Medium',
+    color: '#475569',
+  },
+  resumeButton: {
+    backgroundColor: '#2563EB',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 10,
+    gap: 6,
+    shadowColor: '#2563EB',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  resumeButtonText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontFamily: 'Inter_600SemiBold',
+  },
 });
 
 

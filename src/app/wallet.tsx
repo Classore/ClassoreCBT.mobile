@@ -14,11 +14,13 @@ import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '@/context/AuthContext';
+import { useNotifications } from '@/context/NotificationContext';
 import { useRouter } from 'expo-router';
 import { paymentService, MyBundle } from '@/services/payment';
 
 export default function WalletScreen() {
   const router = useRouter();
+  const { hasUnread } = useNotifications();
   const { user, refreshUser, isRefreshingUser, isLoading } = useAuth();
   const hasBalance = user?.token_balance !== undefined;
   const tokenBalance = user?.token_balance ?? 0;
@@ -75,7 +77,7 @@ export default function WalletScreen() {
             activeOpacity={0.7}
           >
             <Feather name="bell" size={20} color="#111827" />
-            <View style={styles.notificationDot} />
+            {hasUnread && <View style={styles.notificationDot} />}
           </TouchableOpacity>
         </View>
 
