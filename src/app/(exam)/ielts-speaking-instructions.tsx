@@ -11,9 +11,11 @@ import {
 } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useAuth } from '@/context/AuthContext';
 
 export default function IELTSSpeakingInstructionsScreen() {
   const router = useRouter();
+  const { user } = useAuth();
   const params = useLocalSearchParams();
 
   const instructions = [
@@ -75,7 +77,7 @@ export default function IELTSSpeakingInstructionsScreen() {
           <Text style={styles.headerTitle}>Test Instructions</Text>
           <View style={styles.streakBadge}>
             <Text style={{ fontSize: 13, marginRight: 4 }}>🔥</Text>
-            <Text style={styles.streakText}>120</Text>
+            <Text style={styles.streakText}>{user?.streak ?? 0}</Text>
           </View>
         </View>
 

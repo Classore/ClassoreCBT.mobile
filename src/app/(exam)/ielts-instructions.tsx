@@ -11,9 +11,11 @@ import {
 import { Image } from 'expo-image';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useAuth } from '@/context/AuthContext';
 
 export default function IELTSInstructionsScreen() {
   const router = useRouter();
+  const { user } = useAuth();
   const params = useLocalSearchParams();
 
   const instructions = [
@@ -75,7 +77,7 @@ export default function IELTSInstructionsScreen() {
           <Text style={styles.headerTitle}>Test Instructions</Text>
           <View style={styles.streakBadge}>
             <Text style={{ fontSize: 13, marginRight: 4 }}>🔥</Text>
-            <Text style={styles.streakText}>120</Text>
+            <Text style={styles.streakText}>{user?.streak ?? 0}</Text>
           </View>
         </View>
 
@@ -121,13 +123,42 @@ export default function IELTSInstructionsScreen() {
           {/* Continue Button */}
           <TouchableOpacity 
             style={styles.continueButton}
-            onPress={() => router.push({
-              pathname: '/(exam)/ielts-section-instructions',
-              params: {
-                ...params,
-                exam_name: params.exam_name || 'IELTS Academic',
+            onPress={() => {
+              const firstSection = (params.section_name as string) || 
+                (params.section_names ? (params.section_names as string).split(',')[0] : 'Reading');
+              
+              const isListening = firstSection.toLowerCase().includes('listening');
+              const isSpeaking = firstSection.toLowerCase().includes('speaking');
+
+              if (isListening) {
+                router.push({
+                  pathname: '/(exam)/ielts-listening-instructions',
+                  params: {
+                    ...params,
+                    section_name: firstSection,
+                    exam_name: params.exam_name || 'IELTS Academic',
+                  }
+                });
+              } else if (isSpeaking) {
+                router.push({
+                  pathname: '/(exam)/ielts-speaking-instructions',
+                  params: {
+                    ...params,
+                    section_name: firstSection,
+                    exam_name: params.exam_name || 'IELTS Academic',
+                  }
+                });
+              } else {
+                router.push({
+                  pathname: '/(exam)/ielts-section-instructions',
+                  params: {
+                    ...params,
+                    section_name: firstSection,
+                    exam_name: params.exam_name || 'IELTS Academic',
+                  }
+                });
               }
-            })}
+            }}
             activeOpacity={0.85}
           >
             <Text style={styles.continueButtonText}>Continue</Text>

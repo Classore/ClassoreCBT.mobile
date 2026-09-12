@@ -77,9 +77,12 @@ const clearRememberedCredentials = async () => {
 };
 
 
+const webClientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || '224829194037-4b9e6vfaoe3rpohh6lka2bsgflu760ti.apps.googleusercontent.com';
+const iosClientId = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || undefined;
+
 GoogleSignin.configure({
-  webClientId: 'PLACEHOLDER_WEB_CLIENT_ID',
-  iosClientId: 'PLACEHOLDER_IOS_CLIENT_ID',
+  webClientId,
+  ...(iosClientId ? { iosClientId } : {}),
 });
 
 export default function LoginScreen() {

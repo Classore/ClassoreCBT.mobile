@@ -71,6 +71,7 @@ export interface ExamTierConfig {
 export interface ChoiceItem {
   id: number;
   text: string;
+  is_correct?: boolean;
   image?: string | null;
   order?: number;
 }
@@ -80,6 +81,8 @@ export interface QuestionData {
   id: number;
   text: string;
   instructions?: string;
+  explanation?: string | null;
+  hint_explanation?: string | null;
   question_type: 'MCQ' | 'TEXT' | 'AUDIO' | 'MATCHING' | 'GAP_FILL' | 'LABELING';
   choices?: ChoiceItem[];
   points?: number;
@@ -385,7 +388,7 @@ export const examService = {
     return response.data;
   },
 
-  submitExam: async (attemptId: number, payload: SubmitExamPayload): Promise<{ message: string; total_score: number }> => {
+  submitExam: async (attemptId: number, payload: SubmitExamPayload): Promise<{ message: string; total_score: number; streak?: number; ai_feedbacks?: any[]; ai_assessment_status?: string; ai_skip_reason?: string; [key: string]: any }> => {
     const response = await api.post(`/api/user/exam/${attemptId}/submit/`, payload);
     return response.data;
   },

@@ -45,6 +45,7 @@ export default function IELTSSessionScreen() {
     exam_type_id?: string; 
     exam_name?: string;
     section_order?: string; 
+    section_names?: string;
     sections?: string; 
     mode?: string;
     time_limit?: string;
@@ -789,56 +790,80 @@ export default function IELTSSessionScreen() {
     } else if (activeGroupIndex < activeSection.question_groups.length - 1) {
       setActiveGroupIndex(prev => prev + 1);
       setCurrentResponseIndex(0);
-    } else if (attempt && activeSectionIndex < attempt.sections.length - 1) {
-      const nextSectionIndex = activeSectionIndex + 1;
-      const nextSection = attempt.sections[nextSectionIndex];
-      const completedSessionsCount = activeSectionIndex + 1;
+    } else {
+      // Determine overall list of test sections
+      const fullSectionNames = params.section_names 
+        ? params.section_names.split(',').map(s => s.trim())
+        : (attempt?.sections ? attempt.sections.map(s => s.section_name) : ['Reading', 'Listening', 'Writing', 'Speaking']);
 
-      // Unload any playing audio
-      if (sound) {
-        sound.unloadAsync().catch(() => {});
-        setSound(null);
-        setIsPlayingAudio(false);
+      const currentSecName = activeSection?.section_name || '';
+      let currentSectionIdxInList = fullSectionNames.findIndex(
+        s => s.toLowerCase() === currentSecName.toLowerCase() || 
+             currentSecName.toLowerCase().includes(s.toLowerCase()) || 
+             s.toLowerCase().includes(currentSecName.toLowerCase())
+      );
+      if (currentSectionIdxInList === -1) {
+        currentSectionIdxInList = activeSectionIndex;
       }
 
-      // Check if a break should be shown after every 2 sessions!
-      if (completedSessionsCount % 2 === 0) {
-        router.push({
-          pathname: '/(exam)/ielts-break',
-          params: {
-            attempt_id: String(attempt.id),
-            exam_id: params.exam || params.exam_type_id || '42',
-            exam_name: (attempt as any)?.exam_type_name || params.exam_name || 'IELTS Academic',
-            next_section_index: String(nextSectionIndex),
-            next_section_name: nextSection.section_name,
-            section_order: params.section_order,
-            mode: params.mode,
-          },
-        });
-      } else {
-        // Between individual sessions (e.g. Session 1 -> Session 2)
-        if (nextSection.section_name.toLowerCase().includes('speaking')) {
+      const hasNextSection = currentSectionIdxInList < fullSectionNames.length - 1;
+
+      if (hasNextSection) {
+        const nextSectionIndex = currentSectionIdxInList + 1;
+        const nextSectionName = fullSectionNames[nextSectionIndex];
+        const completedSessionsCount = currentSectionIdxInList + 1;
+
+        // Unload any playing audio
+        if (sound) {
+          sound.unloadAsync().catch(() => {});
+          setSound(null);
+          setIsPlayingAudio(false);
+        }
+
+        const commonParams = {
+          attempt_id: String(attempt?.id || params.attempt_id || ''),
+          exam: params.exam || params.exam_type_id || '42',
+          exam_id: params.exam || params.exam_type_id || '42',
+          exam_name: (attempt as any)?.exam_type_name || params.exam_name || 'IELTS Academic',
+          section_index: String(nextSectionIndex),
+          section_name: nextSectionName,
+          section_order: params.section_order,
+          section_names: params.section_names || fullSectionNames.join(','),
+          mode: params.mode,
+        };
+
+        // Check if a break should be shown after every 2 sessions!
+        if (completedSessionsCount % 2 === 0) {
           router.push({
-            pathname: '/(exam)/ielts-speaking-instructions',
-            params: { attempt_id: String(attempt.id) },
-          });
-        } else {
-          router.push({
-            pathname: '/(exam)/ielts-section-instructions',
+            pathname: '/(exam)/ielts-break',
             params: {
-              attempt_id: String(attempt.id),
-              exam: params.exam || params.exam_type_id || '42',
-              exam_name: (attempt as any)?.exam_type_name || params.exam_name || 'IELTS Academic',
-              section_index: String(nextSectionIndex),
-              section_name: nextSection.section_name,
-              section_order: params.section_order,
-              mode: params.mode,
+              ...commonParams,
+              next_section_index: String(nextSectionIndex),
+              next_section_name: nextSectionName,
             },
           });
+        } else {
+          // Between individual sessions
+          if (nextSectionName.toLowerCase().includes('speaking')) {
+            router.push({
+              pathname: '/(exam)/ielts-speaking-instructions',
+              params: commonParams,
+            });
+          } else if (nextSectionName.toLowerCase().includes('listening')) {
+            router.push({
+              pathname: '/(exam)/ielts-listening-instructions',
+              params: commonParams,
+            });
+          } else {
+            router.push({
+              pathname: '/(exam)/ielts-section-instructions',
+              params: commonParams,
+            });
+          }
         }
+      } else {
+        setShowSubmitModal(true);
       }
-    } else {
-      setShowSubmitModal(true);
     }
   };
 
@@ -887,12 +912,12 @@ export default function IELTSSessionScreen() {
         });
       });
 
-      await examService.submitExam(attempt.id, { responses: responsesPayload });
+      const submitRes = await examService.submitExam(attempt.id, { responses: responsesPayload });
       await storage.remove('@classore_active_attempt');
       examService.saveRecentAttempt({
         id: attempt.id,
         exam_type: attempt.exam_type || 42,
-        title: 'IELTS Examination',
+        title: params.exam_name || 'IELTS Academic Test',
         total_questions: 40,
         answered_questions: 40,
         status: 'completed',
@@ -902,7 +927,16 @@ export default function IELTSSessionScreen() {
       setShowSubmitModal(false);
       router.replace({
         pathname: '/(exam)/test-result',
-        params: { attempt_id: String(attempt.id) }
+        params: { 
+          attempt_id: String(attempt.id),
+          exam_name: params.exam_name || 'IELTS Academic Test',
+          is_ielts: 'true',
+          total_score: submitRes?.total_score !== undefined ? String(submitRes.total_score) : '',
+          streak: submitRes?.streak !== undefined ? String(submitRes.streak) : '',
+          ai_feedbacks: submitRes?.ai_feedbacks ? JSON.stringify(submitRes.ai_feedbacks) : '',
+          ai_assessment_status: submitRes?.ai_assessment_status || '',
+          ai_skip_reason: submitRes?.ai_skip_reason || '',
+        }
       });
     } catch (err: any) {
       console.error('Submit error:', err);

@@ -27,9 +27,103 @@ import {
 
 type SpeakingSubState = 'get-ready' | 'listen' | 'recording';
 
+const FALLBACK_SPEAKING_STRUCTURE: AttemptSection = {
+  section_id: 1,
+  section_name: 'IELTS Speaking',
+  question_groups: [
+    {
+      group_id: 1,
+      group_title: 'Part 1',
+      group_type: 'Introduction & Interview',
+      context_text: 'The examiner will ask you general questions about yourself, your home, your work or studies and other familiar topics.',
+      responses: [
+        {
+          id: 101,
+          question: {
+            id: 101,
+            question_type: 'AUDIO',
+            text: 'Let us talk about your hometown. Where is your hometown located?',
+            instructions: 'Answer clearly and naturally.'
+          }
+        },
+        {
+          id: 102,
+          question: {
+            id: 102,
+            question_type: 'AUDIO',
+            text: 'What do you like most about your hometown?',
+            instructions: 'Provide specific examples.'
+          }
+        },
+        {
+          id: 103,
+          question: {
+            id: 103,
+            question_type: 'AUDIO',
+            text: 'Has your hometown changed much since you were a child?',
+            instructions: 'Describe the developments.'
+          }
+        }
+      ]
+    },
+    {
+      group_id: 2,
+      group_title: 'Part 2',
+      group_type: 'Long Turn',
+      context_text: 'Long Turn - Talk about a book you have read.',
+      responses: [
+        {
+          id: 201,
+          question: {
+            id: 201,
+            question_type: 'AUDIO',
+            text: 'Long Turn - Talk about a book you have read.',
+            instructions: 'You should say:\n• What the book is\n• When you read it\n• What it is about\n• And explain why you liked it.'
+          }
+        }
+      ]
+    },
+    {
+      group_id: 3,
+      group_title: 'Part 3',
+      group_type: 'Discussion',
+      context_text: 'The examiner will ask further questions connected to the topic in Part 2.',
+      responses: [
+        {
+          id: 301,
+          question: {
+            id: 301,
+            question_type: 'AUDIO',
+            text: 'Do people in your country read as many books today as in the past?',
+            instructions: 'Discuss reading trends and digital media.'
+          }
+        },
+        {
+          id: 302,
+          question: {
+            id: 302,
+            question_type: 'AUDIO',
+            text: 'What are the main advantages of reading physical books versus digital e-books?',
+            instructions: 'Compare convenience, focus, and comprehension.'
+          }
+        }
+      ]
+    }
+  ]
+};
+
 export default function IELTSSpeakingSessionScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ attempt_id?: string; exam?: string; exam_type_id?: string; exam_name?: string }>();
+  const params = useLocalSearchParams<{ 
+    attempt_id?: string; 
+    exam?: string; 
+    exam_type_id?: string; 
+    exam_name?: string;
+    section_index?: string;
+    section_order?: string;
+    section_names?: string;
+    mode?: string;
+  }>();
   
   const [attempt, setAttempt] = useState<UserAttempt | null>(null);
   const [loading, setLoading] = useState(true);
@@ -110,12 +204,14 @@ export default function IELTSSpeakingSessionScreen() {
           setAttempt(res);
           setTotalTimeLeft(res.timer_info?.remaining_seconds ?? 900);
           
-          const speakSec = res.sections.find(s => 
+          const speakSec = res.sections?.find(s => 
             s.section_name.toLowerCase().includes('speaking')
-          ) || res.sections[0];
+          );
           
-          if (speakSec) {
+          if (speakSec && speakSec.question_groups && speakSec.question_groups.length > 0) {
             setSpeakingSection(speakSec);
+          } else {
+            setSpeakingSection(FALLBACK_SPEAKING_STRUCTURE);
           }
 
           const initialBookmarks: number[] = [];
@@ -138,11 +234,13 @@ export default function IELTSSpeakingSessionScreen() {
           const res = await examService.resumeExam(newAttempt.id);
           setAttempt(res);
           setTotalTimeLeft(res.timer_info?.remaining_seconds ?? 900);
-          const speakSec = res.sections.find(s => 
+          const speakSec = res.sections?.find(s => 
             s.section_name.toLowerCase().includes('speaking')
-          ) || res.sections[0];
-          if (speakSec) {
+          );
+          if (speakSec && speakSec.question_groups && speakSec.question_groups.length > 0) {
             setSpeakingSection(speakSec);
+          } else {
+            setSpeakingSection(FALLBACK_SPEAKING_STRUCTURE);
           }
         }
       } catch (e: any) {
@@ -155,93 +253,8 @@ export default function IELTSSpeakingSessionScreen() {
           setShowSubscriptionModal(true);
           return;
         }
-        console.warn('Could not initialize speaking session, generating mock session structure:', e);
-        // Fallback IELTS structure matching the mockups
-        const mockStructure: AttemptSection = {
-          section_id: 1,
-          section_name: 'IELTS Speaking',
-          question_groups: [
-            {
-              group_id: 1,
-              group_title: 'Part 1',
-              group_type: 'Introduction & Interview',
-              context_text: 'The examiner will ask you general questions about yourself, your home, your work or studies and other familiar topics.',
-              responses: [
-                {
-                  id: 101,
-                  question: {
-                    id: 101,
-                    question_type: 'AUDIO',
-                    text: 'Let us talk about your hometown. Where is your hometown located?',
-                    instructions: 'Answer clearly and naturally.'
-                  }
-                },
-                {
-                  id: 102,
-                  question: {
-                    id: 102,
-                    question_type: 'AUDIO',
-                    text: 'What do you like most about your hometown?',
-                    instructions: 'Provide specific examples.'
-                  }
-                },
-                {
-                  id: 103,
-                  question: {
-                    id: 103,
-                    question_type: 'AUDIO',
-                    text: 'Has your hometown changed much since you were a child?',
-                    instructions: 'Describe the developments.'
-                  }
-                }
-              ]
-            },
-            {
-              group_id: 2,
-              group_title: 'Part 2',
-              group_type: 'Long Turn',
-              context_text: 'Long Turn - Talk about a book you have read.',
-              responses: [
-                {
-                  id: 201,
-                  question: {
-                    id: 201,
-                    question_type: 'AUDIO',
-                    text: 'Long Turn - Talk about a book you have read.',
-                    instructions: 'You should say:\n• What the book is\n• When you read it\n• What it is about\n• And explain why you liked it.'
-                  }
-                }
-              ]
-            },
-            {
-              group_id: 3,
-              group_title: 'Part 3',
-              group_type: 'Discussion',
-              context_text: 'The examiner will ask further questions connected to the topic in Part 2.',
-              responses: [
-                {
-                  id: 301,
-                  question: {
-                    id: 301,
-                    question_type: 'AUDIO',
-                    text: 'Do people in your country read as many books today as in the past?',
-                    instructions: 'Discuss reading trends and digital media.'
-                  }
-                },
-                {
-                  id: 302,
-                  question: {
-                    id: 302,
-                    question_type: 'AUDIO',
-                    text: 'What are the main advantages of reading physical books versus digital e-books?',
-                    instructions: 'Compare convenience, focus, and comprehension.'
-                  }
-                }
-              ]
-            }
-          ]
-        };
-        setSpeakingSection(mockStructure);
+        console.warn('Could not initialize speaking session, using fallback speaking structure:', e);
+        setSpeakingSection(FALLBACK_SPEAKING_STRUCTURE);
       } finally {
         setLoading(false);
       }
@@ -537,13 +550,83 @@ export default function IELTSSpeakingSessionScreen() {
     try {
       setIsSubmitting(true);
       const attemptId = attempt?.id || Number(params.attempt_id);
+
+      // Check if this exam attempt has further sections after speaking
+      const fullSectionNames = params.section_names
+        ? params.section_names.split(',').map(s => s.trim())
+        : (attempt?.sections ? attempt.sections.map(s => s.section_name) : ['Speaking']);
+
+      const currentSecName = speakingSection?.section_name || 'Speaking';
+      let currentSectionIdxInList = fullSectionNames.findIndex(
+        s => s.toLowerCase() === currentSecName.toLowerCase() || 
+             currentSecName.toLowerCase().includes(s.toLowerCase()) || 
+             s.toLowerCase().includes(currentSecName.toLowerCase())
+      );
+      if (currentSectionIdxInList === -1) {
+        currentSectionIdxInList = params.section_index ? parseInt(String(params.section_index), 10) : 0;
+      }
+
+      const hasNextSection = currentSectionIdxInList < fullSectionNames.length - 1;
+
+      if (hasNextSection) {
+        const nextSectionIndex = currentSectionIdxInList + 1;
+        const nextSectionName = fullSectionNames[nextSectionIndex];
+        const completedSessionsCount = currentSectionIdxInList + 1;
+
+        setShowSubmitModal(false);
+        setIsOverviewVisible(false);
+
+        const commonParams = {
+          attempt_id: String(attemptId || ''),
+          exam: params.exam || params.exam_type_id || '42',
+          exam_id: params.exam || params.exam_type_id || '42',
+          exam_name: params.exam_name || 'IELTS Academic',
+          section_index: String(nextSectionIndex),
+          section_name: nextSectionName,
+          section_order: params.section_order,
+          section_names: params.section_names || fullSectionNames.join(','),
+          mode: params.mode,
+        };
+
+        if (completedSessionsCount % 2 === 0) {
+          router.replace({
+            pathname: '/(exam)/ielts-break',
+            params: {
+              ...commonParams,
+              next_section_index: String(nextSectionIndex),
+              next_section_name: nextSectionName,
+            },
+          });
+        } else {
+          if (nextSectionName.toLowerCase().includes('speaking')) {
+            router.replace({
+              pathname: '/(exam)/ielts-speaking-instructions',
+              params: commonParams,
+            });
+          } else if (nextSectionName.toLowerCase().includes('listening')) {
+            router.replace({
+              pathname: '/(exam)/ielts-listening-instructions',
+              params: commonParams,
+            });
+          } else {
+            router.replace({
+              pathname: '/(exam)/ielts-section-instructions',
+              params: commonParams,
+            });
+          }
+        }
+        return;
+      }
+
+      // No more sections: submit the entire exam
+      let submitRes: any = null;
       if (attemptId && !isNaN(attemptId)) {
-        await examService.submitExam(attemptId, { responses: [] });
+        submitRes = await examService.submitExam(attemptId, { responses: [] });
         await storage.remove('@classore_active_attempt');
         examService.saveRecentAttempt({
           id: attemptId,
           exam_type: 42,
-          title: 'IELTS Speaking Test',
+          title: params.exam_name || 'IELTS Speaking Test',
           total_questions: 10,
           answered_questions: 10,
           status: 'completed',
@@ -557,7 +640,13 @@ export default function IELTSSpeakingSessionScreen() {
         pathname: '/(exam)/test-result',
         params: {
           attempt_id: attemptId ? String(attemptId) : (params.attempt_id || ''),
-          exam_name: params.exam_name || 'IELTS Speaking',
+          exam_name: params.exam_name || 'IELTS Speaking Test',
+          is_ielts: 'true',
+          total_score: submitRes?.total_score !== undefined ? String(submitRes.total_score) : '',
+          streak: submitRes?.streak !== undefined ? String(submitRes.streak) : '',
+          ai_feedbacks: submitRes?.ai_feedbacks ? JSON.stringify(submitRes.ai_feedbacks) : '',
+          ai_assessment_status: submitRes?.ai_assessment_status || '',
+          ai_skip_reason: submitRes?.ai_skip_reason || '',
         }
       });
     } catch (err: any) {

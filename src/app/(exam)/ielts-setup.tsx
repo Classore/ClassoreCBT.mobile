@@ -1,5 +1,6 @@
 import { useLocalSearchParams } from 'expo-router';
 import { examService } from '@/services/exam';
+import { useAuth } from '@/context/AuthContext';
 import React, { useState, useEffect } from 'react';
 import { 
   View, 
@@ -40,6 +41,7 @@ const DEFAULT_SECTIONS: Record<string, SectionItem> = {
 
 export default function IELTSSetupScreen() {
   const router = useRouter();
+  const { user } = useAuth();
   const params = useLocalSearchParams<{ 
     exam?: string;
     exam_name?: string;
@@ -50,8 +52,11 @@ export default function IELTSSetupScreen() {
   const examId = examIdStr ? parseInt(examIdStr, 10) : 42; // Default to 42
 
   const mapSections = (fetchedSections: any[]) => {
-    return fetchedSections.map(s => {
-      const defaultSec = DEFAULT_SECTIONS[s.name] || {
+    const mapped: SectionItem[] = fetchedSections.map(s => {
+      const matchedKey = Object.keys(DEFAULT_SECTIONS).find(
+        key => (s.name || '').toLowerCase().includes(key.toLowerCase())
+      );
+      const defaultSec = (matchedKey ? DEFAULT_SECTIONS[matchedKey] : null) || {
         name: s.name,
         subtitle: `${s.default_time_minutes} min`,
         iconName: 'book-outline',
@@ -65,10 +70,23 @@ export default function IELTSSetupScreen() {
         iconFamily: defaultSec.iconFamily
       };
     });
+
+    // Ensure all 4 IELTS core components (Reading, Listening, Writing, Speaking) are always available
+    const standardKeys = ['Reading', 'Listening', 'Writing', 'Speaking'];
+    standardKeys.forEach(key => {
+      const exists = mapped.some(m => m.name.toLowerCase().includes(key.toLowerCase()));
+      if (!exists && DEFAULT_SECTIONS[key]) {
+        mapped.push(DEFAULT_SECTIONS[key]);
+      }
+    });
+
+    return mapped;
   };
 
   const initialSections = examService.getCachedSectionsSync(examId);
-  const initialMapped = initialSections ? mapSections(initialSections) : [];
+  const initialMapped = initialSections && initialSections.length > 0 
+    ? mapSections(initialSections) 
+    : Object.values(DEFAULT_SECTIONS);
 
   const resolveInitialExamInfo = () => {
     if (params.exam_name && typeof params.exam_name === 'string' && params.exam_name.trim()) {
@@ -196,7 +214,7 @@ export default function IELTSSetupScreen() {
           <Text style={styles.headerTitle}>Standard Mode</Text>
           <View style={styles.streakBadge}>
             <Text style={{ fontSize: 13, marginRight: 4 }}>🔥</Text>
-            <Text style={styles.streakText}>120</Text>
+            <Text style={styles.streakText}>{user?.streak ?? 0}</Text>
           </View>
         </View>
 
@@ -331,6 +349,7 @@ export default function IELTSSetupScreen() {
               const examIdStr = Array.isArray(params.exam) ? params.exam[0] : params.exam;
               const examId = examIdStr ? parseInt(examIdStr, 10) : 42;
               const sectionOrder = sections.map(s => s.id).join(',');
+              const sectionNames = sections.map(s => s.name).join(',');
               const orderIds = sections.map(s => Number(s.id)).filter(n => !isNaN(n));
               const firstSectionName = sections[0]?.name || 'Reading';
 
@@ -349,6 +368,7 @@ export default function IELTSSetupScreen() {
                     attempt_id: String(newAttempt.id),
                     exam: String(examId), 
                     section_order: sectionOrder,
+                    section_names: sectionNames,
                     exam_name: examName,
                     exam_desc: examDesc,
                     section_name: firstSectionName,

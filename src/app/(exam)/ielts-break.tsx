@@ -21,6 +21,7 @@ export default function IELTSBreakScreen() {
     next_section_index?: string;
     next_section_name?: string;
     section_order?: string;
+    section_names?: string;
     mode?: string;
   }>();
 
@@ -56,11 +57,37 @@ export default function IELTSBreakScreen() {
   };
 
   const handleProceed = () => {
-    if (nextSectionName.toLowerCase().includes('speaking')) {
+    const isSpeaking = nextSectionName.toLowerCase().includes('speaking');
+    const isListening = nextSectionName.toLowerCase().includes('listening');
+
+    if (isSpeaking) {
       router.replace({
         pathname: '/(exam)/ielts-speaking-instructions',
         params: {
           attempt_id: params.attempt_id,
+          exam: params.exam_id || '42',
+          exam_id: params.exam_id || '42',
+          exam_name: params.exam_name || 'IELTS Academic',
+          section_index: nextSectionIndex,
+          section_name: nextSectionName,
+          section_order: params.section_order,
+          section_names: params.section_names,
+          mode: params.mode,
+        },
+      });
+    } else if (isListening) {
+      router.replace({
+        pathname: '/(exam)/ielts-listening-instructions',
+        params: {
+          attempt_id: params.attempt_id,
+          exam: params.exam_id || '42',
+          exam_id: params.exam_id || '42',
+          exam_name: params.exam_name || 'IELTS Academic',
+          section_index: nextSectionIndex,
+          section_name: nextSectionName,
+          section_order: params.section_order,
+          section_names: params.section_names,
+          mode: params.mode,
         },
       });
     } else {
@@ -68,10 +95,13 @@ export default function IELTSBreakScreen() {
         pathname: '/(exam)/ielts-section-instructions',
         params: {
           attempt_id: params.attempt_id,
+          exam: params.exam_id || '42',
+          exam_id: params.exam_id || '42',
           section_index: nextSectionIndex,
           section_name: nextSectionName,
           exam_name: params.exam_name || 'IELTS Academic',
           section_order: params.section_order,
+          section_names: params.section_names,
           mode: params.mode,
         },
       });

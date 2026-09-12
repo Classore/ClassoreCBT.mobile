@@ -35,6 +35,9 @@ export default function IELTSListeningSessionScreen() {
     exam_type_id?: string;
     exam_name?: string;
     section_index?: string;
+    section_order?: string;
+    section_names?: string;
+    mode?: string;
   }>();
 
   const [attempt, setAttempt] = useState<UserAttempt | null>(null);
@@ -463,13 +466,89 @@ export default function IELTSListeningSessionScreen() {
 
       const attemptId = attempt?.id || Number(params.attempt_id);
 
+      // Save responses for listening
+      if (attemptId && !isNaN(attemptId) && responsesPayload.length > 0) {
+        await examService.autoSave(attemptId, { responses: responsesPayload }).catch(err => {
+          console.warn('Auto-save warning in listening session:', err);
+        });
+      }
+
+      // Check if this exam attempt has further sections
+      const fullSectionNames = params.section_names
+        ? params.section_names.split(',').map(s => s.trim())
+        : (attempt?.sections ? attempt.sections.map(s => s.section_name) : ['Listening']);
+
+      const currentSecName = listeningSection?.section_name || 'Listening';
+      let currentSectionIdxInList = fullSectionNames.findIndex(
+        s => s.toLowerCase() === currentSecName.toLowerCase() || 
+             currentSecName.toLowerCase().includes(s.toLowerCase()) || 
+             s.toLowerCase().includes(currentSecName.toLowerCase())
+      );
+      if (currentSectionIdxInList === -1) {
+        currentSectionIdxInList = params.section_index ? parseInt(String(params.section_index), 10) : 0;
+      }
+
+      const hasNextSection = currentSectionIdxInList < fullSectionNames.length - 1;
+
+      if (hasNextSection) {
+        const nextSectionIndex = currentSectionIdxInList + 1;
+        const nextSectionName = fullSectionNames[nextSectionIndex];
+        const completedSessionsCount = currentSectionIdxInList + 1;
+
+        setShowSubmitModal(false);
+        setIsOverviewVisible(false);
+
+        const commonParams = {
+          attempt_id: String(attemptId || ''),
+          exam: params.exam || params.exam_type_id || '42',
+          exam_id: params.exam || params.exam_type_id || '42',
+          exam_name: params.exam_name || 'IELTS Academic',
+          section_index: String(nextSectionIndex),
+          section_name: nextSectionName,
+          section_order: params.section_order,
+          section_names: params.section_names || fullSectionNames.join(','),
+          mode: params.mode,
+        };
+
+        if (completedSessionsCount % 2 === 0) {
+          router.replace({
+            pathname: '/(exam)/ielts-break',
+            params: {
+              ...commonParams,
+              next_section_index: String(nextSectionIndex),
+              next_section_name: nextSectionName,
+            },
+          });
+        } else {
+          if (nextSectionName.toLowerCase().includes('speaking')) {
+            router.replace({
+              pathname: '/(exam)/ielts-speaking-instructions',
+              params: commonParams,
+            });
+          } else if (nextSectionName.toLowerCase().includes('listening')) {
+            router.replace({
+              pathname: '/(exam)/ielts-listening-instructions',
+              params: commonParams,
+            });
+          } else {
+            router.replace({
+              pathname: '/(exam)/ielts-section-instructions',
+              params: commonParams,
+            });
+          }
+        }
+        return;
+      }
+
+      // If this is the final section of the test, submit the entire exam
+      let submitRes: any = null;
       if (attemptId && !isNaN(attemptId)) {
-        await examService.submitExam(attemptId, { responses: responsesPayload });
+        submitRes = await examService.submitExam(attemptId, { responses: responsesPayload });
         await storage.remove('@classore_active_attempt');
         examService.saveRecentAttempt({
           id: attemptId,
           exam_type: 42,
-          title: 'IELTS Listening Test',
+          title: params.exam_name || 'IELTS Listening Test',
           total_questions: 40,
           answered_questions: 40,
           status: 'completed',
@@ -485,12 +564,51 @@ export default function IELTSListeningSessionScreen() {
         pathname: '/(exam)/test-result',
         params: {
           attempt_id: attemptId ? String(attemptId) : (params.attempt_id || ''),
-          exam_name: params.exam_name || 'IELTS Listening',
+          exam_name: params.exam_name || 'IELTS Listening Test',
+          is_ielts: 'true',
+          total_score: submitRes?.total_score !== undefined ? String(submitRes.total_score) : '',
+          streak: submitRes?.streak !== undefined ? String(submitRes.streak) : '',
+          ai_feedbacks: submitRes?.ai_feedbacks ? JSON.stringify(submitRes.ai_feedbacks) : '',
+          ai_assessment_status: submitRes?.ai_assessment_status || '',
+          ai_skip_reason: submitRes?.ai_skip_reason || '',
         },
       });
     } catch (err: any) {
       console.warn('Submit warning in listening session:', err);
       const attemptId = attempt?.id || Number(params.attempt_id);
+
+      // Check if we should still try advancing to next section
+      const fullSectionNames = params.section_names
+        ? params.section_names.split(',').map(s => s.trim())
+        : [];
+      const currentSecName = listeningSection?.section_name || 'Listening';
+      const currentSectionIdxInList = fullSectionNames.findIndex(
+        s => s.toLowerCase() === currentSecName.toLowerCase() || s.toLowerCase().includes('listening')
+      );
+
+      if (currentSectionIdxInList !== -1 && currentSectionIdxInList < fullSectionNames.length - 1) {
+        const nextSectionIndex = currentSectionIdxInList + 1;
+        const nextSectionName = fullSectionNames[nextSectionIndex];
+        setShowSubmitModal(false);
+        setIsOverviewVisible(false);
+        router.replace({
+          pathname: nextSectionName.toLowerCase().includes('speaking')
+            ? '/(exam)/ielts-speaking-instructions'
+            : '/(exam)/ielts-section-instructions',
+          params: {
+            attempt_id: String(attemptId || ''),
+            exam: params.exam || params.exam_type_id || '42',
+            exam_name: params.exam_name || 'IELTS Academic',
+            section_index: String(nextSectionIndex),
+            section_name: nextSectionName,
+            section_order: params.section_order,
+            section_names: params.section_names,
+            mode: params.mode,
+          },
+        });
+        return;
+      }
+
       setShowSubmitModal(false);
       setIsOverviewVisible(false);
 

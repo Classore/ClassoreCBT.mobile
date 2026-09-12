@@ -3,6 +3,7 @@ import { CustomInput } from '@/components/CustomInput';
 import { GoogleIcon } from '@/components/GoogleIcon';
 import { api } from '@/services/api';
 
+import { useAuth } from '@/context/AuthContext';
 import { GoogleSignin, isErrorWithCode, isSuccessResponse, statusCodes } from '@react-native-google-signin/google-signin';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
@@ -20,13 +21,17 @@ import {
   View
 } from 'react-native';
 
+const webClientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || '224829194037-4b9e6vfaoe3rpohh6lka2bsgflu760ti.apps.googleusercontent.com';
+const iosClientId = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || undefined;
+
 GoogleSignin.configure({
-  webClientId: 'PLACEHOLDER_WEB_CLIENT_ID', // Replace with actual Web Client ID from Google Cloud
-  iosClientId: 'PLACEHOLDER_IOS_CLIENT_ID', // Replace if needed for iOS
+  webClientId,
+  ...(iosClientId ? { iosClientId } : {}),
 });
 
 export default function SignupScreen() {
   const router = useRouter();
+  const { login } = useAuth();
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
@@ -81,8 +86,7 @@ export default function SignupScreen() {
       if (isSuccessResponse(response)) {
         const idToken = response.data.idToken;
         
-        // Send to backend
-        const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:8000/';
+        const API_URL = process.env.EXPO_PUBLIC_API_URL || (Platform.OS === 'android' ? 'http://10.0.2.2:8000' : 'http://127.0.0.1:8000');
         const res = await fetch(`${API_URL}/api/auth/google/`, {
           method: 'POST',
           headers: {
@@ -92,11 +96,15 @@ export default function SignupScreen() {
         });
         
         if (!res.ok) {
-          throw new Error('Backend authentication failed');
+          const errorData = await res.json().catch(() => ({}));
+          throw new Error(errorData.message || errorData.error || 'Google authentication failed with server.');
         }
         
         const data = await res.json();
-        // Here you would typically save data.token to SecureStore or Context
+        const token = data.token || data.key || data.access;
+        if (token) {
+          await login(token);
+        }
         
         router.push('/(auth)/choose-goal');
       } else {
@@ -110,7 +118,9 @@ export default function SignupScreen() {
             Alert.alert('Google Sign-In', 'Sign in is already in progress');
             break;
           case statusCodes.PLAY_SERVICES_NOT_AVAILABLE:
-            Alert.alert('Google Sign-In', 'Play services not available or outdated');
+            Alert.alert('Google Sign-In', 'Google Play Services is not available or outdated on this device.');
+            break;
+          case statusCodes.SIGN_IN_CANCELLED:
             break;
           default:
             Alert.alert('Google Sign-In Error', error.message || 'An unknown error occurred');

@@ -19,6 +19,7 @@ export default function ExamLayout() {
       <Stack.Screen name="subject-performance" />
       <Stack.Screen name="topic-performance" />
       <Stack.Screen name="review-answers" />
+      <Stack.Screen name="question-review" />
     </Stack>
   );
 }

@@ -96,6 +96,8 @@ export default function IELTSSectionInstructionsScreen() {
   const details = getSectionDetails(currentSection);
   const illustrationSource = details.title.toLowerCase().includes('reading')
     ? require('../../../assets/images/ielts-book-illustration.png')
+    : details.title.toLowerCase().includes('writing')
+    ? require('../../../assets/images/test-instructions-3d.png')
     : require('../../../assets/images/ielts-instructions-mic.png');
 
   const [isStarting, setIsStarting] = useState(false);
@@ -104,9 +106,16 @@ export default function IELTSSectionInstructionsScreen() {
 
   useEffect(() => {
     const isListening = (currentSection || '').toLowerCase().includes('listening') || (params.section_name || '').toLowerCase().includes('listening');
+    const isSpeaking = (currentSection || '').toLowerCase().includes('speaking') || (params.section_name || '').toLowerCase().includes('speaking');
+
     if (isListening) {
       router.replace({
         pathname: '/(exam)/ielts-listening-instructions',
+        params: params,
+      });
+    } else if (isSpeaking) {
+      router.replace({
+        pathname: '/(exam)/ielts-speaking-instructions',
         params: params,
       });
     }
@@ -116,11 +125,16 @@ export default function IELTSSectionInstructionsScreen() {
     if (isStarting) return;
 
     const isListening = (currentSection || '').toLowerCase().includes('listening') || (params.section_name || '').toLowerCase().includes('listening');
+    const isSpeaking = (currentSection || '').toLowerCase().includes('speaking') || (params.section_name || '').toLowerCase().includes('speaking');
 
     // If this section is part of an ongoing attempt (resuming / after break)
     if (params.attempt_id) {
       router.replace({
-        pathname: isListening ? '/(exam)/ielts-listening-session' : '/(exam)/ielts-session',
+        pathname: isListening 
+          ? '/(exam)/ielts-listening-session' 
+          : isSpeaking 
+          ? '/(exam)/ielts-speaking-session' 
+          : '/(exam)/ielts-session',
         params: {
           ...params,
           attempt_id: params.attempt_id,
@@ -167,7 +181,11 @@ export default function IELTSSectionInstructionsScreen() {
       });
 
       router.replace({
-        pathname: isListening ? '/(exam)/ielts-listening-session' : '/(exam)/ielts-session',
+        pathname: isListening 
+          ? '/(exam)/ielts-listening-session' 
+          : isSpeaking 
+          ? '/(exam)/ielts-speaking-session' 
+          : '/(exam)/ielts-session',
         params: {
           ...params,
           attempt_id: String(newAttempt.id),
@@ -211,13 +229,18 @@ export default function IELTSSectionInstructionsScreen() {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.scrollContent}
         >
-          {/* 3D Section Illustration (book for Reading, mic for others) */}
+          {/* 3D Section Illustration */}
           <View style={styles.illustrationContainer}>
-            <Image
-              source={illustrationSource}
-              style={styles.illustrationImage}
-              contentFit="contain"
-            />
+            <View style={styles.illustrationCircle}>
+              <Image
+                source={illustrationSource}
+                style={styles.illustrationImage}
+                contentFit="contain"
+                transition={150}
+                cachePolicy="memory-disk"
+                priority="high"
+              />
+            </View>
           </View>
 
           {/* Section Headline */}
@@ -353,9 +376,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginVertical: 14,
   },
+  illustrationCircle: {
+    width: 144,
+    height: 144,
+    borderRadius: 72,
+    backgroundColor: '#F5F3FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   illustrationImage: {
-    width: 200,
-    height: 170,
+    width: 110,
+    height: 110,
   },
   headlineContainer: {
     alignItems: 'center',

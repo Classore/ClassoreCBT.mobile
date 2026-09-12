@@ -271,15 +271,15 @@ export default function ExamSetupScreen() {
               <View style={[styles.modeIconBg, { backgroundColor: '#F3E8FF' }]}>
                 <Feather name="target" size={18} color="#7E57C2" />
               </View>
-              <AppText style={styles.modeTitle}>Practice Mode</AppText>
+              <View style={styles.modeTitleContainer}>
+                <AppText style={styles.modeTitle}>Practice Mode</AppText>
+                <View style={styles.practiceBadge}>
+                  <AppText style={styles.practiceBadgeText}>Best for learning</AppText>
+                </View>
+              </View>
             </View>
-            <View style={styles.modeRightGroup}>
-              <View style={styles.practiceBadge}>
-                <AppText style={styles.practiceBadgeText}>Best for learning</AppText>
-              </View>
-              <View style={[styles.radioOuter, selectedMode === 'practice' && styles.radioOuterActive]}>
-                {selectedMode === 'practice' && <View style={styles.radioInner} />}
-              </View>
+            <View style={[styles.radioOuter, selectedMode === 'practice' && styles.radioOuterActive]}>
+              {selectedMode === 'practice' && <View style={styles.radioInner} />}
             </View>
           </View>
           
@@ -291,7 +291,7 @@ export default function ExamSetupScreen() {
           <View style={styles.featuresGrid}>
             <View style={styles.featureItem}>
               <Feather name="check-circle" size={16} color="#7E57C2" />
-              <AppText style={styles.featureText}>Instant answers &{"\n"}explanations</AppText>
+              <AppText style={styles.featureText}>Instant answers & explanations</AppText>
             </View>
             <View style={styles.featureItem}>
               <Feather name="check-circle" size={16} color="#7E57C2" />
@@ -303,7 +303,7 @@ export default function ExamSetupScreen() {
             </View>
             <View style={styles.featureItem}>
               <Feather name="check-circle" size={16} color="#7E57C2" />
-              <AppText style={styles.featureText}>AI-powered{"\n"}explanations</AppText>
+              <AppText style={styles.featureText}>AI-powered explanations</AppText>
             </View>
           </View>
         </TouchableOpacity>
@@ -319,15 +319,15 @@ export default function ExamSetupScreen() {
               <View style={[styles.modeIconBg, { backgroundColor: '#DBEAFE' }]}>
                 <Feather name="shield" size={18} color="#3B82F6" />
               </View>
-              <AppText style={styles.modeTitle}>Standard Mode</AppText>
+              <View style={styles.modeTitleContainer}>
+                <AppText style={styles.modeTitle}>Standard Mode</AppText>
+                <View style={styles.standardBadge}>
+                  <AppText style={styles.standardBadgeText}>Best for exam readiness</AppText>
+                </View>
+              </View>
             </View>
-            <View style={styles.modeRightGroup}>
-              <View style={styles.standardBadge}>
-                <AppText style={styles.standardBadgeText}>Best for exam readiness</AppText>
-              </View>
-              <View style={[styles.radioOuter, selectedMode === 'standard' && styles.radioOuterActive]}>
-                {selectedMode === 'standard' && <View style={styles.radioInner} />}
-              </View>
+            <View style={[styles.radioOuter, selectedMode === 'standard' && styles.radioOuterActive]}>
+              {selectedMode === 'standard' && <View style={styles.radioInner} />}
             </View>
           </View>
           
@@ -339,7 +339,7 @@ export default function ExamSetupScreen() {
           <View style={styles.featuresGrid}>
             <View style={styles.featureItem}>
               <Feather name="check-circle" size={16} color="#3B82F6" />
-              <AppText style={styles.featureText}>Official exam{"\n"}structure</AppText>
+              <AppText style={styles.featureText}>Official exam structure</AppText>
             </View>
             <View style={styles.featureItem}>
               <Feather name="check-circle" size={16} color="#3B82F6" />
@@ -689,9 +689,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFF',
     borderWidth: 1.5,
     borderColor: '#F3F4F6',
-    borderRadius: 26,
-    padding: 22,
+    borderRadius: 24,
+    padding: 18,
     marginBottom: 18,
+    overflow: 'hidden',
   },
   modeCardActive: {
     borderColor: '#7E57C2',
@@ -700,12 +701,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 14,
+    marginBottom: 12,
   },
   modeIconTitle: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 14,
+    gap: 12,
+    flex: 1,
+    marginRight: 10,
   },
   modeIconBg: {
     width: 40,
@@ -714,15 +717,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  modeTitleContainer: {
+    flex: 1,
+    justifyContent: 'center',
+  },
   modeTitle: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '900',
     color: '#111827',
-  },
-  modeRightGroup: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+    marginBottom: 4,
   },
   radioOuter: {
     width: 20,
@@ -744,9 +747,10 @@ const styles = StyleSheet.create({
   },
   practiceBadge: {
     backgroundColor: '#F3E8FF',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    alignSelf: 'flex-start',
   },
   practiceBadgeText: {
     color: '#7E57C2',
@@ -755,9 +759,10 @@ const styles = StyleSheet.create({
   },
   standardBadge: {
     backgroundColor: '#DBEAFE',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    alignSelf: 'flex-start',
   },
   standardBadgeText: {
     color: '#2563EB',
@@ -768,40 +773,40 @@ const styles = StyleSheet.create({
     color: '#7E57C2',
     fontWeight: '700',
     fontSize: 13,
-    marginLeft: 48,
-    marginBottom: 8,
+    marginBottom: 6,
+    marginTop: 4,
   },
   standardHighlights: {
     color: '#2563EB',
     fontWeight: '700',
     fontSize: 13,
-    marginLeft: 48,
-    marginBottom: 8,
+    marginBottom: 6,
+    marginTop: 4,
   },
   modeDesc: {
     color: '#6B7280',
     fontSize: 13,
-    lineHeight: 20,
-    marginLeft: 48,
-    marginBottom: 16,
+    lineHeight: 19,
+    marginBottom: 14,
   },
   featuresGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    marginLeft: 48,
+    width: '100%',
   },
   featureItem: {
     width: '50%',
     flexDirection: 'row',
     alignItems: 'flex-start',
     marginBottom: 12,
-    paddingRight: 8,
+    paddingRight: 6,
   },
   featureText: {
     fontSize: 12,
     color: '#4B5563',
     marginLeft: 8,
     lineHeight: 16,
+    flex: 1,
   },
   infoBox: {
     backgroundColor: '#FFFBF2',

@@ -31,6 +31,7 @@ export default function ExamSessionScreen() {
     mode?: string;
     sections?: string;
     time_limit?: string;
+    exam_name?: string;
   }>();
 
   const [isLoading, setIsLoading] = useState(true);
@@ -297,14 +298,18 @@ export default function ExamSessionScreen() {
           choice_id: userAnswers[qId] || null,
           is_bookmarked: allBookmarkedQIds.has(qId),
         }));
-        await examService.submitExam(attempt.id, { responses: responsesPayload });
+        const submitRes = await examService.submitExam(attempt.id, { responses: responsesPayload });
         await storage.remove('@classore_active_attempt');
+        setShowSubmitModal(false);
+        router.replace({
+          pathname: '/(exam)/test-result',
+          params: { 
+            attempt_id: attempt?.id ? String(attempt.id) : undefined,
+            exam_name: (attempt as any)?.exam_name || params.exam_name || 'JAMB Practice Test',
+            total_score: submitRes?.total_score !== undefined ? String(submitRes.total_score) : '',
+          }
+        });
       }
-      setShowSubmitModal(false);
-      router.replace({
-        pathname: '/(exam)/test-result',
-        params: { attempt_id: attempt?.id ? String(attempt.id) : undefined }
-      });
     } catch (err: any) {
       console.error('Submit error:', err);
       const errorMsg = err?.response?.data?.error || err?.response?.data?.message || err?.message || 'Could not submit test. Please try again.';

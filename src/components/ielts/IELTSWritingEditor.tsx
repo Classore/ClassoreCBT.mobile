@@ -24,6 +24,49 @@ export const IELTSWritingEditor: React.FC<IELTSWritingEditorProps> = ({
   const [isItalic, setIsItalic] = useState(false);
   const [isUnderline, setIsUnderline] = useState(false);
 
+  // Undo / Redo history state
+  const [history, setHistory] = useState<string[]>([value || '']);
+  const [historyIndex, setHistoryIndex] = useState(0);
+  const isInternalChangeRef = React.useRef(false);
+
+  // Sync external value changes if not triggered by internal undo/redo
+  const handleTextChange = (text: string) => {
+    onChangeText(text);
+    if (!isInternalChangeRef.current) {
+      setHistory(prev => {
+        const next = prev.slice(0, historyIndex + 1);
+        // Avoid duplicate consecutive entries
+        if (next[next.length - 1] !== text) {
+          next.push(text);
+        }
+        return next;
+      });
+      setHistoryIndex(prev => prev + 1);
+    }
+    isInternalChangeRef.current = false;
+  };
+
+  const canUndo = historyIndex > 0;
+  const canRedo = historyIndex < history.length - 1;
+
+  const handleUndo = () => {
+    if (!canUndo) return;
+    const newIndex = historyIndex - 1;
+    const prevText = history[newIndex];
+    isInternalChangeRef.current = true;
+    setHistoryIndex(newIndex);
+    onChangeText(prevText);
+  };
+
+  const handleRedo = () => {
+    if (!canRedo) return;
+    const newIndex = historyIndex + 1;
+    const nextText = history[newIndex];
+    isInternalChangeRef.current = true;
+    setHistoryIndex(newIndex);
+    onChangeText(nextText);
+  };
+
   // Word count calculation
   const wordsCount = value.trim() ? value.trim().split(/\s+/).filter(Boolean).length : 0;
 
@@ -79,13 +122,31 @@ export const IELTSWritingEditor: React.FC<IELTSWritingEditorProps> = ({
             </TouchableOpacity>
           </View>
 
-          {/* Undo / Redo */}
+          {/* Undo / Redo (Back / Forward) */}
           <View style={styles.toolbarRight}>
-            <TouchableOpacity style={styles.toolBtn} activeOpacity={0.7}>
-              <MaterialCommunityIcons name="undo" size={18} color="#9CA3AF" />
+            <TouchableOpacity 
+              style={[styles.toolBtn, !canUndo && styles.toolBtnDisabled]} 
+              onPress={handleUndo}
+              disabled={!canUndo}
+              activeOpacity={0.7}
+            >
+              <MaterialCommunityIcons 
+                name="undo" 
+                size={18} 
+                color={canUndo ? "#374151" : "#D1D5DB"} 
+              />
             </TouchableOpacity>
-            <TouchableOpacity style={styles.toolBtn} activeOpacity={0.7}>
-              <MaterialCommunityIcons name="redo" size={18} color="#9CA3AF" />
+            <TouchableOpacity 
+              style={[styles.toolBtn, !canRedo && styles.toolBtnDisabled]} 
+              onPress={handleRedo}
+              disabled={!canRedo}
+              activeOpacity={0.7}
+            >
+              <MaterialCommunityIcons 
+                name="redo" 
+                size={18} 
+                color={canRedo ? "#374151" : "#D1D5DB"} 
+              />
             </TouchableOpacity>
           </View>
         </View>
@@ -100,7 +161,7 @@ export const IELTSWritingEditor: React.FC<IELTSWritingEditorProps> = ({
           ]}
           multiline
           value={value}
-          onChangeText={onChangeText}
+          onChangeText={handleTextChange}
           placeholder={placeholder}
           placeholderTextColor="#9CA3AF"
           textAlignVertical="top"
@@ -159,6 +220,9 @@ const styles = StyleSheet.create({
   },
   toolBtnActive: {
     backgroundColor: '#EDE9FE',
+  },
+  toolBtnDisabled: {
+    opacity: 0.4,
   },
   toolBtnText: {
     fontSize: 14,

@@ -348,7 +348,24 @@ export default function ReviewAnswersScreen() {
                   filteredQuestions.map((q) => {
                     const isBookmarked = bookmarkedList.includes(q.id);
                     return (
-                      <View key={q.id} style={styles.questionRow}>
+                      <TouchableOpacity
+                        key={q.id}
+                        style={styles.questionRow}
+                        activeOpacity={0.7}
+                        onPress={() => {
+                          router.push({
+                            pathname: '/(exam)/question-review' as any,
+                            params: {
+                              attempt_id: params.attempt_id,
+                              question_id: String(q.id),
+                              question_number: String(q.questionNumber),
+                              total_questions: String(questions.length),
+                              subject_name: activeSubject,
+                              status: q.status,
+                            },
+                          });
+                        }}
+                      >
                         <Text style={styles.questionIndex}>{q.questionNumber}</Text>
 
                         {/* Status Badge */}
@@ -383,10 +400,14 @@ export default function ReviewAnswersScreen() {
                           Correct Answer: <Text style={styles.answerBold}>{q.correctAnswer}</Text>
                         </Text>
 
-                        {/* Action: Bookmark or Chevron */}
+                        {/* Action: Bookmark */}
                         <TouchableOpacity 
-                          onPress={() => toggleBookmark(q.id)}
+                          onPress={(e) => {
+                            e.stopPropagation?.();
+                            toggleBookmark(q.id);
+                          }}
                           style={styles.actionIconBtn}
+                          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                         >
                           {isBookmarked ? (
                             <Feather name="bookmark" size={16} color="#7C3AED" />
@@ -394,7 +415,7 @@ export default function ReviewAnswersScreen() {
                             <Feather name="bookmark" size={16} color="#CBD5E1" />
                           )}
                         </TouchableOpacity>
-                      </View>
+                      </TouchableOpacity>
                     );
                   })
                 ) : (
