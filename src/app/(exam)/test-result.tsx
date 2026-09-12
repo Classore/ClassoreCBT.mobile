@@ -580,7 +580,11 @@ export default function TestResultScreen() {
               style={styles.actionButton}
               onPress={() => router.push({
                 pathname: '/(exam)/review-answers',
-                params: { attempt_id: params.attempt_id }
+                params: { 
+                  attempt_id: params.attempt_id,
+                  exam_name: examTitle,
+                  is_ielts: String(isIelts),
+                }
               })}
               activeOpacity={0.85}
             >
@@ -593,7 +597,11 @@ export default function TestResultScreen() {
               style={[styles.actionButton, { backgroundColor: '#FFFFFF', borderWidth: 1.5, borderColor: '#7C3AED', marginTop: 12 }]}
               onPress={() => router.push({
                 pathname: '/(exam)/topic-performance',
-                params: { attempt_id: params.attempt_id }
+                params: { 
+                  attempt_id: params.attempt_id,
+                  exam_name: examTitle,
+                  is_ielts: String(isIelts),
+                }
               })}
               activeOpacity={0.85}
             >

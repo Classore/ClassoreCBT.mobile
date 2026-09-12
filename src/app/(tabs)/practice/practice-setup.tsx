@@ -37,7 +37,7 @@ const DEFAULT_FALLBACK_TOPICS: Record<string, string[]> = {
 export default function PracticeSetupScreen() {
   const { user } = useAuth();
   const router = useRouter();
-  const params = useLocalSearchParams<{ exam?: string; subject?: string; topic_id?: string; topic_name?: string; topic?: string }>();
+  const params = useLocalSearchParams<{ exam?: string; subject?: string; topic_id?: string; topic_name?: string; topic?: string; exam_name?: string }>();
   
   const examIdStr = Array.isArray(params.exam) ? params.exam[0] : params.exam;
   const examId = examIdStr ? parseInt(examIdStr, 10) : 1; // Default to 1 if missing
@@ -46,11 +46,27 @@ export default function PracticeSetupScreen() {
   const initialSections = examService.getCachedSectionsSync(examId);
   const initialTierConfigs = examService.getCachedTierConfigsSync();
   const initialTierConfig = initialTierConfigs?.find(t => t.exam_type === examId) || null;
+  const initialExams = examService.getCachedExamsSync();
+  const initialExamObj = initialExams?.find(e => e.id === examId);
+
+  const resolveExamName = () => {
+    if (params.exam_name && typeof params.exam_name === 'string' && params.exam_name.trim()) {
+      return params.exam_name.trim();
+    }
+    if (initialExamObj?.name) {
+      return initialExamObj.name;
+    }
+    return '';
+  };
+
+  const [examName, setExamName] = useState<string>(resolveExamName);
 
   // Data State
   const [subjects, setSubjects] = useState<ExamSection[]>(initialSections || []);
   const [tierConfig, setTierConfig] = useState<ExamTierConfig | null>(initialTierConfig);
   const [loading, setLoading] = useState<boolean>(!initialSections || initialSections.length === 0);
+
+  const isSectionExam = isSectionBasedExam(examName, subjects);
 
   // Form State
   const [selectedSubjects, setSelectedSubjects] = useState<number[]>([]);
@@ -323,7 +339,7 @@ export default function PracticeSetupScreen() {
 
   const getTopicsSummarySubtitle = () => {
     if (selectedSubjects.length === 0) {
-      return 'Choose subjects first';
+      return isSectionExam ? 'Choose sections first' : 'Choose subjects first';
     }
     if (loadingTopics && Object.keys(subjectTopicsMap).length === 0) {
       return 'Loading topics...';
@@ -353,7 +369,7 @@ export default function PracticeSetupScreen() {
       return `${chosen.length} topics selected`;
     }
 
-    return `${totalChosenCount} topics selected across ${selectedSubjects.length} subjects`;
+    return `${totalChosenCount} topics selected across ${selectedSubjects.length} ${isSectionExam ? 'sections' : 'subjects'}`;
   };
 
   const handleStartOrContinue = async () => {
@@ -511,9 +527,9 @@ export default function PracticeSetupScreen() {
             <Feather name="sliders" size={20} color="#7E57C2" />
           </View>
           <View style={styles.setupCardContent}>
-            <AppText style={styles.setupCardTitle}>Choose subjects</AppText>
+            <AppText style={styles.setupCardTitle}>{isSectionExam ? 'Choose sections' : 'Choose subjects'}</AppText>
             <AppText style={styles.setupCardSubtitle} numberOfLines={1}>
-              {selectedSubjects.length > 0 ? selectedSubjectNames : 'Select the right subject combination'}
+              {selectedSubjects.length > 0 ? selectedSubjectNames : (isSectionExam ? 'Select the right section combination' : 'Select the right subject combination')}
             </AppText>
           </View>
           <Feather name="chevron-right" size={20} color="#D1D5DB" />
@@ -621,20 +637,20 @@ export default function PracticeSetupScreen() {
             <View style={styles.handleBarContainer}><View style={styles.handleBar} /></View>
             <View style={styles.sheetHeader}>
               <View>
-                <AppText style={styles.sheetTitle}>Select Subjects</AppText>
-                <AppText style={styles.sheetSubtitle}>Choose the subjects you want to practice</AppText>
+                <AppText style={styles.sheetTitle}>{isSectionExam ? 'Select Sections' : 'Select Subjects'}</AppText>
+                <AppText style={styles.sheetSubtitle}>{isSectionExam ? 'Choose the sections you want to practice' : 'Choose the subjects you want to practice'}</AppText>
               </View>
               <TouchableOpacity onPress={() => setShowSubjects(false)}><Feather name="x" size={24} color="#9CA3AF" /></TouchableOpacity>
             </View>
 
             <View style={styles.searchContainer}>
               <Feather name="search" size={20} color="#9CA3AF" />
-              <TextInput style={styles.searchInput} placeholder="Search subjects" placeholderTextColor="#9CA3AF" value={searchQuery} onChangeText={setSearchQuery} />
+              <TextInput style={styles.searchInput} placeholder={isSectionExam ? 'Search sections' : 'Search subjects'} placeholderTextColor="#9CA3AF" value={searchQuery} onChangeText={setSearchQuery} />
             </View>
 
             <ScrollView style={styles.scrollArea} showsVerticalScrollIndicator={false}>
               {loading ? (
-                 <AppText style={{ textAlign: 'center', marginTop: 20, color: '#6B7280' }}>Loading subjects...</AppText>
+                 <AppText style={{ textAlign: 'center', marginTop: 20, color: '#6B7280' }}>Loading {isSectionExam ? 'sections' : 'subjects'}...</AppText>
               ) : (
                 filteredSubjects.map(subject => {
                   const isSelected = selectedSubjects.includes(subject.id);
@@ -659,8 +675,10 @@ export default function PracticeSetupScreen() {
               <View style={styles.selectionInfo}>
                 <View style={styles.checkBadge}><Feather name="check" size={14} color="#6D28D9" /></View>
                 <View style={{ flex: 1 }}>
-                  <AppText style={styles.selectedCountText}>{selectedSubjects.length} subjects selected</AppText>
-                  <AppText style={styles.selectedMaxText}>Maximum of four subject</AppText>
+                  <AppText style={styles.selectedCountText}>
+                    {selectedSubjects.length} {isSectionExam ? (selectedSubjects.length === 1 ? 'section' : 'sections') : (selectedSubjects.length === 1 ? 'subject' : 'subjects')} selected
+                  </AppText>
+                  <AppText style={styles.selectedMaxText}>Maximum of four {isSectionExam ? 'sections' : 'subjects'}</AppText>
                 </View>
                 <TouchableOpacity onPress={() => setSelectedSubjects([])}><AppText style={styles.clearAllText}>Clear All</AppText></TouchableOpacity>
               </View>
@@ -717,7 +735,7 @@ export default function PracticeSetupScreen() {
                       activeOpacity={0.7}
                     >
                       <AppText style={[styles.subjectTabPillText, isActive && styles.subjectTabPillTextActive]}>
-                        {sub?.name || 'Subject'} ({count})
+                        {sub?.name || (isSectionExam ? 'Section' : 'Subject')} ({count})
                       </AppText>
                     </TouchableOpacity>
                   );
@@ -730,7 +748,7 @@ export default function PracticeSetupScreen() {
               <Feather name="search" size={20} color="#9CA3AF" />
               <TextInput 
                 style={styles.searchInput} 
-                placeholder={`Search ${currentActiveSubject?.name || 'subject'} topics...`}
+                placeholder={`Search ${currentActiveSubject?.name || (isSectionExam ? 'section' : 'subject')} topics...`}
                 placeholderTextColor="#9CA3AF" 
                 value={topicSearchQuery} 
                 onChangeText={setTopicSearchQuery} 
@@ -745,7 +763,7 @@ export default function PracticeSetupScreen() {
             {/* Quick Actions (Select All / Clear) */}
             <View style={styles.topicActionRow}>
               <AppText style={styles.topicActiveSubjectTitle} numberOfLines={1}>
-                {currentActiveSubject?.name || 'Subject Topics'}
+                {currentActiveSubject?.name || (isSectionExam ? 'Section Topics' : 'Subject Topics')}
               </AppText>
               <View style={styles.topicActionButtons}>
                 <TouchableOpacity onPress={handleSelectAllTopics} style={styles.topicActionBtn}>
@@ -768,7 +786,7 @@ export default function PracticeSetupScreen() {
                 <View style={{ paddingVertical: 40, alignItems: 'center' }}>
                   <Feather name="search" size={32} color="#D1D5DB" />
                   <AppText style={{ marginTop: 12, color: '#6B7280', fontSize: 14 }}>
-                    {topicSearchQuery ? 'No topics match your search' : 'No topics available for this subject'}
+                    {topicSearchQuery ? 'No topics match your search' : (isSectionExam ? 'No topics available for this section' : 'No topics available for this subject')}
                   </AppText>
                 </View>
               ) : (

@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { notificationService, NotificationItem } from '@/services/notification';
+import { registerForPushNotificationsAsync, unregisterPushNotificationsAsync } from '@/services/pushNotifications';
 import { useAuth } from './AuthContext';
 
 interface NotificationContextType {
@@ -59,6 +60,12 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
   useEffect(() => {
     refreshNotifications();
+
+    if (token) {
+      registerForPushNotificationsAsync();
+    } else {
+      unregisterPushNotificationsAsync();
+    }
   }, [token, refreshNotifications]);
 
   const hasUnread = unreadCount > 0;

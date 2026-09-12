@@ -29,8 +29,21 @@ interface SubjectItem {
 export default function SubjectPerformanceScreen() {
   const { user } = useAuth();
   const router = useRouter();
-  const params = useLocalSearchParams<{ attempt_id?: string }>();
+  const params = useLocalSearchParams<{ 
+    attempt_id?: string;
+    subject?: string;
+    exam_name?: string;
+    is_ielts?: string;
+  }>();
 
+  const detectedIsIelts = Boolean(
+    params.is_ielts === 'true' ||
+    (params.exam_name && (params.exam_name.toLowerCase().includes('ielts') || params.exam_name.toLowerCase().includes('toefl')))
+  );
+
+  const [examTitle, setExamTitle] = React.useState<string>(
+    params.exam_name || (detectedIsIelts ? 'IELTS Academic Test' : 'Subject Performance')
+  );
   const [loading, setLoading] = React.useState<boolean>(Boolean(params.attempt_id));
   const [overallAccuracy, setOverallAccuracy] = React.useState<number | null>(null);
   const [totalQuestions, setTotalQuestions] = React.useState<number>(0);
@@ -49,6 +62,19 @@ export default function SubjectPerformanceScreen() {
         setError(null);
         const data = await examService.getDetailedAnalytics(Number(params.attempt_id));
         if (data) {
+          const isIeltsAttempt = 
+            detectedIsIelts ||
+            Boolean(data.exam_name && (data.exam_name.toLowerCase().includes('ielts') || data.exam_name.toLowerCase().includes('toefl'))) ||
+            Boolean(data.subjects && data.subjects.some((s: any) => ['reading', 'listening', 'writing', 'speaking'].includes((s.section_name || '').toLowerCase())));
+
+          if (data.exam_name) {
+            setExamTitle(data.exam_name);
+          } else if (params.exam_name) {
+            setExamTitle(params.exam_name);
+          } else if (isIeltsAttempt) {
+            setExamTitle('IELTS Academic Test');
+          }
+
           if (data.overall_accuracy !== undefined) {
             setOverallAccuracy(Math.round(data.overall_accuracy));
           }
@@ -123,7 +149,7 @@ export default function SubjectPerformanceScreen() {
           >
             <Feather name="chevron-left" size={24} color="#111827" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Jamb Practice Test</Text>
+          <Text style={styles.headerTitle}>{examTitle}</Text>
           <TouchableOpacity 
             style={styles.streakBadge}
             onPress={() => router.push('/streak')}
@@ -141,9 +167,9 @@ export default function SubjectPerformanceScreen() {
           </View>
         ) : error || subjects.length === 0 ? (
           <View style={styles.centerContainer}>
-            <MaterialCommunityIcons name="alert-circle-outline" size={48} color="#94A3B8" />
-            <Text style={styles.errorTitle}>No Subject Data</Text>
-            <Text style={styles.errorSubtitle}>{error || 'No subject performance records available.'}</Text>
+            <MaterialCommunityIcons name="file-chart-outline" size={48} color="#94A3B8" />
+            <Text style={styles.errorTitle}>No Performance Data</Text>
+            <Text style={styles.errorSubtitle}>{error || 'No subject breakdown available for this attempt.'}</Text>
             <TouchableOpacity 
               style={styles.retryButton} 
               onPress={() => router.replace('/(tabs)')}
@@ -178,7 +204,12 @@ export default function SubjectPerformanceScreen() {
                     style={styles.subjectCard}
                     onPress={() => router.push({
                       pathname: '/(exam)/topic-performance',
-                      params: { subject: sub.name, attempt_id: params.attempt_id }
+                      params: { 
+                        subject: sub.name, 
+                        attempt_id: params.attempt_id,
+                        exam_name: examTitle,
+                        is_ielts: String(detectedIsIelts),
+                      }
                     })}
                     activeOpacity={0.8}
                   >
@@ -235,7 +266,11 @@ export default function SubjectPerformanceScreen() {
               style={[styles.actionButton, { backgroundColor: '#F5F3FF', borderWidth: 1.5, borderColor: '#7C3AED', marginBottom: 12 }]}
               onPress={() => router.push({
                 pathname: '/(exam)/topic-performance',
-                params: { attempt_id: params.attempt_id }
+                params: { 
+                  attempt_id: params.attempt_id,
+                  exam_name: examTitle,
+                  is_ielts: String(detectedIsIelts),
+                }
               })}
               activeOpacity={0.85}
             >

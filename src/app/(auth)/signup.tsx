@@ -1,10 +1,8 @@
 import { AppText } from '@/components/AppText';
 import { CustomInput } from '@/components/CustomInput';
-import { GoogleIcon } from '@/components/GoogleIcon';
+import { GoogleSignInButton } from '@/components/GoogleSignInButton';
 import { api } from '@/services/api';
-
 import { useAuth } from '@/context/AuthContext';
-import { GoogleSignin, isErrorWithCode, isSuccessResponse, statusCodes } from '@react-native-google-signin/google-signin';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
@@ -21,14 +19,6 @@ import {
   View
 } from 'react-native';
 
-const webClientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || '224829194037-4b9e6vfaoe3rpohh6lka2bsgflu760ti.apps.googleusercontent.com';
-const iosClientId = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || undefined;
-
-GoogleSignin.configure({
-  webClientId,
-  ...(iosClientId ? { iosClientId } : {}),
-});
-
 export default function SignupScreen() {
   const router = useRouter();
   const { login } = useAuth();
@@ -38,7 +28,6 @@ export default function SignupScreen() {
   const [password, setPassword] = useState('');
   const [referralId, setReferralId] = useState('');
   const [agreeTerms, setAgreeTerms] = useState(false);
-  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -76,62 +65,7 @@ export default function SignupScreen() {
     }
   };
 
-  const handleGoogleSignIn = async () => {
-    try {
-      setIsGoogleLoading(true);
-      
-      await GoogleSignin.hasPlayServices();
-      const response = await GoogleSignin.signIn();
-      
-      if (isSuccessResponse(response)) {
-        const idToken = response.data.idToken;
-        
-        const API_URL = process.env.EXPO_PUBLIC_API_URL || (Platform.OS === 'android' ? 'http://10.0.2.2:8000' : 'http://127.0.0.1:8000');
-        const res = await fetch(`${API_URL}/api/auth/google/`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ id_token: idToken }),
-        });
-        
-        if (!res.ok) {
-          const errorData = await res.json().catch(() => ({}));
-          throw new Error(errorData.message || errorData.error || 'Google authentication failed with server.');
-        }
-        
-        const data = await res.json();
-        const token = data.token || data.key || data.access;
-        if (token) {
-          await login(token);
-        }
-        
-        router.push('/(auth)/choose-goal');
-      } else {
-        // Sign in was cancelled by user
-        console.log('Google sign in cancelled');
-      }
-    } catch (error: any) {
-      if (isErrorWithCode(error)) {
-        switch (error.code) {
-          case statusCodes.IN_PROGRESS:
-            Alert.alert('Google Sign-In', 'Sign in is already in progress');
-            break;
-          case statusCodes.PLAY_SERVICES_NOT_AVAILABLE:
-            Alert.alert('Google Sign-In', 'Google Play Services is not available or outdated on this device.');
-            break;
-          case statusCodes.SIGN_IN_CANCELLED:
-            break;
-          default:
-            Alert.alert('Google Sign-In Error', error.message || 'An unknown error occurred');
-        }
-      } else {
-        Alert.alert('Error', error.message || 'An error occurred during sign in');
-      }
-    } finally {
-      setIsGoogleLoading(false);
-    }
-  };
+
 
   const handleBack = () => {
     if (router.canGoBack()) {
@@ -262,23 +196,14 @@ export default function SignupScreen() {
           <AppText style={styles.orText}>Or</AppText>
 
           {/* Google Button */}
-          <TouchableOpacity 
+          <GoogleSignInButton
             style={styles.googleButton}
-            onPress={handleGoogleSignIn}
-            disabled={isGoogleLoading}
-          >
-            {isGoogleLoading ? (
-              <ActivityIndicator color="#111827" />
-            ) : (
-              <>
-                <View style={styles.googleIcon}>
-                  <GoogleIcon size={20} />
-                </View>
-                <AppText style={styles.googleButtonText}>Continue with Google</AppText>
-
-              </>
-            )}
-          </TouchableOpacity>
+            onSuccess={async (token) => {
+              await login(token);
+              router.push('/(auth)/choose-goal');
+            }}
+            onError={(err) => setFormError(err.message || 'Google Sign-In failed')}
+          />
 
         </ScrollView>
       </KeyboardAvoidingView>

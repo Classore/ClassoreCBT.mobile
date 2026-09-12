@@ -47,6 +47,8 @@ export default function StandardSetupScreen() {
   const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
   const [subscriptionMessage, setSubscriptionMessage] = useState<string | undefined>();
 
+  const isSectionExam = isSectionBasedExam(examName, subjects);
+
   // Refresh user profile (and streak) silently every time the screen comes into focus
   useFocusEffect(
     useCallback(() => {
@@ -189,10 +191,10 @@ export default function StandardSetupScreen() {
           <View style={styles.divider} />
 
           <View style={styles.subjectsSection}>
-            <AppText style={styles.rowLabel}>Subjects</AppText>
+            <AppText style={styles.rowLabel}>{isSectionExam ? 'Sections' : 'Subjects'}</AppText>
             <View style={styles.subjectsGrid}>
               {loading ? (
-                <AppText style={{ color: '#6B7280' }}>Loading subjects...</AppText>
+                <AppText style={{ color: '#6B7280' }}>Loading {isSectionExam ? 'sections' : 'subjects'}...</AppText>
               ) : (
                 subjects.slice(0, 4).map(sub => (
                   <View key={sub.id} style={styles.subjectItem}>

@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "224829194037",
+    "project_id": "classore-cbt",
+    "storage_bucket": "classore-cbt.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:224829194037:android:972e06a9c8a06576e4cf74",
+        "android_client_info": {
+          "package_name": "com.samrheglobal.classore"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "224829194037-4b9e6vfaoe3rpohh6lka2bsgflu760ti.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.samrheglobal.classore",
+            "certificate_hash": []
+          }
+        },
+        {
+          "client_id": "224829194037-d80b2mbsnku9r93m2r3283o7o6anrk31.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDDt8ggHTO1wwDNEqUpxP2u81HcPGvmhEg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "224829194037-d80b2mbsnku9r93m2r3283o7o6anrk31.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

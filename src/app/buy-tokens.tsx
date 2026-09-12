@@ -29,9 +29,12 @@ export default function BuyTokensScreen() {
   const { user, refreshUser } = useAuth();
   const { hasUnread } = useNotifications();
 
-  const [selectedPayment, setSelectedPayment] = useState<'paystack' | 'flutterwave' | 'applepay'>('paystack');
+  const [selectedPayment, setSelectedPayment] = useState<'paystack' | 'applepay'>(
+    Platform.OS === 'ios' ? 'applepay' : 'paystack'
+  );
   const [customAmount, setCustomAmount] = useState('');
   const [selectedQuickAmount, setSelectedQuickAmount] = useState('₦1,000');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [showWebView, setShowWebView] = useState(false);
   const [paymentUrl, setPaymentUrl] = useState('');
@@ -40,7 +43,11 @@ export default function BuyTokensScreen() {
     // Proactively refresh latest token balance
     refreshUser().catch(console.warn);
 
-    // Initialize IAP connection
+    if (Platform.OS !== 'ios') {
+      return;
+    }
+
+    // Initialize IAP connection on iOS
     RNIap.initConnection().catch(console.warn);
 
     const purchaseUpdateSubscription = RNIap.purchaseUpdatedListener(async (purchase: any) => {
@@ -55,7 +62,7 @@ export default function BuyTokensScreen() {
           await RNIap.finishTransaction({ purchase, isConsumable: true });
         }
       } catch (err: any) {
-        Alert.alert('Error', err.message || 'Failed to verify purchase.');
+        setErrorMessage(err.message || 'Failed to verify purchase.');
       } finally {
         setLoading(false);
       }
@@ -64,7 +71,7 @@ export default function BuyTokensScreen() {
     const purchaseErrorSubscription = RNIap.purchaseErrorListener((error: any) => {
       console.log('purchaseErrorListener', error);
       if (error?.code !== 'E_USER_CANCELLED') {
-        Alert.alert('Purchase Error', error.message);
+        setErrorMessage(error.message || 'Purchase error occurred.');
       }
     });
 
@@ -78,18 +85,24 @@ export default function BuyTokensScreen() {
   const quickAmounts = ['₦1,000', '₦2,500', '₦5,000', '₦10,000'];
 
   const handleProceed = async () => {
+    setErrorMessage(null);
     if (!params.packId) {
-      if (Platform.OS === 'web') {
-        window.alert('Please select a package first.');
-      } else {
-        Alert.alert('Error', 'Please select a package first.');
-      }
+      setErrorMessage('Please select a package first.');
       return;
     }
 
     setLoading(true);
     try {
-      if (selectedPayment === 'paystack') {
+      if (Platform.OS === 'ios') {
+        const productId = `com.classorecbt.tokens.${params.packId}`;
+        const products = await (RNIap as any).getProducts({ skus: [productId] });
+        if (products && products.length > 0) {
+          await (RNIap as any).requestPurchase({ sku: productId });
+        } else {
+          setErrorMessage('Product not found on the App Store.');
+        }
+      } else {
+        // Paystack on Android and Web
         const data = await paymentService.initializePaystack(Number(params.packId));
         if (data.authorization_url) {
           setPaymentUrl(data.authorization_url);
@@ -102,46 +115,12 @@ export default function BuyTokensScreen() {
           }
           setShowWebView(true);
         } else {
-          if (Platform.OS === 'web') window.alert('No authorization URL returned.');
-          else Alert.alert('Error', 'No authorization URL returned.');
+          setErrorMessage('No authorization URL returned from server.');
         }
-      } else if (selectedPayment === 'applepay') {
-        if (Platform.OS !== 'ios') {
-          if (Platform.OS === 'web') window.alert('Apple Pay / In-App Purchases are only available on iOS.');
-          else Alert.alert('Notice', 'Apple Pay / In-App Purchases are only available on iOS.');
-          return;
-        }
-        const productId = `com.classorecbt.tokens.${params.packId}`;
-        const products = await (RNIap as any).getProducts({ skus: [productId] });
-        if (products && products.length > 0) {
-          await (RNIap as any).requestPurchase({ sku: productId });
-        } else {
-          Alert.alert('Error', 'Product not found on the App Store.');
-        }
-      } else if (selectedPayment === 'flutterwave') {
-        const data = await paymentService.initializeFlutterwave(Number(params.packId));
-        if (data.authorization_url) {
-          setPaymentUrl(data.authorization_url);
-          if (Platform.OS === 'web') {
-            try {
-              window.open(data.authorization_url, '_blank');
-            } catch {
-              await WebBrowser.openBrowserAsync(data.authorization_url);
-            }
-          }
-          setShowWebView(true);
-        } else {
-          if (Platform.OS === 'web') window.alert('No authorization URL returned.');
-          else Alert.alert('Error', 'No authorization URL returned.');
-        }
-      } else {
-        if (Platform.OS === 'web') window.alert('Payment method not yet implemented.');
-        else Alert.alert('Notice', 'Payment method not yet implemented.');
       }
     } catch (err: any) {
       console.error(err);
-      if (Platform.OS === 'web') window.alert(err.message || 'Failed to initialize payment.');
-      else Alert.alert('Error', err.message || 'Failed to initialize payment.');
+      setErrorMessage(err.message || 'Failed to initialize payment.');
     } finally {
       setLoading(false);
     }
@@ -152,14 +131,11 @@ export default function BuyTokensScreen() {
     try {
       await refreshUser();
       setShowWebView(false);
-      if (Platform.OS === 'web') {
-        window.alert('Tokens will reflect in your wallet shortly!');
-      } else {
-        Alert.alert('Notice', 'Tokens will reflect in your wallet shortly!');
-      }
       router.replace('/wallet');
     } catch (err: any) {
       console.error(err);
+      setShowWebView(false);
+      router.replace('/wallet');
     } finally {
       setLoading(false);
     }
@@ -247,87 +223,58 @@ export default function BuyTokensScreen() {
           {/* 2. Select Payment Method */}
           <Text style={styles.sectionHeader}>2. Select Payment Method</Text>
           <View style={styles.paymentMethodsList}>
-            {/* Paystack */}
-            <TouchableOpacity 
-              style={[
-                styles.paymentOptionCard, 
-                selectedPayment === 'paystack' && styles.paymentOptionCardSelected
-              ]}
-              onPress={() => setSelectedPayment('paystack')}
-              activeOpacity={0.8}
-            >
-              <Image 
-                source={require('../../assets/images/paystack-logo.png')} 
-                style={styles.paymentLogoImage} 
-                contentFit="contain" 
-              />
-              <View style={styles.paymentInfo}>
-                <Text style={styles.paymentName}>
-                  Paystack <Text style={styles.paymentSub}>(Cards, Bank Transfer)</Text>
-                </Text>
-              </View>
-              <View style={[
-                styles.radioCircle, 
-                selectedPayment === 'paystack' && styles.radioCircleSelected
-              ]}>
-                {selectedPayment === 'paystack' && <View style={styles.radioDot} />}
-              </View>
-            </TouchableOpacity>
-
-            {/* Flutterwave */}
-            <TouchableOpacity 
-              style={[
-                styles.paymentOptionCard, 
-                selectedPayment === 'flutterwave' && styles.paymentOptionCardSelected
-              ]}
-              onPress={() => setSelectedPayment('flutterwave')}
-              activeOpacity={0.8}
-            >
-              <Image 
-                source={require('../../assets/images/flutterwave-logo.png')} 
-                style={styles.paymentLogoImage} 
-                contentFit="contain" 
-              />
-              <View style={styles.paymentInfo}>
-                <Text style={styles.paymentName}>
-                  Flutterwave <Text style={styles.paymentSub}>(Cards, Bank Transfer)</Text>
-                </Text>
-              </View>
-              <View style={[
-                styles.radioCircle, 
-                selectedPayment === 'flutterwave' && styles.radioCircleSelected
-              ]}>
-                {selectedPayment === 'flutterwave' && <View style={styles.radioDot} />}
-              </View>
-            </TouchableOpacity>
-
-            {/* Apple Pay */}
-            <TouchableOpacity 
-              style={[
-                styles.paymentOptionCard, 
-                selectedPayment === 'applepay' && styles.paymentOptionCardSelected
-              ]}
-              onPress={() => setSelectedPayment('applepay')}
-              activeOpacity={0.8}
-            >
-              <Image 
-                source={require('../../assets/images/apple-pay-logo.png')} 
-                style={styles.paymentLogoImage} 
-                contentFit="contain" 
-              />
-              <View style={styles.paymentInfo}>
-                <Text style={styles.paymentName}>Apple Pay</Text>
-              </View>
-              <View style={[
-                styles.radioCircle, 
-                selectedPayment === 'applepay' && styles.radioCircleSelected
-              ]}>
-                {selectedPayment === 'applepay' && <View style={styles.radioDot} />}
-              </View>
-            </TouchableOpacity>
+            {Platform.OS === 'ios' ? (
+              /* Apple In-App Purchase (iOS only) */
+              <TouchableOpacity 
+                style={[
+                  styles.paymentOptionCard, 
+                  styles.paymentOptionCardSelected
+                ]}
+                onPress={() => setSelectedPayment('applepay')}
+                activeOpacity={0.8}
+              >
+                <Image 
+                  source={require('../../assets/images/apple-pay-logo.png')} 
+                  style={styles.paymentLogoImage} 
+                  contentFit="contain" 
+                />
+                <View style={styles.paymentInfo}>
+                  <Text style={styles.paymentName}>
+                    Apple In-App Purchase <Text style={styles.paymentSub}>(Apple Pay, App Store)</Text>
+                  </Text>
+                </View>
+                <View style={[styles.radioCircle, styles.radioCircleSelected]}>
+                  <View style={styles.radioDot} />
+                </View>
+              </TouchableOpacity>
+            ) : (
+              /* Paystack (Android & Web) */
+              <TouchableOpacity 
+                style={[
+                  styles.paymentOptionCard, 
+                  styles.paymentOptionCardSelected
+                ]}
+                onPress={() => setSelectedPayment('paystack')}
+                activeOpacity={0.8}
+              >
+                <Image 
+                  source={require('../../assets/images/paystack-logo.png')} 
+                  style={styles.paymentLogoImage} 
+                  contentFit="contain" 
+                />
+                <View style={styles.paymentInfo}>
+                  <Text style={styles.paymentName}>
+                    Paystack <Text style={styles.paymentSub}>(Cards, Bank Transfer, USSD)</Text>
+                  </Text>
+                </View>
+                <View style={[styles.radioCircle, styles.radioCircleSelected]}>
+                  <View style={styles.radioDot} />
+                </View>
+              </TouchableOpacity>
+            )}
           </View>
 
-          {/* 3. Enter Amount (Optional) */}
+          {/* 3. Enter Amount (Optional) - Temporarily commented out
           <Text style={styles.sectionHeader}>3. Enter Amount (Optional)</Text>
           <View style={styles.amountInputContainer}>
             <TextInput
@@ -340,7 +287,6 @@ export default function BuyTokensScreen() {
             />
           </View>
 
-          {/* Quick Amounts */}
           <View style={styles.quickAmountsRow}>
             {quickAmounts.map((amt) => {
               const isSelected = selectedQuickAmount === amt && !customAmount;
@@ -361,6 +307,7 @@ export default function BuyTokensScreen() {
               );
             })}
           </View>
+          */}
 
           {/* Summary Box */}
           <View style={styles.summaryBox}>
@@ -381,6 +328,14 @@ export default function BuyTokensScreen() {
               <Text style={styles.totalAmountText}>{(params.price as string) || '₦1,000.00'}</Text>
             </View>
           </View>
+
+          {/* Error Banner */}
+          {errorMessage && (
+            <View style={styles.errorBanner}>
+              <Feather name="alert-circle" size={16} color="#EF4444" style={{ marginRight: 8 }} />
+              <Text style={styles.errorBannerText}>{errorMessage}</Text>
+            </View>
+          )}
 
           {/* Proceed Button */}
           <TouchableOpacity 
@@ -747,6 +702,24 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
     color: '#111827',
+  },
+
+  errorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FCA5A5',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginBottom: 16,
+  },
+  errorBannerText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#B91C1C',
+    fontWeight: '500',
   },
 
   // Proceed Button

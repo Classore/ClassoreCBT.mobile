@@ -11,11 +11,13 @@ import {
   Inter_700Bold 
 } from '@expo-google-fonts/inter';
 import { useEffect } from 'react';
+import { useNotificationObserver } from '@/hooks/useNotificationObserver';
 
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
+  useNotificationObserver();
   const colorScheme = useColorScheme();
 
   const [loaded, error] = useFonts({

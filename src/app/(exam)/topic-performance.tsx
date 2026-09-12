@@ -26,8 +26,21 @@ interface TopicItem {
 export default function TopicPerformanceScreen() {
   const { user } = useAuth();
   const router = useRouter();
-  const params = useLocalSearchParams<{ subject?: string; attempt_id?: string }>();
+  const params = useLocalSearchParams<{ 
+    subject?: string; 
+    attempt_id?: string;
+    exam_name?: string;
+    is_ielts?: string;
+  }>();
 
+  const detectedIsIelts = Boolean(
+    params.is_ielts === 'true' ||
+    (params.exam_name && (params.exam_name.toLowerCase().includes('ielts') || params.exam_name.toLowerCase().includes('toefl')))
+  );
+
+  const [examTitle, setExamTitle] = useState<string>(
+    params.exam_name || (detectedIsIelts ? 'IELTS Academic Test' : 'Topic Performance')
+  );
   const [loading, setLoading] = useState<boolean>(Boolean(params.attempt_id));
   const [selectedSubject, setSelectedSubject] = useState<string>(params.subject || '');
   const [isDropdownOpen, setIsDropdownOpen] = useState<boolean>(false);
@@ -48,6 +61,27 @@ export default function TopicPerformanceScreen() {
         setError(null);
         const data = await examService.getTopicAnalysis(Number(params.attempt_id));
         if (data) {
+          const isIeltsAttempt = 
+            detectedIsIelts ||
+            Boolean(data.exam_name && (data.exam_name.toLowerCase().includes('ielts') || data.exam_name.toLowerCase().includes('toefl'))) ||
+            Boolean(data.sections && data.sections.some((s: any) => ['reading', 'listening', 'writing', 'speaking'].includes((s.section_name || '').toLowerCase())));
+
+          if (data.exam_name) {
+            setExamTitle(data.exam_name);
+          } else if (params.exam_name) {
+            setExamTitle(params.exam_name);
+          } else if (isIeltsAttempt) {
+            setExamTitle('IELTS Academic Test');
+          } else {
+            // Check attempt review if still default
+            try {
+              const attempt = await examService.getAttemptReview(Number(params.attempt_id));
+              if (attempt?.exam_name) {
+                setExamTitle(attempt.exam_name);
+              }
+            } catch {}
+          }
+
           if (data.ai_focus_recommendation) {
             setAiFocusRecommendation(data.ai_focus_recommendation);
           }
@@ -105,7 +139,7 @@ export default function TopicPerformanceScreen() {
           >
             <Feather name="chevron-left" size={24} color="#111827" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Jamb Practice Test</Text>
+          <Text style={styles.headerTitle}>{examTitle}</Text>
           <TouchableOpacity 
             style={styles.streakBadge}
             onPress={() => router.push('/streak')}

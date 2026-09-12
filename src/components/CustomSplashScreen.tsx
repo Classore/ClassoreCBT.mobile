@@ -47,12 +47,12 @@ export function CustomSplashScreen({ onComplete }: { onComplete: () => void }) {
 
 const styles = StyleSheet.create({
   container: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: '#6C47C6',
     zIndex: 999,
   },
   gradient: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
   },
   contentContainer: {
     flex: 1,

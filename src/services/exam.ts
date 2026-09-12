@@ -126,6 +126,8 @@ export interface AttemptSection {
 export interface UserAttempt {
   id: number;
   exam_type: number;
+  exam_name?: string;
+  exam_title?: string;
   mode: 'Standard' | 'Practice';
   time_limit_override?: number | null;
   start_time: string;
