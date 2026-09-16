@@ -7,7 +7,7 @@ import { CustomButton } from '@/components/CustomButton';
 
 export default function PasswordResetConfirmScreen() {
   const router = useRouter();
-  const { email } = useLocalSearchParams<{ email: string }>();
+  const { email, otpCode } = useLocalSearchParams<{ email: string; otpCode?: string }>();
 
   return (
     <SafeAreaView style={styles.container}>
@@ -29,7 +29,7 @@ export default function PasswordResetConfirmScreen() {
           title="Confirm" 
           onPress={() => router.push({
             pathname: '/auth/reset-password',
-            params: { email }
+            params: { email, otpCode }
           })} 
           style={styles.confirmButton} 
         />

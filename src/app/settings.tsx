@@ -120,7 +120,7 @@ export default function SettingsScreen() {
                 <Feather name="chevron-right" size={18} color="#9CA3AF" />
               </TouchableOpacity>
 
-              <TouchableOpacity style={styles.settingItem} activeOpacity={0.7} onPress={() => router.push('/(tabs)/security')}>
+              <TouchableOpacity style={styles.settingItem} activeOpacity={0.7} onPress={() => navigateWithFrom('/(tabs)/security', '/settings')}>
                 <View style={[styles.iconBg, { backgroundColor: '#ECFDF5' }]}>
                   <Feather name="shield" size={18} color="#10B981" />
                 </View>
@@ -169,7 +169,7 @@ export default function SettingsScreen() {
             <View style={styles.cardGroup}>
               <TouchableOpacity 
                 style={styles.settingItem} 
-                onPress={() => router.push('/(tabs)/notification-preferences')}
+                onPress={() => navigateWithFrom('/(tabs)/notification-preferences', '/settings')}
                 activeOpacity={0.7}
               >
                 <View style={[styles.iconBg, { backgroundColor: '#EDE9FE' }]}>
@@ -182,7 +182,7 @@ export default function SettingsScreen() {
                 <Feather name="chevron-right" size={18} color="#9CA3AF" />
               </TouchableOpacity>
 
-              <TouchableOpacity style={styles.settingItem} activeOpacity={0.7} onPress={() => router.push('/(tabs)/appearance')}>
+              <TouchableOpacity style={styles.settingItem} activeOpacity={0.7} onPress={() => navigateWithFrom('/(tabs)/appearance', '/settings')}>
                 <View style={[styles.iconBg, { backgroundColor: '#FEF3C7' }]}>
                   <Feather name="sun" size={18} color="#F59E0B" />
                 </View>
@@ -193,7 +193,7 @@ export default function SettingsScreen() {
                 <Feather name="chevron-right" size={18} color="#9CA3AF" />
               </TouchableOpacity>
 
-              <TouchableOpacity style={styles.settingItem} activeOpacity={0.7} onPress={() => router.push('/(tabs)/language')}>
+              <TouchableOpacity style={styles.settingItem} activeOpacity={0.7} onPress={() => navigateWithFrom('/(tabs)/language', '/settings')}>
                 <View style={[styles.iconBg, { backgroundColor: '#EFF6FF' }]}>
                   <Feather name="globe" size={18} color="#3B82F6" />
                 </View>
@@ -210,7 +210,7 @@ export default function SettingsScreen() {
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Privacy & Data</Text>
             <View style={styles.cardGroup}>
-              <TouchableOpacity style={styles.settingItem} activeOpacity={0.7} onPress={() => router.push('/(tabs)/profile-settings')}>
+              <TouchableOpacity style={styles.settingItem} activeOpacity={0.7} onPress={() => navigateWithFrom('/(tabs)/profile-settings', '/settings')}>
                 <View style={[styles.iconBg, { backgroundColor: '#ECFDF5' }]}>
                   <MaterialCommunityIcons name="shield-check-outline" size={20} color="#10B981" />
                 </View>

@@ -37,6 +37,7 @@ export default function ExamSessionScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [attempt, setAttempt] = useState<UserAttempt | null>(null);
+  const [examName, setExamName] = useState<string>(params.exam_name || '');
   const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
   const [subscriptionMessage, setSubscriptionMessage] = useState<string | undefined>();
 
@@ -144,12 +145,20 @@ export default function ExamSessionScreen() {
           }
         }
 
+        if (isMounted) {
+          const resolvedName = params.exam_name || currentAttempt?.exam_name || (currentAttempt as any)?.exam_title || targetExamObj?.name;
+          if (resolvedName) {
+            setExamName(resolvedName);
+          }
+        }
+
         if (isMounted && currentAttempt) {
           setAttempt(currentAttempt);
+          const resolvedTitle = targetExamObj?.name || currentAttempt.exam_name || (currentAttempt as any)?.exam_title || params.exam_name || 'Standard Exam';
           storage.set('@classore_active_attempt', {
             id: currentAttempt.id,
             exam_type: targetExamId,
-            title: targetExamObj?.name || 'Standard Exam',
+            title: resolvedTitle,
             is_section_based: false,
           }).catch(() => {});
           
@@ -305,7 +314,8 @@ export default function ExamSessionScreen() {
           pathname: '/(exam)/test-result',
           params: { 
             attempt_id: attempt?.id ? String(attempt.id) : undefined,
-            exam_name: (attempt as any)?.exam_name || params.exam_name || 'JAMB Practice Test',
+            exam_name: (attempt as any)?.exam_name || params.exam_name || examName || 'Practice Test',
+            is_ielts: 'false',
             total_score: submitRes?.total_score !== undefined ? String(submitRes.total_score) : '',
           }
         });
@@ -322,6 +332,16 @@ export default function ExamSessionScreen() {
   const handleSubmitPrompt = () => {
     setShowSubmitModal(true);
   };
+
+  const headerExamTitle = useMemo(() => {
+    const raw = (examName || params.exam_name || '').trim();
+    if (!raw) return 'Exam Simulation';
+    const lower = raw.toLowerCase();
+    if (lower.includes('simulation') || lower.includes('test') || lower.includes('exam')) {
+      return raw;
+    }
+    return `${raw} Simulation`;
+  }, [examName, params.exam_name]);
 
   // Calculator Logic
   const handleCalcPress = (btn: string) => {
@@ -378,7 +398,7 @@ export default function ExamSessionScreen() {
           <TouchableOpacity style={styles.menuButton} onPress={() => setShowExit(true)}>
             <Feather name="menu" size={20} color="#111827" />
           </TouchableOpacity>
-          <AppText style={styles.headerTitle}>JAMB UTME Simulation</AppText>
+          <AppText style={styles.headerTitle}>{headerExamTitle}</AppText>
           <View style={styles.timerBadge}>
             <AppText style={styles.timerText}>{timeString}</AppText>
           </View>

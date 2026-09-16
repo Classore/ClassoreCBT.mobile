@@ -17,6 +17,7 @@ import { handleHelpBack, navigateWithFrom } from '@/utils/helpNavigation';
 import { api } from '@/services/api';
 import { useAuth } from '@/context/AuthContext';
 import { downloadCertificate } from '@/services/certificateService';
+import { AppText } from '@/components/AppText';
 
 interface CertificateItem {
   id: number;
@@ -31,6 +32,7 @@ interface CertificateItem {
   issuer: string;
   is_verified?: boolean;
   logo_type?: string;
+  certificate_no?: string;
 }
 
 const FALLBACK_CERTIFICATES: CertificateItem[] = [
@@ -126,6 +128,7 @@ export default function CertificatesScreen() {
       percentage: cert.percentage || 96.5,
       earnedDate: cert.earned_date || cert.date_text || 'May 10, 2026',
       issuer: cert.issuer,
+      certificateNo: cert.certificate_no,
     });
     setDownloadingId(null);
   };
@@ -138,6 +141,7 @@ export default function CertificatesScreen() {
       totalScore: cert.total_score || 400,
       percentage: cert.percentage || 96.5,
       earnedDate: cert.earned_date || 'May 10, 2026',
+      certificateNo: cert.certificate_no,
     });
   };
 
@@ -177,13 +181,13 @@ export default function CertificatesScreen() {
           >
             <Feather name="chevron-left" size={22} color="#111827" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>My Certificates</Text>
+          <AppText style={styles.headerTitle}>My Certificates</AppText>
           <TouchableOpacity
             style={styles.headerButton}
-            onPress={() => router.push('/settings')}
+            onPress={() => navigateWithFrom('/verify-certificate', '/(tabs)/certificates')}
             activeOpacity={0.7}
           >
-            <Feather name="settings" size={20} color="#111827" />
+            <Feather name="shield" size={20} color="#7C3AED" />
           </TouchableOpacity>
         </View>
 
@@ -204,11 +208,11 @@ export default function CertificatesScreen() {
 
                 {/* Details Column */}
                 <View style={styles.certDetails}>
-                  <Text style={styles.certTitle} numberOfLines={1}>
+                  <AppText style={styles.certTitle} numberOfLines={1}>
                     {item.exam || item.title}
-                  </Text>
-                  <Text style={styles.certSubtitle}>{item.score_text || 'Completed'}</Text>
-                  <Text style={styles.certDate}>{item.date_text || `Earned on ${item.earned_date}`}</Text>
+                  </AppText>
+                  <AppText style={styles.certSubtitle}>{item.score_text || 'Completed'}</AppText>
+                  <AppText style={styles.certDate}>{item.date_text || `Earned on ${item.earned_date}`}</AppText>
                 </View>
 
                 {/* Actions Row */}
@@ -218,7 +222,7 @@ export default function CertificatesScreen() {
                     activeOpacity={0.7}
                     onPress={() => handleView(item)}
                   >
-                    <Text style={styles.viewBtnText}>View</Text>
+                    <AppText style={styles.viewBtnText}>View</AppText>
                   </TouchableOpacity>
 
                   <TouchableOpacity

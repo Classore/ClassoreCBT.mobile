@@ -464,6 +464,7 @@ export default function PracticeSetupScreen() {
           params: {
             attempt_id: String(newAttempt.id),
             exam_type_id: String(examId),
+            exam_name: currentExam?.name || (params.exam_name ? String(params.exam_name) : undefined),
             mode: 'Practice',
             sections: JSON.stringify(selectedSubjects),
             difficulty: difficulty,

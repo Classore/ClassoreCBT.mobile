@@ -124,6 +124,8 @@ const ROUTE_SECTIONS: RouteSection[] = [
     data: [
       { name: 'Weak Topics', path: '/weak-topics' },
       { name: 'Saved Questions', path: '/saved-questions' },
+      { name: 'My Certificates', path: '/(tabs)/certificates', badge: 'New', badgeColor: '#10B981' },
+      { name: 'Verify Certificate', path: '/verify-certificate?ref=CLS-CERT-2026-00001', badge: 'QR', badgeColor: '#7C3AED' },
     ],
   },
 ];

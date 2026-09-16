@@ -214,6 +214,21 @@ export default function IELTSListeningSessionScreen() {
                 },
               })),
             },
+            {
+              group_id: 4,
+              group_title: 'Section 4',
+              group_type: 'Academic Lecture & Monologue',
+              context_text: 'Listen to a lecture about environmental sustainability and answer questions 31 to 40.',
+              responses: Array.from({ length: 10 }, (_, i) => ({
+                id: 401 + i,
+                question: {
+                  id: 401 + i,
+                  question_type: 'TEXT',
+                  text: `Question ${i + 1}`,
+                  instructions: 'Listen to the recording and answer the question',
+                },
+              })),
+            },
           ],
         };
         setListeningSection(mockStructure);
@@ -374,6 +389,25 @@ export default function IELTSListeningSessionScreen() {
   const currentQ = currentResponse?.question;
   const isBookmarked = currentQ?.id ? bookmarkedQuestions.includes(currentQ.id) : false;
   const currentAnswerText = (currentQ?.id && answers[currentQ.id]) || '';
+
+  // Question numbering across all 4 sections in IELTS Listening (1-40)
+  const prevQuestionsCount = useMemo(() => {
+    if (!listeningSection?.question_groups) return activeGroupIndex * 10;
+    let count = 0;
+    for (let i = 0; i < activeGroupIndex; i++) {
+      count += listeningSection.question_groups[i]?.responses?.length || 10;
+    }
+    return count;
+  }, [listeningSection?.question_groups, activeGroupIndex]);
+
+  const totalQuestionsInTest = useMemo(() => {
+    if (!listeningSection?.question_groups) return 40;
+    return listeningSection.question_groups.reduce((acc, grp) => acc + (grp.responses?.length || 10), 0);
+  }, [listeningSection?.question_groups]);
+
+  const currentGlobalQuestionNumber = prevQuestionsCount + currentResponseIndex + 1;
+  const sectionStartQuestionNumber = prevQuestionsCount + 1;
+  const sectionEndQuestionNumber = prevQuestionsCount + totalQuestionsInSection;
 
   const isLastQuestionOfSection = !activeGroup || currentResponseIndex >= activeGroup.responses.length - 1;
   const isLastSection = !listeningSection || activeGroupIndex >= listeningSection.question_groups.length - 1;
@@ -624,11 +658,33 @@ export default function IELTSListeningSessionScreen() {
     }
   };
 
+  // Strictly "IELTS Listening" at the top of listening session
   const screenTitle = useMemo(() => {
-    if (params.exam_name) return params.exam_name;
-    if (listeningSection?.section_name) return listeningSection.section_name;
+    if (params.exam_name && params.exam_name.toLowerCase().includes('listening')) {
+      return params.exam_name;
+    }
+    if (listeningSection?.section_name && listeningSection.section_name.toLowerCase().includes('listening')) {
+      return listeningSection.section_name;
+    }
     return 'IELTS Listening';
   }, [params.exam_name, listeningSection?.section_name]);
+
+  // Section Tabs (Standard IELTS Listening has 4 sections)
+  // NOTE: Must be above any early return to satisfy React's Rules of Hooks
+  const sectionTabs = useMemo(() => {
+    if (listeningSection?.question_groups && listeningSection.question_groups.length >= 4) {
+      return listeningSection.question_groups.map((grp, idx) => ({
+        title: grp.group_title || `Section ${idx + 1}`,
+        duration: '~10mins',
+      }));
+    }
+    return [
+      { title: 'Section 1', duration: '~10mins' },
+      { title: 'Section 2', duration: '~10mins' },
+      { title: 'Section 3', duration: '~10mins' },
+      { title: 'Section 4', duration: '~10mins' },
+    ];
+  }, [listeningSection?.question_groups]);
 
   if (loading || !listeningSection) {
     return (
@@ -640,13 +696,6 @@ export default function IELTSListeningSessionScreen() {
       </SafeAreaView>
     );
   }
-
-  // Section Tabs (3 sections of 20 mins)
-  const sectionTabs = [
-    { title: 'Section 1', duration: '20mins' },
-    { title: 'Section 2', duration: '20mins' },
-    { title: 'Section 3', duration: '20mins' },
-  ];
 
   const progressPercent = audioDuration > 0 ? (audioPosition / audioDuration) * 100 : 0;
 
@@ -671,36 +720,36 @@ export default function IELTSListeningSessionScreen() {
           </View>
         </View>
 
-        {/* Section Tabs Row */}
+        {/* Section Tabs Row (Indicator only - students cannot jump between sections in standard IELTS Listening) */}
         <View style={styles.sectionTabsContainer}>
           {sectionTabs.map((tab, idx) => {
             const isActive = idx === activeGroupIndex;
             const isCompleted = idx < activeGroupIndex;
 
             return (
-              <TouchableOpacity
+              <View
                 key={idx}
                 style={[
                   styles.sectionTab,
                   isActive ? styles.sectionTabActive : styles.sectionTabInactive,
+                  { opacity: isActive ? 1 : isCompleted ? 0.9 : 0.6 },
                 ]}
-                onPress={() => {
-                  setActiveGroupIndex(idx);
-                  setCurrentResponseIndex(0);
-                }}
-                activeOpacity={0.8}
               >
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
                   <Text
                     style={[
                       styles.sectionTabTitle,
                       isActive ? styles.sectionTabTitleActive : styles.sectionTabTitleInactive,
                     ]}
+                    numberOfLines={1}
                   >
                     {tab.title}
                   </Text>
-                  {isCompleted && !isActive && (
-                    <Feather name="check" size={12} color="#059669" />
+                  {isCompleted && (
+                    <Feather name="check" size={11} color="#059669" />
+                  )}
+                  {!isCompleted && !isActive && (
+                    <Feather name="lock" size={10} color="#9CA3AF" />
                   )}
                 </View>
                 <Text
@@ -711,7 +760,7 @@ export default function IELTSListeningSessionScreen() {
                 >
                   {tab.duration}
                 </Text>
-              </TouchableOpacity>
+              </View>
             );
           })}
         </View>
@@ -724,7 +773,7 @@ export default function IELTSListeningSessionScreen() {
           {/* Subheader: Range Label + Bookmark */}
           <View style={styles.subheaderRow}>
             <Text style={styles.questionRangeLabel}>
-              Question 1-10
+              Question {sectionStartQuestionNumber}-{sectionEndQuestionNumber}
             </Text>
 
             <TouchableOpacity
@@ -745,7 +794,7 @@ export default function IELTSListeningSessionScreen() {
 
           {/* Question Title & Prompt */}
           <Text style={styles.questionTitle}>
-            Question {currentResponseIndex + 1}
+            Question {currentGlobalQuestionNumber}
           </Text>
           <Text style={styles.questionPrompt}>
             {currentQ?.text ? formatQuestionText(currentQ.text) : (currentQ?.instructions || 'Listen to the recording and answer the question')}
@@ -858,7 +907,7 @@ export default function IELTSListeningSessionScreen() {
             <View style={styles.bottomCounterCol}>
               <Text style={styles.bottomQuestionLabel}>Question</Text>
               <Text style={styles.bottomQuestionNumber}>
-                {currentResponseIndex + 1} of {totalQuestionsInSection}
+                {currentGlobalQuestionNumber} of {totalQuestionsInTest}
               </Text>
             </View>
 
@@ -929,6 +978,7 @@ export default function IELTSListeningSessionScreen() {
                           resp.question?.id && bookmarkedQuestions.includes(resp.question.id);
                         const hasAnswer =
                           resp.question?.id && answers[resp.question.id]?.trim().length > 0;
+                        const isCurrentGroup = gIdx === activeGroupIndex;
 
                         return (
                           <TouchableOpacity
@@ -938,9 +988,10 @@ export default function IELTSListeningSessionScreen() {
                               isCurrent && styles.modalQBadgeCurrent,
                               Boolean(hasAnswer) && !isCurrent && styles.modalQBadgeAnswered,
                               Boolean(isQBookmarked) && styles.modalQBadgeBookmarked,
+                              !isCurrentGroup && { opacity: 0.35 },
                             ]}
+                            disabled={!isCurrentGroup}
                             onPress={() => {
-                              setActiveGroupIndex(gIdx);
                               setCurrentResponseIndex(rIdx);
                               setIsOverviewVisible(false);
                             }}
@@ -1134,16 +1185,16 @@ const styles = StyleSheet.create({
   // Section Tabs Row
   sectionTabsContainer: {
     flexDirection: 'row',
-    paddingHorizontal: 20,
+    paddingHorizontal: 12,
     paddingVertical: 8,
-    gap: 12,
+    gap: 6,
     backgroundColor: '#FFFFFF',
   },
   sectionTab: {
     flex: 1,
-    borderRadius: 14,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    borderRadius: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1154,7 +1205,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F3F4F6',
   },
   sectionTabTitle: {
-    fontSize: 13,
+    fontSize: 11.5,
     fontWeight: '700',
   },
   sectionTabTitleActive: {
@@ -1164,7 +1215,7 @@ const styles = StyleSheet.create({
     color: '#374151',
   },
   sectionTabSub: {
-    fontSize: 11,
+    fontSize: 10,
     marginTop: 2,
   },
   sectionTabSubActive: {

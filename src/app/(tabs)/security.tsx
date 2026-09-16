@@ -10,11 +10,11 @@ import {
   Alert,
 } from 'react-native';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { AppText } from '@/components/AppText';
 import { api } from '@/services/api';
 import { useAuth } from '@/context/AuthContext';
-import { navigateWithFrom } from '@/utils/helpNavigation';
+import { handleHelpBack, navigateWithFrom } from '@/utils/helpNavigation';
 
 interface DeviceItem {
   id: string;
@@ -27,6 +27,7 @@ interface DeviceItem {
 
 export default function SecurityScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ from?: string }>();
   const { logout } = useAuth();
 
   const [biometricEnabled, setBiometricEnabled] = useState(true);
@@ -139,7 +140,7 @@ export default function SecurityScreen() {
         <View style={styles.header}>
           <TouchableOpacity
             style={styles.backButton}
-            onPress={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)/profile'))}
+            onPress={() => handleHelpBack(params.from, '/settings')}
             activeOpacity={0.7}
           >
             <Feather name="chevron-left" size={22} color="#111827" />
@@ -280,7 +281,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
     color: '#111827',
-    fontFamily: 'PlusJakartaSans-Bold',
   },
   headerSpacer: {
     width: 40,
@@ -298,7 +298,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#111827',
     marginBottom: 12,
-    fontFamily: 'PlusJakartaSans-Bold',
   },
   securityCard: {
     flexDirection: 'row',
@@ -325,13 +324,11 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: '#111827',
-    fontFamily: 'PlusJakartaSans-SemiBold',
   },
   cardSubtitle: {
     fontSize: 13,
     color: '#9CA3AF',
     marginTop: 2,
-    fontFamily: 'PlusJakartaSans-Regular',
   },
   devicesCardGroup: {
     backgroundColor: '#FFFFFF',
@@ -359,7 +356,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: '#111827',
-    fontFamily: 'PlusJakartaSans-SemiBold',
   },
   deviceLocationRow: {
     flexDirection: 'row',
@@ -369,17 +365,14 @@ const styles = StyleSheet.create({
   deviceLocation: {
     fontSize: 13,
     color: '#9CA3AF',
-    fontFamily: 'PlusJakartaSans-Regular',
   },
   deviceStatus: {
     fontSize: 13,
     color: '#9CA3AF',
-    fontFamily: 'PlusJakartaSans-Regular',
   },
   deviceStatusCurrent: {
     color: '#10B981',
     fontWeight: '600',
-    fontFamily: 'PlusJakartaSans-SemiBold',
   },
   moreButton: {
     padding: 4,
@@ -403,6 +396,5 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     color: '#DC2626',
-    fontFamily: 'PlusJakartaSans-Bold',
   },
 });

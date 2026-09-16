@@ -15,6 +15,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
 import { examService, isSectionBasedExam } from '@/services/exam';
 import { storage } from '@/services/storage';
+import { paymentService, ServiceBundle } from '@/services/payment';
 
 interface PracticeItem {
   id: string | number;
@@ -261,7 +262,10 @@ export default function PracticeHubScreen() {
       } else {
         router.push({
           pathname: '/(exam)/session',
-          params: { attempt_id: String(item.attemptId) }
+          params: {
+            attempt_id: String(item.attemptId),
+            exam_name: item.title,
+          }
         });
       }
     } else {
@@ -292,12 +296,43 @@ export default function PracticeHubScreen() {
     }
   };
 
-  const handleViewBundle = (bundleName: string, tokens: number) => {
+  const handleViewBundle = async (bundleName: string, tokens: number) => {
+    try {
+      const bundles = await paymentService.getServiceBundles();
+      const lower = bundleName.toLowerCase();
+      const matched = bundles.find(b => {
+        const bName = b.name.toLowerCase();
+        if (lower.includes('jamb') && bName.includes('jamb')) return true;
+        if ((lower.includes('ielts') || lower.includes('english')) && (bName.includes('ielts') || bName.includes('english'))) return true;
+        return bName === lower;
+      });
+
+      if (matched) {
+        router.push({
+          pathname: '/(tabs)/bundles/details',
+          params: {
+            bundle_id: String(matched.id),
+            bundle_name: matched.name,
+            token_cost: String(matched.token_cost),
+            billing_type: matched.billing_type || 'monthly',
+            bundle_data: JSON.stringify(matched),
+          }
+        });
+        return;
+      }
+    } catch (e) {
+      console.warn('Failed to resolve bundle for details screen:', e);
+    }
+
+    // Fallback if bundles call fails or no match is found
+    const fallbackId = bundleName.toLowerCase().includes('jamb') ? '18' : '2';
     router.push({
-      pathname: '/buy-tokens',
+      pathname: '/(tabs)/bundles/details',
       params: {
-        packName: bundleName,
-        tokens: `${tokens} Tokens / month`,
+        bundle_id: fallbackId,
+        bundle_name: bundleName,
+        token_cost: String(tokens),
+        billing_type: 'monthly',
       }
     });
   };

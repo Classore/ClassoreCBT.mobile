@@ -1,19 +1,21 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   View, 
-  Text, 
   StyleSheet, 
   SafeAreaView, 
   ScrollView, 
   TouchableOpacity, 
   TextInput, 
   Platform,
-  ActivityIndicator
+  ActivityIndicator,
+  Modal,
+  FlatList
 } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { examService } from '@/services/exam';
 import { formatQuestionText } from '@/utils/questionFormatter';
+import { AppText } from '@/components/AppText';
 
 interface SavedQuestionItem {
   id: string;
@@ -22,6 +24,7 @@ interface SavedQuestionItem {
   tag: 'Bookmarked' | 'Difficult';
   question: string;
   date: string;
+  rawDate: number;
   qCode: string;
   difficulty: 'Easy' | 'Medium' | 'Hard';
   hasDiagram?: boolean;
@@ -37,22 +40,76 @@ export default function SavedQuestionsScreen() {
   const [questions, setQuestions] = useState<SavedQuestionItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Filters
+  const [selectedExam, setSelectedExam] = useState<string>('All');
+  const [selectedSubject, setSelectedSubject] = useState<string>('All');
+  const [selectedSort, setSelectedSort] = useState<'Recent' | 'Oldest'>('Recent');
+
+  // Filter Modals
+  const [showExamModal, setShowExamModal] = useState(false);
+  const [showSubjectModal, setShowSubjectModal] = useState(false);
+  const [showSortModal, setShowSortModal] = useState(false);
+
   const mapQuestions = (data: any[]): SavedQuestionItem[] => {
-    return data.map((item: any, index: number) => ({
-      id: String(index),
-      originalId: item.question?.id || item.id,
-      exam: item.question?.exam_type_name || 'General',
-      subject: item.question?.section_name || 'General',
-      tag: item.notes?.toLowerCase().includes('difficult') ? 'Difficult' : 'Bookmarked',
-      question: item.question?.text || 'No question text',
-      date: item.created_at ? new Date(item.created_at).toLocaleDateString() : 'Recent',
-      qCode: `Q#${item.question?.id || item.id}`,
-      difficulty: item.question?.difficulty || 'Medium',
-      hasDiagram: !!item.question?.image,
-      iconName: item.notes?.toLowerCase().includes('difficult') ? 'clock' : 'file-text',
-      iconBg: item.notes?.toLowerCase().includes('difficult') ? '#FFEDD5' : '#EDE9FE',
-      iconColor: item.notes?.toLowerCase().includes('difficult') ? '#EA580C' : '#7C3AED',
-    }));
+    return data.map((item: any, index: number) => {
+      // Backend SavedQuestionSerializer returns:
+      // { id, question: number, question_details: QuestionSerializer, notes, created_at }
+      // Or in local / fallback payloads, item.question might already be the Question object.
+      const qObj = (typeof item.question === 'object' && item.question !== null)
+        ? item.question
+        : (item.question_details || {});
+
+      const originalId = qObj.id || (typeof item.question === 'number' ? item.question : item.id) || index;
+
+      const examName = 
+        qObj.exam_type_name || 
+        qObj.exam_name || 
+        qObj.group?.section?.exam_type?.name || 
+        item.exam_name || 
+        'General';
+
+      const subjectName = 
+        qObj.section_name || 
+        qObj.subject_name || 
+        qObj.group?.section?.name || 
+        item.section_name || 
+        'General';
+
+      const questionText = 
+        qObj.text || 
+        qObj.question || 
+        qObj.prompt || 
+        item.question_text || 
+        item.text || 
+        'No question text';
+
+      const notes = (item.notes || qObj.notes || '').toLowerCase();
+      const tag: 'Bookmarked' | 'Difficult' = notes.includes('difficult') ? 'Difficult' : 'Bookmarked';
+
+      const difficulty = qObj.difficulty || item.difficulty || 'Medium';
+      const hasDiagram = !!(qObj.image || qObj.diagram || item.image);
+
+      const parsedDate = item.created_at ? new Date(item.created_at) : new Date();
+      const dateStr = item.created_at ? parsedDate.toLocaleDateString() : 'Recent';
+      const rawDate = parsedDate.getTime() || 0;
+
+      return {
+        id: String(item.id || index),
+        originalId,
+        exam: examName,
+        subject: subjectName,
+        tag,
+        question: questionText,
+        date: dateStr,
+        rawDate,
+        qCode: `Q#${originalId}`,
+        difficulty,
+        hasDiagram,
+        iconName: tag === 'Difficult' ? 'clock' : 'file-text',
+        iconBg: tag === 'Difficult' ? '#FFEDD5' : '#EDE9FE',
+        iconColor: tag === 'Difficult' ? '#EA580C' : '#7C3AED',
+      };
+    });
   };
 
   const fetchQuestions = async () => {
@@ -87,10 +144,47 @@ export default function SavedQuestionsScreen() {
     }
   };
 
-  const filteredQuestions = questions.filter(q => 
-    q.question.toLowerCase().includes(searchQuery.toLowerCase()) || 
-    q.subject.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Distinct options for filter modals
+  const examOptions = useMemo(() => {
+    const set = new Set<string>();
+    questions.forEach(q => {
+      if (q.exam && q.exam !== 'General') set.add(q.exam);
+    });
+    return ['All', ...Array.from(set)];
+  }, [questions]);
+
+  const subjectOptions = useMemo(() => {
+    const set = new Set<string>();
+    questions.forEach(q => {
+      if (selectedExam === 'All' || q.exam === selectedExam) {
+        if (q.subject && q.subject !== 'General') set.add(q.subject);
+      }
+    });
+    return ['All', ...Array.from(set)];
+  }, [questions, selectedExam]);
+
+  const filteredQuestions = useMemo(() => {
+    return questions
+      .filter(q => {
+        const matchesSearch = 
+          !searchQuery ||
+          q.question.toLowerCase().includes(searchQuery.toLowerCase()) || 
+          q.subject.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          q.exam.toLowerCase().includes(searchQuery.toLowerCase());
+
+        const matchesExam = selectedExam === 'All' || q.exam === selectedExam;
+        const matchesSubject = selectedSubject === 'All' || q.subject === selectedSubject;
+
+        return matchesSearch && matchesExam && matchesSubject;
+      })
+      .sort((a, b) => {
+        if (selectedSort === 'Recent') {
+          return b.rawDate - a.rawDate;
+        } else {
+          return a.rawDate - b.rawDate;
+        }
+      });
+  }, [questions, searchQuery, selectedExam, selectedSubject, selectedSort]);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -105,7 +199,7 @@ export default function SavedQuestionsScreen() {
           >
             <Feather name="chevron-left" size={24} color="#111827" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Saved Questions</Text>
+          <AppText style={styles.headerTitle}>Saved Questions</AppText>
           <View style={{ width: 40 }} />
         </View>
 
@@ -123,26 +217,63 @@ export default function SavedQuestionsScreen() {
               value={searchQuery}
               onChangeText={setSearchQuery}
             />
-            <TouchableOpacity activeOpacity={0.7}>
-              <Feather name="filter" size={18} color="#6B7280" />
-            </TouchableOpacity>
+            {searchQuery.length > 0 ? (
+              <TouchableOpacity activeOpacity={0.7} onPress={() => setSearchQuery('')}>
+                <Feather name="x" size={18} color="#6B7280" />
+              </TouchableOpacity>
+            ) : (
+              <Feather name="filter" size={18} color="#9CA3AF" />
+            )}
           </View>
 
           {/* Filter Pills */}
           <View style={styles.filterRow}>
-            <TouchableOpacity style={styles.filterPill} activeOpacity={0.7}>
-              <Text style={styles.filterPillText}>All Exams</Text>
-              <Feather name="chevron-down" size={12} color="#6B7280" style={{ marginLeft: 4 }} />
+            <TouchableOpacity 
+              style={[styles.filterPill, selectedExam !== 'All' && styles.filterPillActive]} 
+              activeOpacity={0.7}
+              onPress={() => setShowExamModal(true)}
+            >
+              <AppText style={[styles.filterPillText, selectedExam !== 'All' && styles.filterPillTextActive]}>
+                {selectedExam === 'All' ? 'All Exams' : selectedExam}
+              </AppText>
+              <Feather 
+                name="chevron-down" 
+                size={12} 
+                color={selectedExam !== 'All' ? '#7C3AED' : '#6B7280'} 
+                style={{ marginLeft: 4 }} 
+              />
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.filterPill} activeOpacity={0.7}>
-              <Text style={styles.filterPillText}>All Subjects</Text>
-              <Feather name="chevron-down" size={12} color="#6B7280" style={{ marginLeft: 4 }} />
+            <TouchableOpacity 
+              style={[styles.filterPill, selectedSubject !== 'All' && styles.filterPillActive]} 
+              activeOpacity={0.7}
+              onPress={() => setShowSubjectModal(true)}
+            >
+              <AppText style={[styles.filterPillText, selectedSubject !== 'All' && styles.filterPillTextActive]}>
+                {selectedSubject === 'All' ? 'All Subjects' : selectedSubject}
+              </AppText>
+              <Feather 
+                name="chevron-down" 
+                size={12} 
+                color={selectedSubject !== 'All' ? '#7C3AED' : '#6B7280'} 
+                style={{ marginLeft: 4 }} 
+              />
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.filterPill} activeOpacity={0.7}>
-              <Text style={styles.filterPillText}>Recent</Text>
-              <Feather name="chevron-down" size={12} color="#6B7280" style={{ marginLeft: 4 }} />
+            <TouchableOpacity 
+              style={[styles.filterPill, selectedSort !== 'Recent' && styles.filterPillActive]} 
+              activeOpacity={0.7}
+              onPress={() => setShowSortModal(true)}
+            >
+              <AppText style={[styles.filterPillText, selectedSort !== 'Recent' && styles.filterPillTextActive]}>
+                {selectedSort}
+              </AppText>
+              <Feather 
+                name="chevron-down" 
+                size={12} 
+                color={selectedSort !== 'Recent' ? '#7C3AED' : '#6B7280'} 
+                style={{ marginLeft: 4 }} 
+              />
             </TouchableOpacity>
           </View>
 
@@ -151,7 +282,15 @@ export default function SavedQuestionsScreen() {
             {isLoading ? (
               <ActivityIndicator size="large" color="#4C1D95" style={{ marginVertical: 40 }} />
             ) : filteredQuestions.length === 0 ? (
-              <Text style={{ textAlign: 'center', color: '#6B7280', marginTop: 20 }}>No saved questions found.</Text>
+              <View style={styles.emptyContainer}>
+                <Feather name="bookmark" size={40} color="#D1D5DB" style={{ marginBottom: 12 }} />
+                <AppText style={styles.emptyTitle}>No saved questions found</AppText>
+                <AppText style={styles.emptySubtitle}>
+                  {questions.length === 0
+                    ? 'Questions you bookmark or mark difficult during tests will appear here.'
+                    : 'No questions matched your current filter or search criteria.'}
+                </AppText>
+              </View>
             ) : (
               filteredQuestions.map((item) => {
                 const isDifficult = item.tag === 'Difficult';
@@ -163,35 +302,35 @@ export default function SavedQuestionsScreen() {
                         <Feather name={item.iconName as any} size={16} color={item.iconColor} />
                       </View>
                       <View style={styles.examInfo}>
-                        <Text style={styles.examName}>{item.exam}</Text>
-                        <Text style={styles.subjectName}>{item.subject}</Text>
+                        <AppText style={styles.examName} numberOfLines={1}>{item.exam}</AppText>
+                        <AppText style={styles.subjectName} numberOfLines={1}>{item.subject}</AppText>
                       </View>
                       <View style={[styles.tagBadge, isDifficult ? styles.difficultBadge : styles.bookmarkedBadge]}>
-                        <Text style={[styles.tagBadgeText, isDifficult ? styles.difficultBadgeText : styles.bookmarkedBadgeText]}>
+                        <AppText style={[styles.tagBadgeText, isDifficult ? styles.difficultBadgeText : styles.bookmarkedBadgeText]}>
                           {item.tag}
-                        </Text>
+                        </AppText>
                       </View>
                     </View>
 
                     {/* Question Body */}
                     <View style={styles.questionBodyRow}>
-                      <Text style={styles.questionText}>
+                      <AppText style={styles.questionText}>
                         {formatQuestionText(item.question)}
-                      </Text>
+                      </AppText>
                       {item.hasDiagram && (
                         <View style={styles.diagramBox}>
                           <MaterialCommunityIcons name="angle-acute" size={32} color="#9CA3AF" />
-                          <Text style={styles.diagramText}>img</Text>
+                          <AppText style={styles.diagramText}>img</AppText>
                         </View>
                       )}
                     </View>
 
                     {/* Card Bottom Row: Date & Difficulty */}
                     <View style={styles.cardBottomRow}>
-                      <Text style={styles.metaText}>{item.date} • {item.qCode}</Text>
-                      <Text style={[styles.difficultyText, { color: getDifficultyColor(item.difficulty) }]}>
+                      <AppText style={styles.metaText}>{item.date} • {item.qCode}</AppText>
+                      <AppText style={[styles.difficultyText, { color: getDifficultyColor(item.difficulty) }]}>
                         {item.difficulty}
-                      </Text>
+                      </AppText>
                     </View>
                   </TouchableOpacity>
                 );
@@ -202,27 +341,142 @@ export default function SavedQuestionsScreen() {
           {/* Bottom Stats Triad Card */}
           <View style={styles.statsCard}>
             <View style={styles.statCol}>
-              <Text style={styles.statLabel}>Total Saved</Text>
-              <Text style={[styles.statValue, { color: '#6D28D9' }]}>{questions.length}</Text>
+              <AppText style={styles.statLabel}>Total Saved</AppText>
+              <AppText style={[styles.statValue, { color: '#6D28D9' }]}>{questions.length}</AppText>
             </View>
 
             <View style={styles.statDivider} />
 
             <View style={styles.statCol}>
-              <Text style={styles.statLabel}>Bookmarked</Text>
-              <Text style={[styles.statValue, { color: '#6D28D9' }]}>{questions.filter(q => q.tag === 'Bookmarked').length}</Text>
+              <AppText style={styles.statLabel}>Bookmarked</AppText>
+              <AppText style={[styles.statValue, { color: '#6D28D9' }]}>{questions.filter(q => q.tag === 'Bookmarked').length}</AppText>
             </View>
 
             <View style={styles.statDivider} />
 
             <View style={styles.statCol}>
-              <Text style={styles.statLabel}>Difficult</Text>
-              <Text style={[styles.statValue, { color: '#EF4444' }]}>{questions.filter(q => q.tag === 'Difficult').length}</Text>
+              <AppText style={styles.statLabel}>Difficult</AppText>
+              <AppText style={[styles.statValue, { color: '#EF4444' }]}>{questions.filter(q => q.tag === 'Difficult').length}</AppText>
             </View>
           </View>
 
           <View style={{ height: 40 }} />
         </ScrollView>
+
+        {/* Modal: Select Exam */}
+        <Modal
+          visible={showExamModal}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowExamModal(false)}
+        >
+          <TouchableOpacity 
+            style={styles.modalOverlay} 
+            activeOpacity={1} 
+            onPress={() => setShowExamModal(false)}
+          >
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <AppText style={styles.modalTitle}>Filter by Exam</AppText>
+                <TouchableOpacity onPress={() => setShowExamModal(false)}>
+                  <Feather name="x" size={20} color="#6B7280" />
+                </TouchableOpacity>
+              </View>
+              {examOptions.map((exam) => (
+                <TouchableOpacity
+                  key={exam}
+                  style={[styles.modalOption, selectedExam === exam && styles.modalOptionSelected]}
+                  onPress={() => {
+                    setSelectedExam(exam);
+                    setSelectedSubject('All'); // Reset subject filter when exam changes
+                    setShowExamModal(false);
+                  }}
+                >
+                  <AppText style={[styles.modalOptionText, selectedExam === exam && styles.modalOptionTextSelected]}>
+                    {exam === 'All' ? 'All Exams' : exam}
+                  </AppText>
+                  {selectedExam === exam && <Feather name="check" size={18} color="#7C3AED" />}
+                </TouchableOpacity>
+              ))}
+            </View>
+          </TouchableOpacity>
+        </Modal>
+
+        {/* Modal: Select Subject */}
+        <Modal
+          visible={showSubjectModal}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowSubjectModal(false)}
+        >
+          <TouchableOpacity 
+            style={styles.modalOverlay} 
+            activeOpacity={1} 
+            onPress={() => setShowSubjectModal(false)}
+          >
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <AppText style={styles.modalTitle}>Filter by Subject</AppText>
+                <TouchableOpacity onPress={() => setShowSubjectModal(false)}>
+                  <Feather name="x" size={20} color="#6B7280" />
+                </TouchableOpacity>
+              </View>
+              {subjectOptions.map((subj) => (
+                <TouchableOpacity
+                  key={subj}
+                  style={[styles.modalOption, selectedSubject === subj && styles.modalOptionSelected]}
+                  onPress={() => {
+                    setSelectedSubject(subj);
+                    setShowSubjectModal(false);
+                  }}
+                >
+                  <AppText style={[styles.modalOptionText, selectedSubject === subj && styles.modalOptionTextSelected]}>
+                    {subj === 'All' ? 'All Subjects' : subj}
+                  </AppText>
+                  {selectedSubject === subj && <Feather name="check" size={18} color="#7C3AED" />}
+                </TouchableOpacity>
+              ))}
+            </View>
+          </TouchableOpacity>
+        </Modal>
+
+        {/* Modal: Select Sort */}
+        <Modal
+          visible={showSortModal}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowSortModal(false)}
+        >
+          <TouchableOpacity 
+            style={styles.modalOverlay} 
+            activeOpacity={1} 
+            onPress={() => setShowSortModal(false)}
+          >
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <AppText style={styles.modalTitle}>Sort By</AppText>
+                <TouchableOpacity onPress={() => setShowSortModal(false)}>
+                  <Feather name="x" size={20} color="#6B7280" />
+                </TouchableOpacity>
+              </View>
+              {(['Recent', 'Oldest'] as const).map((sort) => (
+                <TouchableOpacity
+                  key={sort}
+                  style={[styles.modalOption, selectedSort === sort && styles.modalOptionSelected]}
+                  onPress={() => {
+                    setSelectedSort(sort);
+                    setShowSortModal(false);
+                  }}
+                >
+                  <AppText style={[styles.modalOptionText, selectedSort === sort && styles.modalOptionTextSelected]}>
+                    {sort}
+                  </AppText>
+                  {selectedSort === sort && <Feather name="check" size={18} color="#7C3AED" />}
+                </TouchableOpacity>
+              ))}
+            </View>
+          </TouchableOpacity>
+        </Modal>
       </View>
     </SafeAreaView>
   );
@@ -460,5 +714,89 @@ const styles = StyleSheet.create({
     width: 1,
     height: 30,
     backgroundColor: '#F3F4F6',
+  },
+  filterPillActive: {
+    backgroundColor: '#F5F3FF',
+    borderColor: '#C4B5FD',
+  },
+  filterPillTextActive: {
+    color: '#7C3AED',
+  },
+
+  // Empty state
+  emptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 48,
+    paddingHorizontal: 24,
+  },
+  emptyTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1F2937',
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  emptySubtitle: {
+    fontSize: 13,
+    color: '#6B7280',
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+
+  // Modals
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  modalContent: {
+    width: '100%',
+    maxHeight: '70%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 5,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  modalTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  modalOption: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    marginBottom: 4,
+  },
+  modalOptionSelected: {
+    backgroundColor: '#F5F3FF',
+  },
+  modalOptionText: {
+    fontSize: 14,
+    color: '#374151',
+    fontWeight: '500',
+  },
+  modalOptionTextSelected: {
+    color: '#7C3AED',
+    fontWeight: '700',
   },
 });

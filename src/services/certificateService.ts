@@ -1,6 +1,7 @@
 import { Alert, Platform } from 'react-native';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
+import { generateQRSvgString } from '@/utils/qrCode';
 
 export interface CertificateData {
   id?: number | string;
@@ -12,6 +13,7 @@ export interface CertificateData {
   earnedDate: string;
   issuer?: string;
   certificateNo?: string;
+  verificationUrl?: string;
 }
 
 export function generateCertificateHtml(data: CertificateData): string {
@@ -27,6 +29,17 @@ export function generateCertificateHtml(data: CertificateData): string {
       : 'Passed';
 
   const percentageDisplay = data.percentage ? `(${data.percentage}%)` : '';
+
+  const verificationUrl =
+    data.verificationUrl ||
+    `https://classore.com/verify-certificate?ref=${encodeURIComponent(serialNo)}`;
+
+  const qrSvg = generateQRSvgString(verificationUrl, {
+    size: 72,
+    color: '#3B0764',
+    bgColor: '#FFFFFF',
+    margin: 1,
+  });
 
   return `
 <!DOCTYPE html>
@@ -209,9 +222,9 @@ export function generateCertificateHtml(data: CertificateData): string {
       letter-spacing: 0.5px;
     }
     .seal-badge {
-      width: 72px;
-      height: 72px;
-      border-radius: 36px;
+      width: 68px;
+      height: 68px;
+      border-radius: 34px;
       background: linear-gradient(135deg, #F59E0B, #D97706);
       color: #FFFFFF;
       display: flex;
@@ -220,16 +233,36 @@ export function generateCertificateHtml(data: CertificateData): string {
       justify-content: center;
       box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);
       border: 3px solid #FEF3C7;
-      font-size: 10px;
+      font-size: 9px;
       font-weight: 800;
       text-transform: uppercase;
       letter-spacing: 0.5px;
     }
+    .qr-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: #FFFFFF;
+      padding: 6px;
+      border-radius: 8px;
+      border: 1px solid #E2E8F0;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+    }
+    .qr-label {
+      font-size: 8px;
+      color: #64748B;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-top: 3px;
+    }
     .serial-number {
       font-size: 11px;
-      color: #94A3B8;
+      color: #64748B;
       font-family: monospace;
-      margin-top: 8px;
+      margin-top: 6px;
+      font-weight: 600;
     }
   </style>
 </head>
@@ -269,12 +302,19 @@ export function generateCertificateHtml(data: CertificateData): string {
           <div class="signature-title">Director of Assessment</div>
         </div>
 
-        <div style="text-align: center;">
-          <div class="seal-badge">
-            <span style="font-size: 16px;">★</span>
-            <span>VERIFIED</span>
+        <div style="display: flex; align-items: center; gap: 16px;">
+          <div class="qr-container">
+            ${qrSvg}
+            <div class="qr-label">Scan to Verify</div>
           </div>
-          <div class="serial-number">Ref: ${serialNo}</div>
+
+          <div style="text-align: center;">
+            <div class="seal-badge">
+              <span style="font-size: 15px;">★</span>
+              <span>VERIFIED</span>
+            </div>
+            <div class="serial-number">Ref: ${serialNo}</div>
+          </div>
         </div>
 
         <div class="signature-block">

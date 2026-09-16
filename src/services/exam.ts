@@ -25,12 +25,21 @@ export const isSectionBasedExam = (
 ): boolean => {
   if (!examName && !sections) return false;
   const nameLower = (examName || '').toLowerCase();
+  // Standard non-section-based exams
+  if (
+    nameLower.includes('jamb') ||
+    nameLower.includes('utme') ||
+    nameLower.includes('waec') ||
+    nameLower.includes('neco') ||
+    nameLower.includes('post-utme')
+  ) {
+    return false;
+  }
   if (
     nameLower.includes('ielts') ||
     nameLower.includes('toefl') ||
     nameLower.includes('pte') ||
-    nameLower.includes('duolingo') ||
-    nameLower.includes('english')
+    nameLower.includes('duolingo')
   ) {
     return true;
   }

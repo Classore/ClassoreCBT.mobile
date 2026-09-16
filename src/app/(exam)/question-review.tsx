@@ -66,7 +66,7 @@ export default function QuestionReviewScreen() {
                 if (q.id === targetQId) {
                   calculatedQNum = calculatedTotal;
                   setQuestionText(q.text || '');
-                  setInstructions(q.instructions || 'Choose the option that best completes the sentence.');
+                  setInstructions(q.instructions || '');
                   setSubjectName(sec.section_name || params.subject_name || 'General');
 
                   // Determine status
@@ -265,11 +265,10 @@ export default function QuestionReviewScreen() {
           <View style={styles.explanationBox}>
             <AppText style={styles.explanationHeader}>Explanation</AppText>
             <AppText style={styles.explanationBody}>
-              {explanation ||
-                '"Neither...nor" takes a singular verb that agrees with the nearest subject. Here, "coach" is singular, so the correct verb is "has".'}
+              {explanation || 'No explanation provided for this question.'}
             </AppText>
 
-            {examples.length > 0 ? (
+            {examples.length > 0 && (
               <View style={styles.examplesContainer}>
                 <AppText style={styles.examplesHeader}>Examples:</AppText>
                 {examples.map((ex, idx) => (
@@ -277,16 +276,6 @@ export default function QuestionReviewScreen() {
                     {ex}
                   </AppText>
                 ))}
-              </View>
-            ) : (
-              <View style={styles.examplesContainer}>
-                <AppText style={styles.examplesHeader}>Examples:</AppText>
-                <AppText style={styles.exampleItem}>
-                  Neither the boy nor his friends <AppText style={styles.exampleBold}>has</AppText> finished their homework.•
-                </AppText>
-                <AppText style={styles.exampleItem}>
-                  Neither you nor I <AppText style={styles.exampleBold}>am</AppText> going to the party.•
-                </AppText>
               </View>
             )}
           </View>

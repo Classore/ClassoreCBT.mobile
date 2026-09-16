@@ -29,6 +29,25 @@ interface AiFeedbackItem {
   [key: string]: any;
 }
 
+// Official IELTS CEFR Calculator
+export const calculateCefr = (band: number): string => {
+  if (band >= 8.5) return 'C2 • Mastery';
+  if (band >= 7.0) return 'C1 • Advanced';
+  if (band >= 5.5) return 'B2 • Vantage';
+  if (band >= 4.0) return 'B1 • Intermediate';
+  return 'A2 • Elementary';
+};
+
+// Official IELTS Descriptor
+export function getIeltsDescriptor(band: number): string {
+  if (band >= 8.5) return 'Expert User';
+  if (band >= 7.5) return 'Very Good User';
+  if (band >= 6.5) return 'Good User';
+  if (band >= 5.5) return 'Competent User';
+  if (band >= 4.5) return 'Modest User';
+  return 'Limited User';
+}
+
 export default function TestResultScreen() {
   const { user } = useAuth();
   const router = useRouter();
@@ -53,21 +72,32 @@ export default function TestResultScreen() {
     ? parseFloat(params.total_score)
     : null;
 
+
+
   const [isIelts, setIsIelts] = useState<boolean>(detectedIsIelts);
   const [loading, setLoading] = useState<boolean>(initialScore === null && Boolean(params.attempt_id));
+  const [analyticsLoading, setAnalyticsLoading] = useState<boolean>(Boolean(params.attempt_id));
+  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
   const [score, setScore] = useState<number | null>(initialScore);
   const [totalScore, setTotalScore] = useState<number | null>(detectedIsIelts ? 9.0 : 400);
   const [correctAnswers, setCorrectAnswers] = useState<number | null>(null);
   const [wrongAnswers, setWrongAnswers] = useState<number | null>(null);
   const [skippedQuestions, setSkippedQuestions] = useState<number | null>(null);
   const [timeUsedFormatted, setTimeUsedFormatted] = useState<string>('-');
-  const [performanceTag, setPerformanceTag] = useState<string>('Good Performance');
+  const [performanceTag, setPerformanceTag] = useState<string>(
+    initialScore !== null && detectedIsIelts ? getIeltsDescriptor(initialScore) : 'Good Performance'
+  );
   const [examTitle, setExamTitle] = useState<string>(params.exam_name || (detectedIsIelts ? 'IELTS Academic Test' : 'JAMB Practice Test'));
   const [error, setError] = useState<string | null>(null);
 
   // IELTS Specific State
   const [scorePerSection, setScorePerSection] = useState<Record<string, number>>({});
-  const [cefrLevel, setCefrLevel] = useState<string | null>(null);
+  const [cefrLevel, setCefrLevel] = useState<string | null>(() => {
+    if (detectedIsIelts && initialScore !== null) {
+      return calculateCefr(initialScore);
+    }
+    return null;
+  });
   const [readingWpm, setReadingWpm] = useState<number | null>(null);
   const [listeningAccuracy, setListeningAccuracy] = useState<number | null>(null);
   const [aiAssessmentStatus, setAiAssessmentStatus] = useState<string | null>(params.ai_assessment_status || null);
@@ -87,33 +117,41 @@ export default function TestResultScreen() {
   const pollCountRef = useRef(0);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Official IELTS CEFR Calculator
-  const calculateCefr = (band: number): string => {
-    if (band >= 8.5) return 'C2 • Mastery';
-    if (band >= 7.0) return 'C1 • Advanced';
-    if (band >= 5.5) return 'B2 • Vantage';
-    if (band >= 4.0) return 'B1 • Intermediate';
-    return 'A2 • Elementary';
-  };
 
-  // Official IELTS Descriptor
-  const getIeltsDescriptor = (band: number): string => {
-    if (band >= 8.5) return 'Expert User';
-    if (band >= 7.5) return 'Very Good User';
-    if (band >= 6.5) return 'Good User';
-    if (band >= 5.5) return 'Competent User';
-    if (band >= 4.5) return 'Modest User';
-    return 'Limited User';
-  };
 
   const processAnalyticsData = useCallback((data: any) => {
     if (!data) return;
 
     const examName = data.exam_name || params.exam_name || '';
-    const isIeltsTest = Boolean(
+    const examNameLower = examName.toLowerCase();
+
+    // Explicit check for non-IELTS exams (e.g. JAMB, WAEC, NECO)
+    const isExplicitNonIelts = 
+      params.is_ielts === 'false' ||
+      examNameLower.includes('jamb') ||
+      examNameLower.includes('utme') ||
+      examNameLower.includes('waec') ||
+      examNameLower.includes('neco') ||
+      examNameLower.includes('post-utme');
+
+    // IELTS section bands check (only if actual IELTS band keys exist)
+    const hasIeltsBandScores = Boolean(
+      data.score_per_section && typeof data.score_per_section === 'object' && (
+        data.score_per_section['Reading Band'] !== undefined ||
+        data.score_per_section['Listening Band'] !== undefined ||
+        data.score_per_section['Writing Band'] !== undefined ||
+        data.score_per_section['Speaking Band'] !== undefined
+      )
+    );
+
+    const isIeltsTest = !isExplicitNonIelts && Boolean(
+      params.is_ielts === 'true' ||
       data.exam_type === 42 ||
-      isSectionBasedExam(examName) ||
-      Boolean(data.score_per_section) ||
+      data.exam_type_id === 42 ||
+      examNameLower.includes('ielts') ||
+      examNameLower.includes('toefl') ||
+      hasIeltsBandScores ||
+      isSectionBasedExam(examName, data.subjects) ||
       detectedIsIelts
     );
     setIsIelts(isIeltsTest);
@@ -144,11 +182,15 @@ export default function TestResultScreen() {
         setIsAiEvaluating(isStillEvaluating && data.ai_assessment_status !== 'Skipped');
       }
 
-      if (data.reading_speed_wpm !== undefined) {
-        setReadingWpm(Math.round(data.reading_speed_wpm));
+      // Reading Diagnostic WPM (support both assessments.reading and root)
+      const wpm = data.assessments?.reading?.reading_speed_wpm ?? data.reading_speed_wpm;
+      if (wpm !== undefined && wpm !== null) {
+        setReadingWpm(Math.round(wpm));
       }
-      if (data.listening_diagnostic?.accuracy_percentage !== undefined) {
-        setListeningAccuracy(Math.round(data.listening_diagnostic.accuracy_percentage));
+      // Listening Diagnostic Accuracy (support both assessments.listening and root)
+      const listeningAcc = data.assessments?.listening?.accuracy_percentage ?? data.listening_diagnostic?.accuracy_percentage;
+      if (listeningAcc !== undefined && listeningAcc !== null) {
+        setListeningAccuracy(Math.round(listeningAcc));
       }
       if (data.ai_feedbacks && Array.isArray(data.ai_feedbacks) && data.ai_feedbacks.length > 0) {
         setAiFeedbacks(data.ai_feedbacks);
@@ -190,13 +232,19 @@ export default function TestResultScreen() {
         setError('No exam session ID provided.');
       }
       setLoading(false);
+      setAnalyticsLoading(false);
       return;
     }
 
     const attemptId = Number(params.attempt_id);
-    if (!isPolling && initialScore === null) {
-      setLoading(true);
+    if (!isPolling) {
+      if (initialScore === null) {
+        setLoading(true);
+      } else {
+        setAnalyticsLoading(true);
+      }
     }
+    setAnalyticsError(null);
     setError(null);
 
     try {
@@ -205,6 +253,7 @@ export default function TestResultScreen() {
       if (data) {
         processAnalyticsData(data);
         setLoading(false);
+        setAnalyticsLoading(false);
         return;
       }
     } catch (primaryErr) {
@@ -221,6 +270,7 @@ export default function TestResultScreen() {
           exam_name: (reviewData as any).exam_name || params.exam_name,
         });
         setLoading(false);
+        setAnalyticsLoading(false);
         return;
       }
     } catch (reviewErr) {
@@ -233,14 +283,17 @@ export default function TestResultScreen() {
       if (lastAttempt && (lastAttempt.total_score !== undefined || lastAttempt.score !== undefined)) {
         processAnalyticsData(lastAttempt);
         setLoading(false);
+        setAnalyticsLoading(false);
         return;
       }
     } catch (lastErr) {
       console.warn('Last attempt details fallback error:', lastErr);
     }
 
-    // If we have an initial score from submit, preserve it and don't block with error
+    // If we have an initial score from submit, preserve it and don't block the screen
+    setAnalyticsLoading(false);
     if (initialScore !== null) {
+      setAnalyticsError('Detailed skill analytics could not be retrieved.');
       setLoading(false);
       return;
     }
@@ -434,6 +487,29 @@ export default function TestResultScreen() {
               </View>
             )}
 
+            {/* Detailed Analytics In-Flight Banner */}
+            {isIelts && analyticsLoading && !isAiEvaluating && (
+              <View style={styles.analyticsLoadingBanner}>
+                <ActivityIndicator size="small" color="#7C3AED" style={{ marginRight: 8 }} />
+                <Text style={styles.analyticsLoadingText}>
+                  Retrieving section diagnostics & skill band analytics...
+                </Text>
+              </View>
+            )}
+
+            {/* Detailed Analytics Error Banner */}
+            {isIelts && analyticsError && !analyticsLoading && (
+              <View style={styles.analyticsErrorBanner}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                  <Ionicons name="alert-circle-outline" size={18} color="#DC2626" style={{ marginRight: 6 }} />
+                  <Text style={styles.analyticsErrorText}>{analyticsError}</Text>
+                </View>
+                <TouchableOpacity onPress={() => fetchResults(false)} style={styles.inlineRetryBtn}>
+                  <Text style={styles.inlineRetryText}>Retry</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
             {/* IELTS 4-Skill Band Breakdown */}
             {isIelts && (
               <View style={styles.sectionContainer}>
@@ -444,6 +520,8 @@ export default function TestResultScreen() {
                                      scorePerSection[item.label] ?? 
                                      scorePerSection[`${item.label} Score`];
                     const isPending = (foundVal === undefined || foundVal === null) && isAiEvaluating;
+                    const isCardLoading = analyticsLoading && (foundVal === undefined || foundVal === null);
+
                     const valDisplay = foundVal !== undefined && foundVal !== null 
                       ? `${parseFloat(String(foundVal)).toFixed(1)}` 
                       : (isPending ? '...' : '--');
@@ -454,13 +532,22 @@ export default function TestResultScreen() {
                           <Ionicons name={item.icon} size={20} color={item.color} />
                         </View>
                         <Text style={styles.ieltsSkillLabel}>{item.label}</Text>
-                        <View style={styles.ieltsScoreRow}>
-                          <Text style={[styles.ieltsSkillScore, { color: item.color }]}>
-                            {valDisplay}
-                          </Text>
-                          <Text style={styles.ieltsSkillMax}>/ 9.0</Text>
-                        </View>
-                        {isPending && (
+                        
+                        {isCardLoading ? (
+                          <View style={styles.skillLoadingBox}>
+                            <ActivityIndicator size="small" color={item.color} />
+                            <Text style={[styles.evaluatingMini, { color: item.color }]}>Fetching...</Text>
+                          </View>
+                        ) : (
+                          <View style={styles.ieltsScoreRow}>
+                            <Text style={[styles.ieltsSkillScore, { color: item.color }]}>
+                              {valDisplay}
+                            </Text>
+                            <Text style={styles.ieltsSkillMax}>/ 9.0</Text>
+                          </View>
+                        )}
+
+                        {isPending && !isCardLoading && (
                           <Text style={styles.evaluatingMini}>AI Grading</Text>
                         )}
                       </View>
@@ -480,10 +567,18 @@ export default function TestResultScreen() {
                   </View>
                   <Text style={styles.metricLabel}>Correct</Text>
                 </View>
-                <Text style={styles.metricValue}>{correctAnswers !== null ? correctAnswers : '--'}</Text>
-                <Text style={[styles.metricSub, { color: '#16A34A' }]}>
-                  {correctPct !== null ? `${correctPct}%` : 'accuracy'}
-                </Text>
+                {analyticsLoading && correctAnswers === null ? (
+                  <View style={styles.metricLoadingBox}>
+                    <ActivityIndicator size="small" color="#16A34A" />
+                  </View>
+                ) : (
+                  <>
+                    <Text style={styles.metricValue}>{correctAnswers !== null ? correctAnswers : '--'}</Text>
+                    <Text style={[styles.metricSub, { color: '#16A34A' }]}>
+                      {correctPct !== null ? `${correctPct}%` : 'accuracy'}
+                    </Text>
+                  </>
+                )}
               </View>
 
               {/* Incorrect Answers */}
@@ -494,10 +589,18 @@ export default function TestResultScreen() {
                   </View>
                   <Text style={styles.metricLabel}>Incorrect</Text>
                 </View>
-                <Text style={styles.metricValue}>{wrongAnswers !== null ? wrongAnswers : '--'}</Text>
-                <Text style={[styles.metricSub, { color: '#DC2626' }]}>
-                  {wrongPct !== null ? `${wrongPct}%` : 'reviewable'}
-                </Text>
+                {analyticsLoading && wrongAnswers === null ? (
+                  <View style={styles.metricLoadingBox}>
+                    <ActivityIndicator size="small" color="#DC2626" />
+                  </View>
+                ) : (
+                  <>
+                    <Text style={styles.metricValue}>{wrongAnswers !== null ? wrongAnswers : '--'}</Text>
+                    <Text style={[styles.metricSub, { color: '#DC2626' }]}>
+                      {wrongPct !== null ? `${wrongPct}%` : 'reviewable'}
+                    </Text>
+                  </>
+                )}
               </View>
 
               {/* Unattempted or Speed */}
@@ -510,12 +613,20 @@ export default function TestResultScreen() {
                     {isIelts && readingWpm ? 'Reading Speed' : 'Unattempted'}
                   </Text>
                 </View>
-                <Text style={styles.metricValue}>
-                  {isIelts && readingWpm ? `${readingWpm} WPM` : (skippedQuestions !== null ? skippedQuestions : '--')}
-                </Text>
-                <Text style={[styles.metricSub, { color: isIelts && readingWpm ? '#2563EB' : '#EA580C' }]}>
-                  {isIelts && readingWpm ? 'words / min' : (skippedPct !== null ? `${skippedPct}%` : 'skipped')}
-                </Text>
+                {analyticsLoading && readingWpm === null && skippedQuestions === null ? (
+                  <View style={styles.metricLoadingBox}>
+                    <ActivityIndicator size="small" color={isIelts ? "#2563EB" : "#EA580C"} />
+                  </View>
+                ) : (
+                  <>
+                    <Text style={styles.metricValue}>
+                      {isIelts && readingWpm ? `${readingWpm} WPM` : (skippedQuestions !== null ? skippedQuestions : '--')}
+                    </Text>
+                    <Text style={[styles.metricSub, { color: isIelts && readingWpm ? '#2563EB' : '#EA580C' }]}>
+                      {isIelts && readingWpm ? 'words / min' : (skippedPct !== null ? `${skippedPct}%` : 'skipped')}
+                    </Text>
+                  </>
+                )}
               </View>
 
               {/* Time Used */}
@@ -526,10 +637,37 @@ export default function TestResultScreen() {
                   </View>
                   <Text style={styles.metricLabel}>Time Used</Text>
                 </View>
-                <Text style={styles.metricValue}>{timeUsedFormatted}</Text>
-                <Text style={[styles.metricSub, { color: '#94A3B8' }]}>total duration</Text>
+                {analyticsLoading && timeUsedFormatted === '-' ? (
+                  <View style={styles.metricLoadingBox}>
+                    <ActivityIndicator size="small" color="#64748B" />
+                  </View>
+                ) : (
+                  <>
+                    <Text style={styles.metricValue}>{timeUsedFormatted}</Text>
+                    <Text style={[styles.metricSub, { color: '#94A3B8' }]}>total duration</Text>
+                  </>
+                )}
               </View>
             </View>
+
+            {/* Rank Banner for Standard Exams */}
+            {!isIelts && (
+              <TouchableOpacity 
+                style={styles.rankCard}
+                onPress={() => router.push('/(exam)/leaderboard')}
+                activeOpacity={0.8}
+              >
+                <View style={styles.rankIconBg}>
+                  <Ionicons name="bar-chart" size={18} color="#7C3AED" />
+                </View>
+                <View style={styles.rankInfo}>
+                  <Text style={styles.rankLabel}>Your Rank</Text>
+                  <Text style={styles.rankValue}>Top {Math.max(1, 100 - percentage)}%</Text>
+                  <Text style={styles.rankSub}>Based on your score</Text>
+                </View>
+                <Feather name="chevron-right" size={20} color="#9CA3AF" />
+              </TouchableOpacity>
+            )}
 
             {/* AI Rubric Feedback for Writing & Speaking constructed responses */}
             {aiFeedbacks.length > 0 && (
@@ -575,9 +713,28 @@ export default function TestResultScreen() {
               </View>
             )}
 
+            {/* View Subject Performance Button (for standard exams like JAMB) */}
+            {!isIelts && (
+              <TouchableOpacity 
+                style={styles.actionButton}
+                onPress={() => router.push({
+                  pathname: '/(exam)/subject-performance',
+                  params: { 
+                    attempt_id: params.attempt_id,
+                    exam_name: examTitle,
+                    is_ielts: 'false',
+                  }
+                })}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="bar-chart-outline" size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
+                <Text style={styles.actionButtonText}>View Subject Performance</Text>
+              </TouchableOpacity>
+            )}
+
             {/* Review Answers Button */}
             <TouchableOpacity 
-              style={styles.actionButton}
+              style={[styles.actionButton, !isIelts && { backgroundColor: '#F5F3FF', borderWidth: 1.5, borderColor: '#7C3AED', marginTop: 12 }]}
               onPress={() => router.push({
                 pathname: '/(exam)/review-answers',
                 params: { 
@@ -588,8 +745,8 @@ export default function TestResultScreen() {
               })}
               activeOpacity={0.85}
             >
-              <Ionicons name="document-text-outline" size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
-              <Text style={styles.actionButtonText}>Review Answers & Explanations</Text>
+              <Ionicons name="document-text-outline" size={18} color={!isIelts ? '#7C3AED' : '#FFFFFF'} style={{ marginRight: 8 }} />
+              <Text style={[styles.actionButtonText, !isIelts && { color: '#7C3AED' }]}>Review Answers & Explanations</Text>
             </TouchableOpacity>
 
             {/* Topic & Skill Performance */}
@@ -709,6 +866,102 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#7C3AED',
     marginTop: 2,
+  },
+  analyticsLoadingBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F5F3FF',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#EDE9FE',
+    marginBottom: 14,
+  },
+  analyticsLoadingText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#6D28D9',
+    flex: 1,
+  },
+  analyticsErrorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FEF2F2',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#FEE2E2',
+    marginBottom: 14,
+  },
+  analyticsErrorText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#DC2626',
+    flex: 1,
+  },
+  inlineRetryBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: '#DC2626',
+    marginLeft: 10,
+  },
+  inlineRetryText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  skillLoadingBox: {
+    height: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  metricLoadingBox: {
+    height: 38,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  rankCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
+    marginBottom: 16,
+    marginTop: 8,
+  },
+  rankIconBg: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    backgroundColor: '#F3E8FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 14,
+  },
+  rankInfo: {
+    flex: 1,
+  },
+  rankLabel: {
+    fontSize: 11,
+    color: '#9CA3AF',
+    fontWeight: '600',
+  },
+  rankValue: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#111827',
+    marginTop: 1,
+  },
+  rankSub: {
+    fontSize: 11,
+    color: '#9CA3AF',
+    marginTop: 1,
   },
 
   // Headline

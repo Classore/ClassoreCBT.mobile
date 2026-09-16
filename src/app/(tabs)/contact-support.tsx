@@ -14,6 +14,8 @@ import {
 } from 'react-native';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams } from 'expo-router';
+import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system';
 import { handleHelpBack } from '@/utils/helpNavigation';
 import { submitSupportTicket } from '@/services/support';
 
@@ -28,15 +30,81 @@ const TOPIC_OPTIONS = [
   'Other',
 ];
 
+const MAX_ATTACHMENT_SIZE_BYTES = 100 * 1024; // 100KB limit
+
+interface AttachedFile {
+  uri: string;
+  name: string;
+  size: number;
+  mimeType?: string;
+  file?: any;
+}
+
 export default function ContactSupportScreen() {
   const params = useLocalSearchParams<{ from?: string }>();
 
   const [selectedTopic, setSelectedTopic] = useState<string>('');
   const [message, setMessage] = useState<string>('');
   const [showTopicModal, setShowTopicModal] = useState<boolean>(false);
-  const [hasAttachment, setHasAttachment] = useState<boolean>(false);
+  const [attachedFile, setAttachedFile] = useState<AttachedFile | null>(null);
+  const [pickingFile, setPickingFile] = useState<boolean>(false);
   const [sending, setSending] = useState<boolean>(false);
   const [sent, setSent] = useState<boolean>(false);
+
+  const handlePickAttachment = async () => {
+    try {
+      setPickingFile(true);
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['*/*'],
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const asset = result.assets[0];
+        let fileSize = asset.size;
+
+        // Fallback for providers that don't immediately return file size
+        if (fileSize === undefined || fileSize === null) {
+          try {
+            const info = await FileSystem.getInfoAsync(asset.uri);
+            if (info.exists && typeof info.size === 'number') {
+              fileSize = info.size;
+            }
+          } catch (e) {
+            console.warn('Could not determine file size via FileSystem:', e);
+          }
+        }
+
+        // Validate 100KB limit
+        if (fileSize !== undefined && fileSize > MAX_ATTACHMENT_SIZE_BYTES) {
+          const sizeKb = (fileSize / 1024).toFixed(1);
+          Alert.alert(
+            'File Too Large',
+            `Attachment file size cannot exceed 100KB.\nSelected file is ${sizeKb}KB. Please choose a smaller file.`
+          );
+          return;
+        }
+
+        setAttachedFile({
+          uri: asset.uri,
+          name: asset.name,
+          size: fileSize || 0,
+          mimeType: asset.mimeType,
+          file: (asset as any).file,
+        });
+      }
+    } catch (err: any) {
+      console.error('Error picking document:', err);
+      Alert.alert('Error', 'Could not open file picker. Please try again.');
+    } finally {
+      setPickingFile(false);
+    }
+  };
+
+  const handleRemoveAttachment = () => {
+    setAttachedFile(null);
+  };
 
   const handleSend = async () => {
     if (!selectedTopic) {
@@ -53,13 +121,19 @@ export default function ContactSupportScreen() {
       await submitSupportTicket({
         topic: selectedTopic,
         message: message.trim(),
+        attachmentUri: attachedFile?.uri,
+        attachmentName: attachedFile?.name,
+        attachmentType: attachedFile?.mimeType,
+        attachmentFile: attachedFile?.file,
       });
 
       setSent(true);
     } catch (error: any) {
-      const errMsg = error?.response?.data?.message || 
-                     error?.response?.data?.detail || 
-                     'Unable to send message right now. Please check your connection and try again.';
+      const errMsg =
+        error?.response?.data?.attachment?.[0] ||
+        error?.response?.data?.message ||
+        error?.response?.data?.detail ||
+        'Unable to send message right now. Please check your connection and try again.';
       Alert.alert('Submission Error', errMsg);
     } finally {
       setSending(false);
@@ -70,8 +144,18 @@ export default function ContactSupportScreen() {
     setSent(false);
     setSelectedTopic('');
     setMessage('');
-    setHasAttachment(false);
+    setAttachedFile(null);
     handleHelpBack(params.from, '/(tabs)/help-support');
+  };
+
+  const renderFileIcon = (mimeType?: string) => {
+    if (mimeType?.startsWith('image/')) {
+      return <Feather name="image" size={18} color="#10B981" />;
+    }
+    if (mimeType?.includes('pdf')) {
+      return <Feather name="file-text" size={18} color="#EF4444" />;
+    }
+    return <Feather name="file" size={18} color="#7C3AED" />;
   };
 
   return (
@@ -143,33 +227,67 @@ export default function ContactSupportScreen() {
             <Text style={styles.counterText}>{message.length}/500</Text>
           </View>
 
-          {/* Add Attachment option */}
-          <TouchableOpacity
-            style={styles.attachmentRow}
-            activeOpacity={0.7}
-            onPress={() => {
-              if (!hasAttachment) {
-                setHasAttachment(true);
-                Alert.alert('Attachment Added', 'File attached to your support ticket.');
-              } else {
-                setHasAttachment(false);
-              }
-            }}
-          >
-            <Feather
-              name="paperclip"
-              size={16}
-              color={hasAttachment ? '#10B981' : '#6B7280'}
-            />
-            <Text
-              style={[
-                styles.attachmentText,
-                hasAttachment && { color: '#10B981', fontWeight: '600' },
-              ]}
+          {/* Attachment Section */}
+          <Text style={[styles.fieldLabel, { marginTop: 22 }]}>Attachment (optional)</Text>
+
+          {!attachedFile ? (
+            <TouchableOpacity
+              style={styles.attachmentButton}
+              activeOpacity={0.7}
+              onPress={handlePickAttachment}
+              disabled={pickingFile}
             >
-              {hasAttachment ? '1 file attached (tap to remove)' : 'Add Attachment (optional)'}
-            </Text>
-          </TouchableOpacity>
+              <View style={styles.attachmentButtonLeft}>
+                <View style={styles.paperclipIconBox}>
+                  {pickingFile ? (
+                    <ActivityIndicator size="small" color="#7C3AED" />
+                  ) : (
+                    <Feather name="paperclip" size={18} color="#7C3AED" />
+                  )}
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.attachmentButtonText}>
+                    {pickingFile ? 'Opening picker...' : 'Add Attachment'}
+                  </Text>
+                  <Text style={styles.attachmentLimitText}>
+                    Maximum file size: 100KB (Images, PDF, TXT, Docs)
+                  </Text>
+                </View>
+              </View>
+              <Feather name="plus" size={18} color="#9CA3AF" />
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.attachedFileCard}>
+              <View style={styles.attachedFileLeft}>
+                <View style={styles.fileIconBox}>
+                  {renderFileIcon(attachedFile.mimeType)}
+                </View>
+                <View style={styles.fileInfoText}>
+                  <Text style={styles.fileName} numberOfLines={1}>
+                    {attachedFile.name}
+                  </Text>
+                  <View style={styles.fileMetaRow}>
+                    <Text style={styles.fileSizeText}>
+                      {attachedFile.size ? `${(attachedFile.size / 1024).toFixed(1)} KB` : '< 100 KB'}
+                    </Text>
+                    <View style={styles.fileCheckPill}>
+                      <Ionicons name="checkmark-circle" size={13} color="#10B981" />
+                      <Text style={styles.fileCheckText}>Within 100KB limit</Text>
+                    </View>
+                  </View>
+                </View>
+              </View>
+
+              <TouchableOpacity
+                style={styles.removeAttachmentButton}
+                onPress={handleRemoveAttachment}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                activeOpacity={0.7}
+              >
+                <Feather name="x" size={16} color="#EF4444" />
+              </TouchableOpacity>
+            </View>
+          )}
 
           {/* Submit Button */}
           <TouchableOpacity
@@ -209,24 +327,23 @@ export default function ContactSupportScreen() {
                 onPress={() => setShowTopicModal(false)}
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
-                <Feather name="x" size={20} color="#6B7280" />
+                <Feather name="x" size={20} color="#9CA3AF" />
               </TouchableOpacity>
             </View>
 
-            <ScrollView style={{ maxHeight: 360 }}>
-              {TOPIC_OPTIONS.map((item, idx) => {
-                const isSelected = selectedTopic === item;
-
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {TOPIC_OPTIONS.map((topic) => {
+                const isSelected = selectedTopic === topic;
                 return (
                   <TouchableOpacity
-                    key={idx}
+                    key={topic}
                     style={[
                       styles.modalOption,
                       isSelected && styles.modalOptionSelected,
                     ]}
                     activeOpacity={0.7}
                     onPress={() => {
-                      setSelectedTopic(item);
+                      setSelectedTopic(topic);
                       setShowTopicModal(false);
                     }}
                   >
@@ -236,10 +353,10 @@ export default function ContactSupportScreen() {
                         isSelected && styles.modalOptionTextSelected,
                       ]}
                     >
-                      {item}
+                      {topic}
                     </Text>
                     {isSelected && (
-                      <Ionicons name="checkmark-circle" size={20} color="#6D28D9" />
+                      <Ionicons name="checkmark" size={18} color="#6D28D9" />
                     )}
                   </TouchableOpacity>
                 );
@@ -249,21 +366,17 @@ export default function ContactSupportScreen() {
         </TouchableOpacity>
       </Modal>
 
-      {/* Success Confirmation Modal */}
-      <Modal
-        visible={sent}
-        transparent
-        animationType="fade"
-        onRequestClose={handleDone}
-      >
+      {/* Success Modal */}
+      <Modal visible={sent} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.successCard}>
             <View style={styles.successIconCircle}>
-              <Ionicons name="checkmark-circle" size={48} color="#10B981" />
+              <Ionicons name="checkmark-circle" size={56} color="#10B981" />
             </View>
             <Text style={styles.successTitle}>Message Sent!</Text>
             <Text style={styles.successMessage}>
-              Thank you for contacting us. A support representative will respond to your registered email within 24 hours.
+              Thank you for contacting us. We have received your inquiry
+              {attachedFile ? ' with attachment' : ''} and will respond shortly.
             </Text>
             <TouchableOpacity
               style={styles.successBtn}
@@ -295,88 +408,90 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: Platform.OS === 'android' ? 40 : 12,
     paddingBottom: 12,
-    backgroundColor: '#FFFFFF',
   },
   headerButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#F3F4F6',
+    borderColor: '#E5E7EB',
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
   },
   headerTitle: {
     fontSize: 18,
-    fontWeight: '800',
+    fontWeight: '700',
     color: '#111827',
   },
   scrollContent: {
     paddingHorizontal: 20,
-    paddingTop: 12,
+    paddingTop: 8,
   },
+
+  // Banner
   bannerCard: {
-    backgroundColor: '#F5F3FF',
-    borderRadius: 20,
-    padding: 16,
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 20,
+    backgroundColor: '#F5F3FF',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 24,
   },
   bannerIconCircle: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: '#FFFFFF',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#EDE9FE',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 14,
+    marginRight: 12,
   },
   bannerTextContainer: {
     flex: 1,
   },
   bannerTitle: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#111827',
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#4C1D95',
     marginBottom: 2,
   },
   bannerSubtitle: {
     fontSize: 12.5,
-    color: '#6B7280',
+    color: '#6D28D9',
     lineHeight: 17,
   },
+
+  // Fields
   fieldLabel: {
-    fontSize: 14.5,
-    fontWeight: '800',
-    color: '#111827',
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#374151',
     marginBottom: 8,
   },
   selectBox: {
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    height: 52,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    borderWidth: 1.5,
+    borderColor: '#E5E7EB',
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     backgroundColor: '#FFFFFF',
   },
   selectText: {
-    fontSize: 14.5,
+    fontSize: 14,
     color: '#111827',
     flex: 1,
-    marginRight: 8,
   },
   selectPlaceholder: {
     color: '#9CA3AF',
   },
   textareaWrapper: {
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: '#E5E7EB',
-    borderRadius: 16,
+    borderRadius: 14,
     padding: 16,
     backgroundColor: '#FFFFFF',
     minHeight: 145,
@@ -392,17 +507,113 @@ const styles = StyleSheet.create({
     textAlign: 'right',
     marginTop: 4,
   },
-  attachmentRow: {
+
+  // Attachment Button
+  attachmentButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 14,
-    paddingVertical: 4,
+    justifyContent: 'space-between',
+    borderWidth: 1.5,
+    borderColor: '#E5E7EB',
+    borderStyle: 'dashed',
+    borderRadius: 14,
+    padding: 14,
+    backgroundColor: '#FAFAFA',
   },
-  attachmentText: {
-    fontSize: 13,
+  attachmentButtonLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 10,
+  },
+  paperclipIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: '#F3E8FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  attachmentButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: 2,
+  },
+  attachmentLimitText: {
+    fontSize: 11.5,
     color: '#6B7280',
-    marginLeft: 8,
   },
+
+  // Attached File Preview Card
+  attachedFileCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1.5,
+    borderColor: '#DCFCE7',
+    borderRadius: 14,
+    padding: 12,
+    backgroundColor: '#F0FDF4',
+  },
+  attachedFileLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 12,
+  },
+  fileIconBox: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: '#DCFCE7',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  fileInfoText: {
+    flex: 1,
+  },
+  fileName: {
+    fontSize: 13.5,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 3,
+  },
+  fileMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  fileSizeText: {
+    fontSize: 11.5,
+    fontWeight: '600',
+    color: '#4B5563',
+  },
+  fileCheckPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 6,
+  },
+  fileCheckText: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: '#15803D',
+  },
+  removeAttachmentButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#FEE2E2',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
   submitButton: {
     backgroundColor: '#4C1D95',
     height: 52,

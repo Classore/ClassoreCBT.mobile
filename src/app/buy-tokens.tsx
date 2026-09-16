@@ -25,7 +25,22 @@ import { useNotifications } from '@/context/NotificationContext';
 
 export default function BuyTokensScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams();
+  const params = useLocalSearchParams<{
+    packId?: string;
+    packName?: string;
+    tokens?: string;
+    price?: string;
+    return_to?: string;
+    for_bundle?: string;
+    auto_deduct?: string;
+    bundle_id?: string;
+    bundle_name?: string;
+    token_cost?: string;
+    billing_type?: string;
+    bundle_data?: string;
+    selected_service_ids?: string;
+    from_topup?: string;
+  }>();
   const { user, refreshUser } = useAuth();
   const { hasUnread } = useNotifications();
 
@@ -38,6 +53,47 @@ export default function BuyTokensScreen() {
   const [loading, setLoading] = useState(false);
   const [showWebView, setShowWebView] = useState(false);
   const [paymentUrl, setPaymentUrl] = useState('');
+
+  const navigateAfterSuccess = async () => {
+    await refreshUser().catch(() => {});
+    if (params.return_to) {
+      router.replace({
+        pathname: params.return_to as any,
+        params: {
+          auto_deduct: params.auto_deduct || 'true',
+          bundle_id: params.bundle_id,
+          bundle_name: params.bundle_name,
+          token_cost: params.token_cost,
+          billing_type: params.billing_type,
+          bundle_data: params.bundle_data,
+          selected_service_ids: params.selected_service_ids,
+          from_topup: 'true',
+        },
+      });
+    } else {
+      router.replace('/wallet');
+    }
+  };
+
+  // If packId wasn't passed directly, auto-resolve package based on needed tokens
+  React.useEffect(() => {
+    if (!params.packId) {
+      paymentService.getTokenPackages().then((packs) => {
+        const active = packs.filter((p) => p.is_active);
+        if (active.length > 0) {
+          const needed = params.token_cost ? Number(params.token_cost) : 0;
+          const matched =
+            (needed > 0 ? active.find((p) => p.base_tokens >= needed) : null) || active[0];
+          router.setParams({
+            packId: String(matched.id),
+            packName: matched.name,
+            tokens: `${matched.base_tokens.toLocaleString()} Tokens`,
+            price: `${matched.currency}${parseFloat(matched.price).toLocaleString()}`,
+          });
+        }
+      }).catch(console.warn);
+    }
+  }, [params.packId, params.token_cost]);
 
   React.useEffect(() => {
     // Proactively refresh latest token balance
@@ -56,9 +112,20 @@ export default function BuyTokensScreen() {
         if (receipt) {
           setLoading(true);
           const data = await paymentService.verifyAppleIAP(purchase.transactionId || receipt);
-          Alert.alert('Success', data.message || 'Token purchase completed successfully!', [
-            { text: 'View Wallet', onPress: () => { refreshUser(); router.replace('/wallet'); } }
-          ]);
+          Alert.alert(
+            'Success',
+            params.return_to
+              ? 'Token purchase successful! Returning to activate your bundle...'
+              : data.message || 'Token purchase completed successfully!',
+            [
+              {
+                text: params.return_to ? 'Activate Bundle' : 'View Wallet',
+                onPress: () => {
+                  navigateAfterSuccess();
+                },
+              },
+            ]
+          );
           await RNIap.finishTransaction({ purchase, isConsumable: true });
         }
       } catch (err: any) {
@@ -131,11 +198,11 @@ export default function BuyTokensScreen() {
     try {
       await refreshUser();
       setShowWebView(false);
-      router.replace('/wallet');
+      navigateAfterSuccess();
     } catch (err: any) {
       console.error(err);
       setShowWebView(false);
-      router.replace('/wallet');
+      navigateAfterSuccess();
     } finally {
       setLoading(false);
     }
@@ -183,6 +250,23 @@ export default function BuyTokensScreen() {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.scrollContent}
         >
+          {/* Top-up Context Banner when purchasing for a bundle */}
+          {params.for_bundle === 'true' && (
+            <View style={styles.bundleContextCard}>
+              <View style={styles.bundleContextIcon}>
+                <Feather name="shopping-bag" size={18} color="#7C3AED" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.bundleContextTitle}>
+                  Top-Up for {params.bundle_name || 'Bundle'}
+                </Text>
+                <Text style={styles.bundleContextSubtitle}>
+                  You need {params.token_cost || 0} tokens. After purchase, you will return directly to activate your bundle.
+                </Text>
+              </View>
+            </View>
+          )}
+
           {/* Current Balance Card */}
           <View style={styles.balanceCard}>
             <Text style={styles.balanceLabel}>Current Balance</Text>
@@ -204,15 +288,32 @@ export default function BuyTokensScreen() {
           <Text style={styles.sectionHeader}>1. Choose a Token Package</Text>
           <TouchableOpacity 
             style={styles.packageSelectorCard}
-            onPress={() => router.push('/token-packages')}
+            onPress={() =>
+              router.push({
+                pathname: '/token-packages',
+                params: params.return_to
+                  ? {
+                      return_to: params.return_to,
+                      for_bundle: params.for_bundle,
+                      auto_deduct: params.auto_deduct,
+                      bundle_id: params.bundle_id,
+                      bundle_name: params.bundle_name,
+                      token_cost: params.token_cost,
+                      billing_type: params.billing_type,
+                      bundle_data: params.bundle_data,
+                      selected_service_ids: params.selected_service_ids,
+                    }
+                  : {},
+              })
+            }
             activeOpacity={0.8}
           >
             <View style={styles.packageIconBg}>
               <Ionicons name="settings-outline" size={20} color="#6B7280" />
             </View>
             <View style={styles.packageInfo}>
-              <Text style={styles.packageName}>{(params.packName as string) || 'Student Pack'}</Text>
-              <Text style={styles.packageTokens}>{(params.tokens as string) || '1,000 Tokens'}</Text>
+              <Text style={styles.packageName}>{(params.packName as string) || 'Starter Pack'}</Text>
+              <Text style={styles.packageTokens}>{(params.tokens as string) || '10 Tokens'}</Text>
             </View>
             <View style={styles.packagePriceRow}>
               <Text style={styles.packagePrice}>{(params.price as string) || '₦1,000'}</Text>
@@ -413,9 +514,20 @@ export default function BuyTokensScreen() {
                 if (navState.url.includes('/success') || navState.url.includes('/verify') || navState.url.includes('/callback')) {
                   // If it hits a success callback URL
                   setShowWebView(false);
-                  Alert.alert('Success', 'Payment completed successfully!', [
-                    { text: 'View Wallet', onPress: () => { refreshUser(); router.replace('/wallet'); } }
-                  ]);
+                  Alert.alert(
+                    'Success',
+                    params.return_to
+                      ? 'Token purchase completed! Returning to activate your bundle...'
+                      : 'Payment completed successfully!',
+                    [
+                      {
+                        text: params.return_to ? 'Activate Bundle' : 'View Wallet',
+                        onPress: () => {
+                          navigateAfterSuccess();
+                        },
+                      },
+                    ]
+                  );
                 } else if (navState.url.includes('/cancel')) {
                   setShowWebView(false);
                   Alert.alert('Cancelled', 'Payment was cancelled.');
@@ -821,5 +933,35 @@ const styles = StyleSheet.create({
     color: '#9CA3AF',
     fontSize: 13,
     fontWeight: '600',
+  },
+  bundleContextCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F5F3FF',
+    borderWidth: 1.5,
+    borderColor: '#DDD6FE',
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 16,
+  },
+  bundleContextIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: '#EDE9FE',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  bundleContextTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#5B21B6',
+    marginBottom: 2,
+  },
+  bundleContextSubtitle: {
+    fontSize: 13,
+    color: '#6D28D9',
+    lineHeight: 18,
   },
 });

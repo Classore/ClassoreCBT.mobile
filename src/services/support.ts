@@ -36,6 +36,7 @@ export interface SubmitSupportTicketParams {
   attachmentUri?: string | null;
   attachmentName?: string | null;
   attachmentType?: string | null;
+  attachmentFile?: any;
 }
 
 export interface SubmitIssueReportParams {
@@ -48,19 +49,29 @@ export interface SubmitIssueReportParams {
 }
 
 export const submitSupportTicket = async (params: SubmitSupportTicketParams): Promise<SupportTicket> => {
-  if (params.attachmentUri) {
+  if (params.attachmentUri || params.attachmentFile) {
     const formData = new FormData();
     formData.append('topic', params.topic);
     formData.append('message', params.message);
 
     const filename = params.attachmentName || 'attachment.jpg';
-    const mimeType = params.attachmentType || 'image/jpeg';
+    const mimeType = params.attachmentType || 'application/octet-stream';
 
-    formData.append('attachment', {
-      uri: params.attachmentUri,
-      name: filename,
-      type: mimeType,
-    } as any);
+    if (Platform.OS === 'web') {
+      if (params.attachmentFile) {
+        formData.append('attachment', params.attachmentFile, filename);
+      } else if (params.attachmentUri) {
+        const response = await fetch(params.attachmentUri);
+        const blob = await response.blob();
+        formData.append('attachment', blob, filename);
+      }
+    } else {
+      formData.append('attachment', {
+        uri: params.attachmentUri,
+        name: filename,
+        type: mimeType,
+      } as any);
+    }
 
     const res = await api.post<SupportTicket>('/api/user/support-tickets/', formData, {
       headers: {

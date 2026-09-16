@@ -9,9 +9,10 @@ import {
   Modal,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { AppText } from '@/components/AppText';
 import { api } from '@/services/api';
+import { handleHelpBack } from '@/utils/helpNavigation';
 
 const CONTENT_LANGUAGES = [
   'English',
@@ -30,6 +31,7 @@ const APP_LANGUAGES = [
 
 export default function LanguageScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ from?: string }>();
 
   const [appLanguage, setAppLanguage] = useState('English');
   const [contentLanguage, setContentLanguage] = useState('English');
@@ -73,7 +75,7 @@ export default function LanguageScreen() {
         <View style={styles.header}>
           <TouchableOpacity
             style={styles.backButton}
-            onPress={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)/profile'))}
+            onPress={() => handleHelpBack(params.from, '/settings')}
             activeOpacity={0.7}
           >
             <Feather name="chevron-left" size={22} color="#111827" />
@@ -225,7 +227,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
     color: '#111827',
-    fontFamily: 'PlusJakartaSans-Bold',
   },
   headerSpacer: {
     width: 40,
@@ -243,13 +244,11 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#111827',
     marginBottom: 4,
-    fontFamily: 'PlusJakartaSans-Bold',
   },
   sectionSubtitle: {
     fontSize: 14,
     color: '#9CA3AF',
     marginBottom: 12,
-    fontFamily: 'PlusJakartaSans-Regular',
   },
   appLangCard: {
     flexDirection: 'row',
@@ -272,7 +271,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: '#111827',
-    fontFamily: 'PlusJakartaSans-SemiBold',
   },
   contentLangCard: {
     backgroundColor: '#FFFFFF',
@@ -292,7 +290,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '500',
     color: '#111827',
-    fontFamily: 'PlusJakartaSans-Medium',
   },
   radioCircle: {
     width: 22,
@@ -338,13 +335,11 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#5B21B6',
     marginBottom: 2,
-    fontFamily: 'PlusJakartaSans-Bold',
   },
   infoSubtitle: {
     fontSize: 13,
     color: '#6B7280',
     lineHeight: 18,
-    fontFamily: 'PlusJakartaSans-Regular',
   },
   modalOverlay: {
     flex: 1,
@@ -370,7 +365,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     color: '#111827',
-    fontFamily: 'PlusJakartaSans-Bold',
   },
   modalOption: {
     flexDirection: 'row',
@@ -383,11 +377,9 @@ const styles = StyleSheet.create({
   modalOptionText: {
     fontSize: 15,
     color: '#374151',
-    fontFamily: 'PlusJakartaSans-Medium',
   },
   modalOptionTextActive: {
     color: '#6D28D9',
     fontWeight: '700',
-    fontFamily: 'PlusJakartaSans-Bold',
   },
 });

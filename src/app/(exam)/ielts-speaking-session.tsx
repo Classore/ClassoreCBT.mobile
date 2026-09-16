@@ -671,10 +671,14 @@ export default function IELTSSpeakingSessionScreen() {
   const currentQ = currentResponse?.question;
   const isBookmarked = currentQ?.id ? bookmarkedQuestions.includes(currentQ.id) : false;
 
-  // Title calculation: "IELTS Speaking" or "TOEFL Speaking"
+  // Title calculation: strictly "IELTS Speaking"
   const screenTitle = useMemo(() => {
-    if (params.exam_name) return params.exam_name;
-    if (speakingSection?.section_name) return speakingSection.section_name;
+    if (params.exam_name && params.exam_name.toLowerCase().includes('speaking')) {
+      return params.exam_name;
+    }
+    if (speakingSection?.section_name && speakingSection.section_name.toLowerCase().includes('speaking')) {
+      return speakingSection.section_name;
+    }
     return 'IELTS Speaking';
   }, [params.exam_name, speakingSection?.section_name]);
 

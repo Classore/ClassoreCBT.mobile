@@ -7,7 +7,8 @@ import {
   ScrollView, 
   TouchableOpacity, 
   Platform,
-  ActivityIndicator
+  ActivityIndicator,
+  Alert
 } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
@@ -46,9 +47,9 @@ export default function StreakScreen() {
     const success = await useStreakProtection();
     if (success) {
       setLocalProtectionCards(Math.max(0, protectionCards - 1));
-      alert("Streak protection activated successfully!");
+      Alert.alert("Success", "Streak protection activated successfully!");
     } else {
-      alert("Could not activate streak protection. Do you have any cards left?");
+      Alert.alert("Notice", "Could not activate streak protection. Do you have any cards left?");
     }
   };
 

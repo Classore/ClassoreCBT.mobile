@@ -5,6 +5,7 @@ export default function AuthLayout() {
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="login" />
       <Stack.Screen name="forgot-password" />
+      <Stack.Screen name="check-email" />
       <Stack.Screen name="password-reset-confirm" />
       <Stack.Screen name="reset-password" />
       <Stack.Screen name="success" />

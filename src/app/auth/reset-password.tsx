@@ -10,8 +10,7 @@ import { api } from '@/services/api';
 
 export default function ResetPasswordScreen() {
   const router = useRouter();
-  const { email } = useLocalSearchParams<{ email: string }>();
-  const [otpCode, setOtpCode] = useState('');
+  const { email, otpCode } = useLocalSearchParams<{ email: string; otpCode?: string }>();
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -39,15 +38,6 @@ export default function ResetPasswordScreen() {
           {/* Form */}
           <View style={styles.formContainer}>
             <CustomInput
-              label="OTP Code from Email"
-              placeholder="123456"
-              value={otpCode}
-              onChangeText={setOtpCode}
-              keyboardType="number-pad"
-              maxLength={6}
-            />
-
-            <CustomInput
               label="Password"
               placeholder="****************"
               value={password}
@@ -68,12 +58,12 @@ export default function ResetPasswordScreen() {
             title="Update Password" 
             loading={isLoading}
             onPress={async () => {
-              if (password !== confirmPassword) {
-                Alert.alert('Error', 'Passwords do not match');
+              if (!password) {
+                Alert.alert('Error', 'Please enter a password');
                 return;
               }
-              if (!otpCode || otpCode.length < 6) {
-                Alert.alert('Error', 'Please enter the 6-digit OTP');
+              if (password !== confirmPassword) {
+                Alert.alert('Error', 'Passwords do not match');
                 return;
               }
               
@@ -81,7 +71,7 @@ export default function ResetPasswordScreen() {
                 setIsLoading(true);
                 await api.post('/api/auth/reset-password/', {
                   email: email?.trim(),
-                  otp_code: otpCode.trim(),
+                  otp_code: otpCode?.trim() || '',
                   new_password: password
                 });
                 router.push('/auth/success');

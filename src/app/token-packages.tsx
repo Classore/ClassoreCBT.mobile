@@ -1,7 +1,7 @@
 import { paymentService, TokenPackage } from '@/services/payment';
 import { useNotifications } from '@/context/NotificationContext';
 import { Feather, Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -16,6 +16,17 @@ import {
 
 export default function TokenPackagesScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{
+    return_to?: string;
+    for_bundle?: string;
+    auto_deduct?: string;
+    bundle_id?: string;
+    bundle_name?: string;
+    token_cost?: string;
+    billing_type?: string;
+    bundle_data?: string;
+    selected_service_ids?: string;
+  }>();
   const { hasUnread } = useNotifications();
   const [activeTab, setActiveTab] = useState<'Popular' | 'Best Value'>('Popular');
   const [selectedPackId, setSelectedPackId] = useState<number | null>(null);
@@ -41,10 +52,23 @@ export default function TokenPackagesScreen() {
     router.push({
       pathname: '/buy-tokens',
       params: { 
-        packId: pack.id,
+        packId: String(pack.id),
         packName: pack.name, 
         tokens: `${pack.base_tokens.toLocaleString()} Tokens`, 
-        price: `${pack.currency}${parseFloat(pack.price).toLocaleString()}` 
+        price: `${pack.currency}${parseFloat(pack.price).toLocaleString()}`,
+        ...(params.return_to
+          ? {
+              return_to: params.return_to,
+              for_bundle: params.for_bundle,
+              auto_deduct: params.auto_deduct || 'true',
+              bundle_id: params.bundle_id,
+              bundle_name: params.bundle_name,
+              token_cost: params.token_cost,
+              billing_type: params.billing_type,
+              bundle_data: params.bundle_data,
+              selected_service_ids: params.selected_service_ids,
+            }
+          : {}),
       }
     });
   };
@@ -77,6 +101,23 @@ export default function TokenPackagesScreen() {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.scrollContent}
         >
+          {/* Bundle Context Banner */}
+          {params.for_bundle === 'true' && (
+            <View style={styles.bundleContextCard}>
+              <View style={styles.bundleContextIcon}>
+                <Feather name="shopping-bag" size={18} color="#7C3AED" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.bundleContextTitle}>
+                  Top-Up for {params.bundle_name || 'Bundle'}
+                </Text>
+                <Text style={styles.bundleContextSubtitle}>
+                  Choose a package with at least {params.token_cost || 0} tokens. After purchase, you will return to automatically pay and activate your bundle.
+                </Text>
+              </View>
+            </View>
+          )}
+
           {/* Filter Tabs */}
           <View style={styles.filterRow}>
             <TouchableOpacity 
@@ -109,18 +150,25 @@ export default function TokenPackagesScreen() {
                 const isSelected = pack.id === selectedPackId;
                 const isPopular = pack.name.toLowerCase().includes('student'); // Example logic
                 const hasBonus = pack.bonus_tokens > 0;
+                const targetCost = params.token_cost ? Number(params.token_cost) : 0;
+                const coversBundle = params.for_bundle === 'true' && targetCost > 0 && pack.base_tokens >= targetCost;
                 
                 return (
                   <View key={pack.id} style={styles.packageWrapper}>
-                    {isPopular && (
+                    {coversBundle ? (
+                      <View style={[styles.popularBadge, { backgroundColor: '#10B981' }]}>
+                        <Text style={styles.popularBadgeText}>✓ Covers Bundle</Text>
+                      </View>
+                    ) : isPopular ? (
                       <View style={styles.popularBadge}>
                         <Text style={styles.popularBadgeText}>Most Popular</Text>
                       </View>
-                    )}
+                    ) : null}
                     <TouchableOpacity
                       style={[
                         styles.packageCard,
                         isSelected && styles.packageCardSelected,
+                        coversBundle && { borderColor: '#A7F3D0' },
                       ]}
                       onPress={() => handleSelectPackage(pack)}
                       activeOpacity={0.8}
@@ -313,5 +361,35 @@ const styles = StyleSheet.create({
     color: '#9CA3AF',
     textDecorationLine: 'line-through',
     marginTop: 2,
+  },
+  bundleContextCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F5F3FF',
+    borderWidth: 1.5,
+    borderColor: '#DDD6FE',
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 16,
+  },
+  bundleContextIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: '#EDE9FE',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  bundleContextTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#5B21B6',
+    marginBottom: 2,
+  },
+  bundleContextSubtitle: {
+    fontSize: 13,
+    color: '#6D28D9',
+    lineHeight: 18,
   },
 });

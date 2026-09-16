@@ -21,6 +21,7 @@ export default function TestInstructionsScreen() {
     attempt_id?: string;
     exam_type_id?: string;
     exam?: string;
+    exam_name?: string;
     mode?: string;
     sections?: string;
     difficulty?: string;
@@ -47,6 +48,7 @@ export default function TestInstructionsScreen() {
         const allExams = await examService.getExams();
         const currentExam = allExams.find(e => e.id === examTypeId);
         const isSectionExam = isSectionBasedExam(currentExam?.name);
+        const resolvedExamName = currentExam?.name || params.exam_name;
 
         if (isSectionExam) {
           router.push({
@@ -55,6 +57,7 @@ export default function TestInstructionsScreen() {
               attempt_id: params.attempt_id,
               exam: String(examTypeId),
               exam_type_id: String(examTypeId),
+              exam_name: resolvedExamName,
               mode: mode,
               sections: params.sections,
             },
@@ -65,6 +68,7 @@ export default function TestInstructionsScreen() {
             params: {
               attempt_id: params.attempt_id,
               exam_type_id: String(examTypeId),
+              exam_name: resolvedExamName,
               mode: mode,
               sections: params.sections,
             },
@@ -76,6 +80,7 @@ export default function TestInstructionsScreen() {
           params: {
             attempt_id: params.attempt_id,
             exam_type_id: String(examTypeId),
+            exam_name: params.exam_name,
             mode: mode,
           },
         });
@@ -143,6 +148,7 @@ export default function TestInstructionsScreen() {
             attempt_id: String(newAttempt.id),
             exam: String(examTypeId),
             exam_type_id: String(examTypeId),
+            exam_name: currentExam?.name || params.exam_name,
             mode: mode,
             sections: params.sections,
           },
@@ -153,6 +159,7 @@ export default function TestInstructionsScreen() {
           params: {
             attempt_id: String(newAttempt.id),
             exam_type_id: String(examTypeId),
+            exam_name: currentExam?.name || params.exam_name,
             mode: mode,
             sections: params.sections,
           },

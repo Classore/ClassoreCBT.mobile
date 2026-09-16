@@ -54,7 +54,7 @@ export default function ForgotPasswordScreen() {
                 setIsLoading(true);
                 await api.post('/api/auth/forgot-password/', { email: email.trim() });
                 router.push({
-                  pathname: '/auth/password-reset-confirm',
+                  pathname: '/auth/check-email',
                   params: { email: email.trim() }
                 });
               } catch (error: any) {

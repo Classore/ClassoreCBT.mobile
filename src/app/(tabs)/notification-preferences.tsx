@@ -9,12 +9,14 @@ import {
   Platform,
 } from 'react-native';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { AppText } from '@/components/AppText';
 import { api } from '@/services/api';
+import { handleHelpBack } from '@/utils/helpNavigation';
 
 export default function NotificationPreferencesScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ from?: string }>();
 
   // Test & Practice
   const [testReminders, setTestReminders] = useState(true);
@@ -68,7 +70,7 @@ export default function NotificationPreferencesScreen() {
         <View style={styles.header}>
           <TouchableOpacity
             style={styles.backButton}
-            onPress={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)/profile'))}
+            onPress={() => handleHelpBack(params.from, '/settings')}
             activeOpacity={0.7}
           >
             <Feather name="chevron-left" size={22} color="#111827" />
@@ -327,7 +329,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
     color: '#111827',
-    fontFamily: 'PlusJakartaSans-Bold',
   },
   headerSpacer: {
     width: 40,
@@ -362,13 +363,11 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#111827',
     marginBottom: 2,
-    fontFamily: 'PlusJakartaSans-Bold',
   },
   bannerSubtitle: {
     fontSize: 13,
     color: '#6B7280',
     lineHeight: 18,
-    fontFamily: 'PlusJakartaSans-Regular',
   },
   section: {
     marginBottom: 24,
@@ -378,7 +377,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#111827',
     marginBottom: 12,
-    fontFamily: 'PlusJakartaSans-Bold',
   },
   cardGroup: {
     backgroundColor: '#FFFFFF',
@@ -404,7 +402,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: '#111827',
-    fontFamily: 'PlusJakartaSans-SemiBold',
   },
   divider: {
     height: 1,

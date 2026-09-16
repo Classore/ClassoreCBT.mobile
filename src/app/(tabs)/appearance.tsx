@@ -10,9 +10,10 @@ import {
   PanResponder,
 } from 'react-native';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { AppText } from '@/components/AppText';
 import { api } from '@/services/api';
+import { handleHelpBack } from '@/utils/helpNavigation';
 
 const ACCENT_COLORS = [
   { id: 'purple', hex: '#6D28D9' },
@@ -24,6 +25,7 @@ const ACCENT_COLORS = [
 
 export default function AppearanceScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ from?: string }>();
 
   const [theme, setTheme] = useState<'light' | 'dark' | 'system'>('light');
   const [selectedAccent, setSelectedAccent] = useState('purple');
@@ -112,7 +114,7 @@ export default function AppearanceScreen() {
         <View style={styles.header}>
           <TouchableOpacity
             style={styles.backButton}
-            onPress={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)/profile'))}
+            onPress={() => handleHelpBack(params.from, '/settings')}
             activeOpacity={0.7}
           >
             <Feather name="chevron-left" size={22} color="#111827" />
@@ -319,7 +321,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
     color: '#111827',
-    fontFamily: 'PlusJakartaSans-Bold',
   },
   headerSpacer: {
     width: 40,
@@ -337,7 +338,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#111827',
     marginBottom: 12,
-    fontFamily: 'PlusJakartaSans-Bold',
   },
   themeCard: {
     flexDirection: 'row',
@@ -366,13 +366,11 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: '#111827',
-    fontFamily: 'PlusJakartaSans-SemiBold',
   },
   themeSubtitle: {
     fontSize: 13,
     color: '#9CA3AF',
     marginTop: 2,
-    fontFamily: 'PlusJakartaSans-Regular',
   },
   radioCircle: {
     width: 22,
@@ -412,7 +410,6 @@ const styles = StyleSheet.create({
     color: '#4B5563',
     lineHeight: 22,
     marginBottom: 20,
-    fontFamily: 'PlusJakartaSans-Regular',
   },
   sliderContainer: {
     flexDirection: 'row',
@@ -423,14 +420,12 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#9CA3AF',
     marginRight: 14,
-    fontFamily: 'PlusJakartaSans-SemiBold',
   },
   fontLetterLarge: {
     fontSize: 20,
     fontWeight: '600',
     color: '#9CA3AF',
     marginLeft: 14,
-    fontFamily: 'PlusJakartaSans-SemiBold',
   },
   sliderTrackWrapper: {
     flex: 1,
@@ -480,12 +475,10 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: '#111827',
-    fontFamily: 'PlusJakartaSans-SemiBold',
   },
   displaySubtitle: {
     fontSize: 13,
     color: '#9CA3AF',
     marginTop: 2,
-    fontFamily: 'PlusJakartaSans-Regular',
   },
 });

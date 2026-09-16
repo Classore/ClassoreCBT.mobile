@@ -11,13 +11,15 @@ import {
   Platform,
 } from 'react-native';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { AppText } from '@/components/AppText';
 import { api } from '@/services/api';
 import { useAuth } from '@/context/AuthContext';
+import { handleHelpBack } from '@/utils/helpNavigation';
 
 export default function ProfileSettingsScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ from?: string }>();
   const { logout } = useAuth();
 
   const [visibility, setVisibility] = useState<'Everyone' | 'Friends' | 'Private'>('Everyone');
@@ -113,7 +115,7 @@ export default function ProfileSettingsScreen() {
         <View style={styles.header}>
           <TouchableOpacity
             style={styles.backButton}
-            onPress={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)/profile'))}
+            onPress={() => handleHelpBack(params.from, '/settings')}
             activeOpacity={0.7}
           >
             <Feather name="chevron-left" size={22} color="#111827" />
@@ -342,7 +344,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
     color: '#111827',
-    fontFamily: 'PlusJakartaSans-Bold',
   },
   headerSpacer: {
     width: 40,
@@ -377,13 +378,11 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#5B21B6',
     marginBottom: 2,
-    fontFamily: 'PlusJakartaSans-Bold',
   },
   bannerSubtitle: {
     fontSize: 13,
     color: '#6B7280',
     lineHeight: 18,
-    fontFamily: 'PlusJakartaSans-Regular',
   },
   section: {
     marginBottom: 24,
@@ -393,7 +392,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#111827',
     marginBottom: 12,
-    fontFamily: 'PlusJakartaSans-Bold',
   },
   singleCard: {
     flexDirection: 'row',
@@ -432,18 +430,15 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: '#111827',
-    fontFamily: 'PlusJakartaSans-SemiBold',
   },
   rowSubtitle: {
     fontSize: 13,
     color: '#9CA3AF',
     marginTop: 2,
-    fontFamily: 'PlusJakartaSans-Regular',
   },
   rowValue: {
     fontSize: 14,
     color: '#9CA3AF',
-    fontFamily: 'PlusJakartaSans-Regular',
   },
   divider: {
     height: 1,
@@ -474,7 +469,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     color: '#111827',
-    fontFamily: 'PlusJakartaSans-Bold',
   },
   modalOption: {
     flexDirection: 'row',
@@ -487,11 +481,9 @@ const styles = StyleSheet.create({
   modalOptionText: {
     fontSize: 15,
     color: '#374151',
-    fontFamily: 'PlusJakartaSans-Medium',
   },
   modalOptionTextActive: {
     color: '#6D28D9',
     fontWeight: '700',
-    fontFamily: 'PlusJakartaSans-Bold',
   },
 });
