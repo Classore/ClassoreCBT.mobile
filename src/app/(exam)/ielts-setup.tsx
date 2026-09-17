@@ -410,6 +410,13 @@ export default function IELTSSetupScreen() {
         visible={showSubscriptionModal}
         onClose={() => setShowSubscriptionModal(false)}
         customMessage={subscriptionMessage}
+        pendingRedirect={{
+          pathname: '/(exam)/ielts-setup',
+          params: {
+            ...params,
+            auto_start: 'true',
+          },
+        }}
       />
     </SafeAreaView>
   );

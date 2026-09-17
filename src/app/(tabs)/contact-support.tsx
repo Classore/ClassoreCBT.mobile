@@ -41,7 +41,7 @@ interface AttachedFile {
 }
 
 export default function ContactSupportScreen() {
-  const params = useLocalSearchParams<{ from?: string }>();
+  const params = useLocalSearchParams<{ from?: string; from_params?: string }>();
 
   const [selectedTopic, setSelectedTopic] = useState<string>('');
   const [message, setMessage] = useState<string>('');
@@ -145,7 +145,7 @@ export default function ContactSupportScreen() {
     setSelectedTopic('');
     setMessage('');
     setAttachedFile(null);
-    handleHelpBack(params.from, '/(tabs)/help-support');
+    handleHelpBack(params.from, '/(tabs)/help-support', params.from_params);
   };
 
   const renderFileIcon = (mimeType?: string) => {
@@ -165,7 +165,7 @@ export default function ContactSupportScreen() {
         <View style={styles.header}>
           <TouchableOpacity
             style={styles.headerButton}
-            onPress={() => handleHelpBack(params.from, '/(tabs)/help-support')}
+            onPress={() => handleHelpBack(params.from, '/(tabs)/help-support', params.from_params)}
             activeOpacity={0.7}
           >
             <Feather name="chevron-left" size={22} color="#111827" />

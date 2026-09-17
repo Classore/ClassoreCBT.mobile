@@ -18,7 +18,8 @@ import { useAuth } from '@/context/AuthContext';
 export default function ContestRegisterScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string }>();
-  const { user } = useAuth();
+  const { user, token } = useAuth();
+  const isGuest = !token;
 
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
@@ -38,6 +39,18 @@ export default function ContestRegisterScreen() {
   }, [user]);
 
   const handleContinue = () => {
+    if (isGuest) {
+      Alert.alert(
+        'Sign Up Required',
+        'Contest entry and prize pool rewards require a registered account. Sign up for free to join!',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Sign Up Now', onPress: () => router.push('/(auth)/signup') },
+        ]
+      );
+      return;
+    }
+
     if (!fullName.trim()) {
       Alert.alert('Required', 'Please enter your full name.');
       return;

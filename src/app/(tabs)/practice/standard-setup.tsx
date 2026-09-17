@@ -332,6 +332,13 @@ export default function StandardSetupScreen() {
         visible={showSubscriptionModal}
         onClose={() => setShowSubscriptionModal(false)}
         customMessage={subscriptionMessage}
+        pendingRedirect={{
+          pathname: '/(tabs)/practice/standard-setup',
+          params: {
+            ...params,
+            auto_start: 'true',
+          },
+        }}
       />
     </SafeAreaView>
   );

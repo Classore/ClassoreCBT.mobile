@@ -41,6 +41,8 @@ export function getSubscriptionErrorMessage(error: any, fallback?: string): stri
   return msg || fallback || 'You do not have an active subscription or bundle to access this content.';
 }
 
+import { subscriptionRedirect, PendingTestRedirect } from '@/services/subscriptionRedirect';
+
 export interface SubscriptionRequiredModalProps {
   visible: boolean;
   onClose: () => void;
@@ -49,6 +51,7 @@ export interface SubscriptionRequiredModalProps {
   examName?: string;
   customMessage?: string;
   onViewBundles?: () => void;
+  pendingRedirect?: PendingTestRedirect;
 }
 
 export const SubscriptionRequiredModal: React.FC<SubscriptionRequiredModalProps> = ({
@@ -59,10 +62,14 @@ export const SubscriptionRequiredModal: React.FC<SubscriptionRequiredModalProps>
   examName,
   customMessage,
   onViewBundles,
+  pendingRedirect,
 }) => {
   const router = useRouter();
 
   const handleViewBundles = () => {
+    if (pendingRedirect) {
+      subscriptionRedirect.setPendingRedirect(pendingRedirect);
+    }
     onClose();
     if (onViewBundles) {
       onViewBundles();

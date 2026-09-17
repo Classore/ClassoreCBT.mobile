@@ -14,11 +14,11 @@ import { storage } from '@/services/storage';
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const { hasUnread } = useNotifications();
   const [isDarkMode, setIsDarkMode] = useState(true);
   
-  const userName = user?.first_name || user?.username || "Student";
+  const userName = user?.first_name || user?.username || "Guest";
   const currentStreak = user?.streak || 0;
 
   const [reportData, setReportData] = useState<any>(null);
@@ -147,7 +147,9 @@ export default function HomeScreen() {
     } else {
       router.push({
         pathname: '/(exam)/session',
-        params: { attempt_id: String(attemptInfo.id) }
+        params: {
+          attempt_id: String(attemptInfo.id)
+        }
       });
     }
   };
@@ -268,6 +270,25 @@ export default function HomeScreen() {
             </TouchableOpacity>
           </View>
         </View>
+
+        {/* Guest Mode Banner */}
+        {!token && (
+          <View style={styles.guestCardContainer}>
+            <View style={styles.guestCardHeader}>
+              <View style={styles.guestPill}>
+                <Ionicons name="sparkles" size={13} color="#7C3AED" />
+                <AppText style={styles.guestPillText}>Guest Mode</AppText>
+              </View>
+              <TouchableOpacity
+                style={styles.guestSignUpBtn}
+                onPress={() => router.push('/(auth)/signup')}
+                activeOpacity={0.8}
+              >
+                <AppText style={styles.guestSignUpBtnText}>Sign Up / Log In</AppText>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
 
         {/* In-Progress Exam Banner */}
         {activeAttempt && (
@@ -1006,6 +1027,81 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 13,
     fontFamily: 'Inter_600SemiBold',
+  },
+
+  // Guest Mode Card
+  guestCardContainer: {
+    backgroundColor: '#F5F3FF',
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
+  },
+  guestCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 0,
+  },
+  guestPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EDE9FE',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 6,
+  },
+  guestPillText: {
+    fontSize: 11.5,
+    fontFamily: 'Inter_700Bold',
+    color: '#6D28D9',
+  },
+  guestSignUpBtn: {
+    backgroundColor: '#6D28D9',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 10,
+  },
+  guestSignUpBtnText: {
+    color: '#FFF',
+    fontSize: 12,
+    fontFamily: 'Inter_700Bold',
+  },
+  guestCardTitle: {
+    fontSize: 17,
+    fontFamily: 'Inter_700Bold',
+    color: '#1E1B4B',
+    marginBottom: 4,
+  },
+  guestCardDesc: {
+    fontSize: 12.5,
+    color: '#4C1D95',
+    lineHeight: 18,
+    marginBottom: 14,
+  },
+  guestQuickLinks: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  guestChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
+    gap: 6,
+  },
+  guestChipText: {
+    fontSize: 12,
+    fontFamily: 'Inter_600SemiBold',
+    color: '#6D28D9',
   },
 });
 

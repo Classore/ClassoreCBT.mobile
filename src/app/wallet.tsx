@@ -8,7 +8,8 @@ import {
   TouchableOpacity, 
   Platform,
   RefreshControl,
-  ActivityIndicator
+  ActivityIndicator,
+  Alert
 } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
@@ -18,18 +19,26 @@ import { useNotifications } from '@/context/NotificationContext';
 import { useRouter } from 'expo-router';
 import { paymentService, MyBundle } from '@/services/payment';
 
+import { guestService, WalletPreviewData } from '@/services/guest';
+
 export default function WalletScreen() {
   const router = useRouter();
   const { hasUnread } = useNotifications();
-  const { user, refreshUser, isRefreshingUser, isLoading } = useAuth();
+  const { user, token, refreshUser, isRefreshingUser, isLoading } = useAuth();
+  const isGuest = !token;
   const hasBalance = user?.token_balance !== undefined;
   const tokenBalance = user?.token_balance ?? 0;
 
   const [myBundles, setMyBundles] = useState<MyBundle[]>([]);
   const [loadingBundles, setLoadingBundles] = useState(true);
+  const [walletPreview, setWalletPreview] = useState<WalletPreviewData | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
   const fetchBundles = async () => {
+    if (isGuest) {
+      setLoadingBundles(false);
+      return;
+    }
     try {
       const bundles = await paymentService.getMyBundles();
       if (Array.isArray(bundles)) {
@@ -46,16 +55,45 @@ export default function WalletScreen() {
     }
   };
 
+  const fetchWalletPreview = async () => {
+    try {
+      const preview = await guestService.getWalletPreview();
+      setWalletPreview(preview);
+    } catch (err) {
+      console.warn('Failed to fetch wallet preview:', err);
+    }
+  };
+
   useEffect(() => {
-    fetchBundles();
-    refreshUser().catch(err => console.warn('Wallet refreshUser error:', err));
-  }, []);
+    if (isGuest) {
+      fetchWalletPreview();
+      setLoadingBundles(false);
+    } else {
+      fetchBundles();
+      refreshUser().catch(err => console.warn('Wallet refreshUser error:', err));
+    }
+  }, [isGuest]);
+
+  const promptGuestSignUp = (actionName: string) => {
+    Alert.alert(
+      'Sign Up Required',
+      `Create a free account to ${actionName}, purchase tokens, and activate bundles!`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Register / Sign In', onPress: () => router.push('/(auth)/signup') },
+      ]
+    );
+  };
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await Promise.allSettled([refreshUser(), fetchBundles()]);
+    if (isGuest) {
+      await fetchWalletPreview();
+    } else {
+      await Promise.allSettled([refreshUser(), fetchBundles()]);
+    }
     setRefreshing(false);
-  }, [refreshUser]);
+  }, [isGuest, refreshUser]);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -109,7 +147,9 @@ export default function WalletScreen() {
                     style={styles.coinImage} 
                     contentFit="contain" 
                   />
-                  {hasBalance ? (
+                  {isGuest ? (
+                    <Text style={styles.balanceNumber}>0 (Guest)</Text>
+                  ) : hasBalance ? (
                     <Text style={styles.balanceNumber}>{tokenBalance.toLocaleString()}</Text>
                   ) : (
                     <View style={styles.balanceLoaderContainer}>
@@ -117,7 +157,9 @@ export default function WalletScreen() {
                     </View>
                   )}
                 </View>
-                {hasBalance ? (
+                {isGuest ? (
+                  <Text style={styles.nairaEquivalent}>Guest Mode Wallet Preview</Text>
+                ) : hasBalance ? (
                   <Text style={styles.nairaEquivalent}>≈ ₦{tokenBalance.toLocaleString()}.00</Text>
                 ) : (
                   <Text style={styles.nairaEquivalent}>Updating balance...</Text>
@@ -136,10 +178,10 @@ export default function WalletScreen() {
             <View style={styles.heroDivider} />
 
             <View style={styles.heroBottomRow}>
-              <Text style={styles.walletIdText}>Wallet ID: CT-{(user?.id || 0).toString().padStart(6, '0')}</Text>
+              <Text style={styles.walletIdText}>{isGuest ? 'Guest Preview' : `Wallet ID: CT-${(user?.id || 0).toString().padStart(6, '0')}`}</Text>
               <TouchableOpacity 
                 style={styles.addTokensButton}
-                onPress={() => router.push('/buy-tokens')}
+                onPress={() => isGuest ? promptGuestSignUp('buy tokens') : router.push('/buy-tokens')}
                 activeOpacity={0.8}
               >
                 <Text style={styles.addTokensText}>+ Add Tokens</Text>
@@ -152,7 +194,7 @@ export default function WalletScreen() {
             {/* Buy Tokens */}
             <TouchableOpacity 
               style={styles.actionItem} 
-              onPress={() => router.push('/buy-tokens')}
+              onPress={() => isGuest ? promptGuestSignUp('buy tokens') : router.push('/buy-tokens')}
               activeOpacity={0.75}
             >
               <View style={[styles.actionIconWrapper, { backgroundColor: '#EDE9FE' }]}>
@@ -176,7 +218,7 @@ export default function WalletScreen() {
             {/* History */}
             <TouchableOpacity 
               style={styles.actionItem} 
-              onPress={() => router.push('/transaction-history')}
+              onPress={() => isGuest ? promptGuestSignUp('view transaction history') : router.push('/transaction-history')}
               activeOpacity={0.75}
             >
               <View style={[styles.actionIconWrapper, { backgroundColor: '#D1FAE5' }]}>
@@ -186,7 +228,11 @@ export default function WalletScreen() {
             </TouchableOpacity>
 
             {/* Withdraw */}
-            <TouchableOpacity style={styles.actionItem} activeOpacity={0.75} onPress={() => router.push('/wallet/withdraw')}>
+            <TouchableOpacity 
+              style={styles.actionItem} 
+              activeOpacity={0.75} 
+              onPress={() => isGuest ? promptGuestSignUp('request withdrawals') : router.push('/wallet/withdraw')}
+            >
               <View style={[styles.actionIconWrapper, { backgroundColor: '#FFEDD5' }]}>
                 <Feather name="upload" size={22} color="#EA580C" />
               </View>

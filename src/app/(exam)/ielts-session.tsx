@@ -36,6 +36,7 @@ import {
   getSubscriptionErrorMessage 
 } from '@/components/SubscriptionRequiredModal';
 import { formatQuestionText } from '@/utils/questionFormatter';
+import { navigateWithFrom } from '@/utils/helpNavigation';
 
 export default function IELTSSessionScreen() {
   const router = useRouter();
@@ -199,6 +200,41 @@ export default function IELTSSessionScreen() {
       }
     }
   }, [params.section_index]);
+
+  // Auto-redirect if active section is Listening or Speaking
+  useEffect(() => {
+    if (!loading && attempt && attempt.sections && attempt.sections.length > 0) {
+      const activeSec = attempt.sections[activeSectionIndex];
+      if (activeSec) {
+        const secName = (activeSec.section_name || '').toLowerCase();
+        const sectionNamesParam = params.section_names || attempt.sections.map(s => s.section_name).join(',');
+        
+        if (secName.includes('listening')) {
+          router.replace({
+            pathname: '/(exam)/ielts-listening-session',
+            params: {
+              ...params,
+              attempt_id: String(attempt.id),
+              section_index: String(activeSectionIndex),
+              section_name: activeSec.section_name,
+              section_names: sectionNamesParam,
+            },
+          });
+        } else if (secName.includes('speaking')) {
+          router.replace({
+            pathname: '/(exam)/ielts-speaking-session',
+            params: {
+              ...params,
+              attempt_id: String(attempt.id),
+              section_index: String(activeSectionIndex),
+              section_name: activeSec.section_name,
+              section_names: sectionNamesParam,
+            },
+          });
+        }
+      }
+    }
+  }, [loading, attempt, activeSectionIndex]);
 
   // Timer Countdown Effect
   useEffect(() => {
@@ -488,8 +524,18 @@ export default function IELTSSessionScreen() {
         return;
       }
 
+      if (!audioUri) {
+        Alert.alert('Audio Unavailable', 'No audio track file was provided for this section.');
+        return;
+      }
+
       await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
       const cachedAudioUri = await mediaCache.getCachedAudioUri(audioUri);
+      if (!cachedAudioUri) {
+        Alert.alert('Audio Unavailable', 'Could not resolve audio source URL.');
+        return;
+      }
+
       const { sound: newSound } = await Audio.Sound.createAsync(
         { uri: cachedAudioUri },
         { shouldPlay: true },
@@ -506,8 +552,13 @@ export default function IELTSSessionScreen() {
       );
       setSound(newSound);
       setIsPlayingAudio(true);
-    } catch (e) {
+    } catch (e: any) {
       console.warn('Audio playback error:', e);
+      setIsPlayingAudio(false);
+      Alert.alert(
+        'Audio Playback Failed',
+        'Could not load or play the audio track. Please check your network connection or verify that the audio file exists on the server.'
+      );
     }
   };
 
@@ -931,6 +982,7 @@ export default function IELTSSessionScreen() {
           attempt_id: String(attempt.id),
           exam_name: params.exam_name || 'IELTS Academic Test',
           is_ielts: 'true',
+          section_names: params.section_names || params.section_order,
           total_score: submitRes?.total_score !== undefined ? String(submitRes.total_score) : '',
           streak: submitRes?.streak !== undefined ? String(submitRes.streak) : '',
           ai_feedbacks: submitRes?.ai_feedbacks ? JSON.stringify(submitRes.ai_feedbacks) : '',
@@ -1272,18 +1324,18 @@ export default function IELTSSessionScreen() {
                         color="#FFF" 
                       />
                     </TouchableOpacity>
-                    <View style={{ marginLeft: 12 }}>
-                      <Text style={styles.audioPlayerTitle}>
+                    <View style={styles.audioTextContainer}>
+                      <Text style={styles.audioPlayerTitle} numberOfLines={1} ellipsizeMode="tail">
                         {activeGroup.group_title || `Part ${activeGroupIndex + 1} Audio`}
                       </Text>
-                      <Text style={styles.audioPlayerSub}>
+                      <Text style={styles.audioPlayerSub} numberOfLines={1} ellipsizeMode="tail">
                         {params.mode === 'Standard' ? 'Plays once in Standard Mode' : 'Practice Audio Track'}
                       </Text>
                     </View>
                   </View>
 
                   <View style={styles.audioPill}>
-                    <Ionicons name="volume-medium" size={16} color="#7C3AED" />
+                    <Ionicons name="volume-medium" size={14} color="#7C3AED" />
                     <Text style={styles.audioPillText}>
                       {audioDuration > 0
                         ? `${Math.floor(audioPosition / 60000)}:${Math.floor((audioPosition % 60000) / 1000).toString().padStart(2, '0')}`
@@ -1513,7 +1565,11 @@ export default function IELTSSessionScreen() {
           </TouchableOpacity>
 
           {/* Contact Support */}
-          <TouchableOpacity style={styles.bottomBarAction} activeOpacity={0.7}>
+          <TouchableOpacity 
+            style={styles.bottomBarAction} 
+            activeOpacity={0.7}
+            onPress={() => navigateWithFrom('/(tabs)/contact-support', '/(exam)/ielts-session', undefined, params)}
+          >
             <Feather name="headphones" size={18} color="#4B5563" />
             <Text style={styles.bottomBarActionText}>Contact Support</Text>
           </TouchableOpacity>
@@ -2417,23 +2473,29 @@ const styles = StyleSheet.create({
   audioPlayerCard: {
     backgroundColor: '#F5F3FF',
     borderRadius: 16,
-    padding: 14,
+    padding: 12,
     marginBottom: 16,
     borderWidth: 1.5,
     borderColor: '#DDD6FE',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: 8,
   },
   audioPlayerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
+    marginRight: 6,
+  },
+  audioTextContainer: {
+    marginLeft: 10,
+    flex: 1,
   },
   audioPlayBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     backgroundColor: '#7C3AED',
     justifyContent: 'center',
     alignItems: 'center',
@@ -2442,7 +2504,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#EF4444',
   },
   audioPlayerTitle: {
-    fontSize: 14,
+    fontSize: 13.5,
     fontWeight: '700',
     color: '#1E1B4B',
   },
@@ -2456,11 +2518,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#FFF',
     paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
+    paddingVertical: 5,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: '#E9D5FF',
     gap: 4,
+    flexShrink: 0,
   },
   audioPillText: {
     fontSize: 11,

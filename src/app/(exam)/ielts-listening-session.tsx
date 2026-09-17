@@ -26,6 +26,15 @@ import {
   getSubscriptionErrorMessage,
 } from '@/components/SubscriptionRequiredModal';
 import { formatQuestionText } from '@/utils/questionFormatter';
+import {
+  MultiSelectQuestion,
+  TFNGQuestion,
+  GapFillQuestion,
+  WordBankQuestion,
+  MatchingQuestion,
+  DiagramLabelingQuestion,
+} from '@/components/ielts';
+import { mediaCache, resolveMediaUrl } from '@/services/mediaCache';
 
 export default function IELTSListeningSessionScreen() {
   const router = useRouter();
@@ -52,7 +61,7 @@ export default function IELTSListeningSessionScreen() {
   const [currentResponseIndex, setCurrentResponseIndex] = useState(0); // 0 to 9 (10 questions per section)
 
   // Timers
-  const [totalTimeLeft, setTotalTimeLeft] = useState(3540); // 59:00 as in mockup
+  const [totalTimeLeft, setTotalTimeLeft] = useState(1920); // Standard 32:00 (30m continuous audio + 2m review)
 
   // Answer Text State
   const [answers, setAnswers] = useState<Record<number, string>>({});
@@ -62,11 +71,13 @@ export default function IELTSListeningSessionScreen() {
   const [isOverviewVisible, setIsOverviewVisible] = useState(false);
   const [showSubmitModal, setShowSubmitModal] = useState(false);
 
-  // Audio Playback State
+  // Audio Playback State (Authentic play-once continuous playback)
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [audioPosition, setAudioPosition] = useState(24000); // 00:24 as initial demo in mockup
-  const [audioDuration, setAudioDuration] = useState(60000); // 01:00
+  const [audioPosition, setAudioPosition] = useState(0);
+  const [audioDuration, setAudioDuration] = useState(1);
+  const [audioLoading, setAudioLoading] = useState(false);
+  const [playedSections, setPlayedSections] = useState<Record<number, boolean>>({});
   const progressBarWidth = useRef(0);
 
   // Waveform Bar Animations (28 symmetrical bars)
@@ -106,7 +117,7 @@ export default function IELTSListeningSessionScreen() {
         if (params.attempt_id) {
           const res = await examService.resumeExam(Number(params.attempt_id));
           setAttempt(res);
-          setTotalTimeLeft(res.timer_info?.remaining_seconds ?? 3540);
+          setTotalTimeLeft(res.timer_info?.remaining_seconds ?? 1920);
 
           const listSec = res.sections.find(s =>
             s.section_name.toLowerCase().includes('listening')
@@ -143,7 +154,7 @@ export default function IELTSListeningSessionScreen() {
           });
           const res = await examService.resumeExam(newAttempt.id);
           setAttempt(res);
-          setTotalTimeLeft(res.timer_info?.remaining_seconds ?? 3540);
+          setTotalTimeLeft(res.timer_info?.remaining_seconds ?? 1920);
 
           const listSec = res.sections.find(s =>
             s.section_name.toLowerCase().includes('listening')
@@ -164,68 +175,100 @@ export default function IELTSListeningSessionScreen() {
           return;
         }
         console.warn('Could not initialize listening session, generating mock session structure:', e);
-        // Fallback IELTS structure matching the mockups (3 sections, 10 questions each)
+        // Fallback IELTS authentic 4-part structure (40 questions, 10 per part)
         const mockStructure: AttemptSection = {
           section_id: 2,
           section_name: 'IELTS Listening',
           question_groups: [
             {
               group_id: 1,
-              group_title: 'Section 1',
-              group_type: 'Short Answer & Note Completion',
-              context_text: 'Listen to the recording and answer questions 1 to 10.',
+              group_title: 'Part 1',
+              group_type: 'Form & Note Completion',
+              context_text: 'Complete the notes below. Write NO MORE THAN TWO WORDS AND/OR A NUMBER for each answer.',
+              context_media: 'group_media/ielts_listening_sample.mp3',
               responses: Array.from({ length: 10 }, (_, i) => ({
                 id: 101 + i,
                 question: {
                   id: 101 + i,
-                  question_type: 'TEXT',
-                  text: `Question ${i + 1}`,
-                  instructions: 'Listen to the recording and answer the question',
+                  question_type: 'GAP_FILL',
+                  text: `Customer Enquiry Notes - Reference #${i + 1}: [blank_${i + 1}]`,
+                  instructions: 'Write NO MORE THAN TWO WORDS AND/OR A NUMBER',
+                  metadata: {
+                    blanks: [{ id: `blank_${i + 1}`, label: `${i + 1}` }],
+                    max_words: 2,
+                  },
                 },
               })),
             },
             {
               group_id: 2,
-              group_title: 'Section 2',
-              group_type: 'Sentence Completion & Matching',
-              context_text: 'Listen to the talk about local community facilities and answer questions 11 to 20.',
+              group_title: 'Part 2',
+              group_type: 'Map & Plan Labelling / Multiple Choice',
+              context_text: 'Listen to the guide giving directions at the local arts centre and answer questions 11 to 20.',
+              context_media: 'group_media/ielts_listening_sample.mp3',
               responses: Array.from({ length: 10 }, (_, i) => ({
                 id: 201 + i,
                 question: {
                   id: 201 + i,
-                  question_type: 'TEXT',
-                  text: `Question ${i + 1}`,
-                  instructions: 'Listen to the recording and answer the question',
+                  question_type: i < 5 ? 'MCQ' : 'TEXT',
+                  text: `Question ${11 + i}: What does the speaker mention regarding facility ${i + 1}?`,
+                  instructions: i < 5 ? 'Choose the correct letter, A, B, or C.' : 'Answer the question.',
+                  choices: i < 5 ? [
+                    { id: 2000 + i * 3 + 1, text: 'Open seven days a week' },
+                    { id: 2000 + i * 3 + 2, text: 'Requires prior registration' },
+                    { id: 2000 + i * 3 + 3, text: 'Available to members only' },
+                  ] : undefined,
                 },
               })),
             },
             {
               group_id: 3,
-              group_title: 'Section 3',
-              group_type: 'Academic Discussion & Notes',
-              context_text: 'Listen to two university students discussing their research project and answer questions 21 to 30.',
+              group_title: 'Part 3',
+              group_type: 'Academic Discussion & Matching',
+              context_text: 'Listen to two university students discussing their environmental research project and answer questions 21 to 30.',
+              context_media: 'group_media/ielts_listening_sample.mp3',
               responses: Array.from({ length: 10 }, (_, i) => ({
                 id: 301 + i,
                 question: {
                   id: 301 + i,
-                  question_type: 'TEXT',
-                  text: `Question ${i + 1}`,
-                  instructions: 'Listen to the recording and answer the question',
+                  question_type: i < 5 ? 'MATCHING' : 'MCQ',
+                  text: `Question ${21 + i}: Research Methodology & Findings`,
+                  instructions: i < 5 ? 'Match the proposed solution to the team member.' : 'Choose the correct letter, A, B, or C.',
+                  metadata: i < 5 ? {
+                    items: [
+                      { id: `item_${i + 1}`, text: `Aspect ${i + 1}: Data analysis` },
+                    ],
+                    options: [
+                      { id: 'A', text: 'Sarah' },
+                      { id: 'B', text: 'David' },
+                      { id: 'C', text: 'Dr. Jenkins' },
+                    ],
+                  } : undefined,
+                  choices: i >= 5 ? [
+                    { id: 3000 + i * 3 + 1, text: 'The sample size was inadequate' },
+                    { id: 3000 + i * 3 + 2, text: 'Field sensors malfunctioned during the storm' },
+                    { id: 3000 + i * 3 + 3, text: 'Data was corroborated by satellite imagery' },
+                  ] : undefined,
                 },
               })),
             },
             {
               group_id: 4,
-              group_title: 'Section 4',
-              group_type: 'Academic Lecture & Monologue',
-              context_text: 'Listen to a lecture about environmental sustainability and answer questions 31 to 40.',
+              group_title: 'Part 4',
+              group_type: 'Academic Lecture & Note Completion',
+              context_text: 'Listen to a lecture about ocean conservation and complete the notes below. Write NO MORE THAN TWO WORDS for each answer.',
+              context_media: 'group_media/ielts_listening_sample.mp3',
               responses: Array.from({ length: 10 }, (_, i) => ({
                 id: 401 + i,
                 question: {
                   id: 401 + i,
-                  question_type: 'TEXT',
-                  text: `Question ${i + 1}`,
-                  instructions: 'Listen to the recording and answer the question',
+                  question_type: 'GAP_FILL',
+                  text: `Ocean Biodiversity Factor ${i + 1}: Marine protected reserves allow species to [blank_${i + 1}].`,
+                  instructions: 'Write NO MORE THAN TWO WORDS',
+                  metadata: {
+                    blanks: [{ id: `blank_${i + 1}`, label: `${31 + i}` }],
+                    max_words: 2,
+                  },
                 },
               })),
             },
@@ -249,24 +292,88 @@ export default function IELTSListeningSessionScreen() {
     return () => clearInterval(timer);
   }, [loading]);
 
-  // Simulated / live audio playback timer loop
-  useEffect(() => {
-    let interval: ReturnType<typeof setInterval>;
-    if (isPlaying) {
-      interval = setInterval(() => {
-        setAudioPosition(prev => {
-          if (prev >= audioDuration) {
-            setIsPlaying(false);
-            return audioDuration;
-          }
-          return prev + 500;
-        });
-      }, 500);
+  // Continuous Real Audio Playback (expo-av & mediaCache)
+  // Audio plays once continuously per part; scrubber, rewind, and pause are strictly disabled
+  // on both Standard Exam and Practice modes per official IELTS CBT standards.
+  const playSectionAudio = async (groupIndex: number) => {
+    if (playedSections[groupIndex]) {
+      return; // Already played once for this section
     }
+
+    const group = listeningSection?.question_groups?.[groupIndex];
+    if (!group) return;
+
+    if (sound) {
+      try {
+        await sound.unloadAsync();
+      } catch {}
+      setSound(null);
+      setIsPlaying(false);
+    }
+
+    const rawAudioUrl =
+      group.context_media ||
+      (group as any).audio_file ||
+      (group.responses?.[0]?.question as any)?.audio_file;
+
+    if (!rawAudioUrl) {
+      return;
+    }
+
+    try {
+      setAudioLoading(true);
+      await Audio.setAudioModeAsync({
+        playsInSilentModeIOS: true,
+        allowsRecordingIOS: false,
+      });
+
+      const cachedUri = await mediaCache.getCachedAudioUri(rawAudioUrl);
+      if (!cachedUri) {
+        setAudioLoading(false);
+        return;
+      }
+
+      const { sound: newSound } = await Audio.Sound.createAsync(
+        { uri: cachedUri },
+        { shouldPlay: true },
+        (status) => {
+          if (status.isLoaded) {
+            setAudioPosition(status.positionMillis || 0);
+            setAudioDuration(status.durationMillis || 1);
+            if (status.didJustFinish) {
+              setIsPlaying(false);
+              setPlayedSections(prev => ({ ...prev, [groupIndex]: true }));
+            }
+          }
+        }
+      );
+
+      setSound(newSound);
+      setIsPlaying(true);
+    } catch (err) {
+      console.warn('Continuous audio playback error:', err);
+      setIsPlaying(false);
+    } finally {
+      setAudioLoading(false);
+    }
+  };
+
+  // Trigger continuous audio playback when part changes
+  useEffect(() => {
+    let isCancelled = false;
+
+    if (!loading && listeningSection && !playedSections[activeGroupIndex]) {
+      playSectionAudio(activeGroupIndex);
+    } else if (playedSections[activeGroupIndex] && sound) {
+      sound.unloadAsync().catch(() => {});
+      setSound(null);
+      setIsPlaying(false);
+    }
+
     return () => {
-      if (interval) clearInterval(interval);
+      isCancelled = true;
     };
-  }, [isPlaying, audioDuration]);
+  }, [activeGroupIndex, loading, listeningSection?.section_id]);
 
   // Animated Waveform loop when playing
   useEffect(() => {
@@ -321,35 +428,135 @@ export default function IELTSListeningSessionScreen() {
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // Audio Controls
-  const togglePlayPause = async () => {
-    setIsPlaying(prev => !prev);
+  // Helper to update current question response in state & trigger autoSave
+  const updateCurrentResponse = (updater: (resp: UserResponseItem) => void, autoSavePayload?: any) => {
+    if (!listeningSection) return;
+
+    setListeningSection(prev => {
+      if (!prev) return prev;
+      const newGroups = [...prev.question_groups];
+      const grp = { ...newGroups[activeGroupIndex] };
+      const newResponses = [...grp.responses];
+      const resp = { ...newResponses[currentResponseIndex] };
+      updater(resp);
+      newResponses[currentResponseIndex] = resp;
+      grp.responses = newResponses;
+      newGroups[activeGroupIndex] = grp;
+      return { ...prev, question_groups: newGroups };
+    });
+
+    const attemptId = attempt?.id || Number(params.attempt_id);
+    if (attemptId && !isNaN(attemptId) && autoSavePayload) {
+      examService.autoSave(attemptId, { responses: [autoSavePayload] }).catch(err => {
+        console.warn('Auto-save warning in listening:', err);
+      });
+    }
   };
 
-  const handleRewind10 = () => {
-    setAudioPosition(prev => Math.max(0, prev - 10000));
+  const handleSelectChoice = (choiceId: number) => {
+    const qId = currentQ?.id;
+    if (!qId) return;
+
+    updateCurrentResponse(
+      (resp) => {
+        resp.selected_choice = choiceId;
+      },
+      { question_id: qId, choice_id: choiceId, time_spent_seconds: 15 }
+    );
   };
 
-  const handleForward10 = () => {
-    setAudioPosition(prev => Math.min(audioDuration, prev + 10000));
+  const handleSelectMultiChoice = (selectedIds: number[]) => {
+    const qId = currentQ?.id;
+    if (!qId) return;
+
+    const newMeta = { ...(currentResponse?.metadata || {}), selected_choices: selectedIds };
+    updateCurrentResponse(
+      (resp) => {
+        resp.metadata = newMeta;
+        resp.selected_choice = selectedIds[0] || null;
+      },
+      {
+        question_id: qId,
+        choice_id: selectedIds[0] || null,
+        metadata: newMeta,
+        time_spent_seconds: 15,
+      }
+    );
   };
 
-  const handleProgressBarPress = (e: GestureResponderEvent) => {
-    if (progressBarWidth.current <= 0) return;
-    const clickX = e.nativeEvent.locationX;
-    const ratio = Math.max(0, Math.min(1, clickX / progressBarWidth.current));
-    setAudioPosition(Math.floor(ratio * audioDuration));
+  const handleUpdateGapFill = (blankId: string, val: string) => {
+    const qId = currentQ?.id;
+    if (!qId) return;
+
+    const existingBlanks = currentResponse?.metadata?.blanks || {};
+    const newBlanks = { ...existingBlanks, [blankId]: val };
+    const newMeta = { ...(currentResponse?.metadata || {}), blanks: newBlanks };
+
+    updateCurrentResponse(
+      (resp) => {
+        resp.metadata = newMeta;
+      },
+      { question_id: qId, metadata: newMeta, time_spent_seconds: 15 }
+    );
   };
 
-  // Answer change handler
+  const handleUpdateMatching = (itemId: string, optId: string) => {
+    const qId = currentQ?.id;
+    if (!qId) return;
+
+    const existingMatches = currentResponse?.metadata?.matches || {};
+    const newMatches = { ...existingMatches, [itemId]: optId };
+    const newMeta = { ...(currentResponse?.metadata || {}), matches: newMatches };
+
+    updateCurrentResponse(
+      (resp) => {
+        resp.metadata = newMeta;
+      },
+      { question_id: qId, metadata: newMeta, time_spent_seconds: 15 }
+    );
+  };
+
+  const handleClearMatching = (itemId: string) => {
+    const qId = currentQ?.id;
+    if (!qId) return;
+
+    const newMatches = { ...(currentResponse?.metadata?.matches || {}) };
+    delete newMatches[itemId];
+    const newMeta = { ...(currentResponse?.metadata || {}), matches: newMatches };
+
+    updateCurrentResponse(
+      (resp) => {
+        resp.metadata = newMeta;
+      },
+      { question_id: qId, metadata: newMeta, time_spent_seconds: 15 }
+    );
+  };
+
+  const handleUpdateDiagramLabel = (targetId: string, label: string) => {
+    const qId = currentQ?.id;
+    if (!qId) return;
+
+    const existingLabels = currentResponse?.metadata?.labels || {};
+    const newLabels = { ...existingLabels, [targetId]: label };
+    const newMeta = { ...(currentResponse?.metadata || {}), labels: newLabels };
+
+    updateCurrentResponse(
+      (resp) => {
+        resp.metadata = newMeta;
+      },
+      { question_id: qId, metadata: newMeta, time_spent_seconds: 15 }
+    );
+  };
+
+  // Answer change handler for TEXT questions
   const handleAnswerChange = (questionId: number, text: string) => {
     setAnswers(prev => ({ ...prev, [questionId]: text }));
-
-    if (attempt?.id) {
-      examService.autoSave(attempt.id, {
-        responses: [{ question_id: questionId, written_response: text }],
-      }).catch(err => console.warn('Auto-save warning:', err));
-    }
+    updateCurrentResponse(
+      (resp) => {
+        resp.written_response = text;
+      },
+      { question_id: questionId, written_response: text, time_spent_seconds: 15 }
+    );
   };
 
   // Bookmark toggle
@@ -438,7 +645,14 @@ export default function IELTSListeningSessionScreen() {
       grp.responses?.forEach(resp => {
         total += 1;
         const qId = resp.question?.id;
-        if (qId && answers[qId] && answers[qId].trim().length > 0) {
+        const hasChoice = resp.selected_choice !== null && resp.selected_choice !== undefined;
+        const hasMulti = resp.metadata?.selected_choices && resp.metadata.selected_choices.length > 0;
+        const hasBlanks = resp.metadata?.blanks && Object.values(resp.metadata.blanks).some((v: any) => typeof v === 'string' && v.trim().length > 0);
+        const hasMatches = resp.metadata?.matches && Object.keys(resp.metadata.matches).length > 0;
+        const hasLabels = resp.metadata?.labels && Object.keys(resp.metadata.labels).length > 0;
+        const hasText = Boolean(qId && answers[qId] && answers[qId].trim().length > 0);
+
+        if (hasChoice || hasMulti || hasBlanks || hasMatches || hasLabels || hasText) {
           answered += 1;
         }
         if (qId && bookmarkedQuestions.includes(qId)) {
@@ -471,7 +685,7 @@ export default function IELTSListeningSessionScreen() {
         setIsPlaying(false);
       }
 
-      // 2. Build responses payload
+      // 2. Build responses payload supporting all authentic IELTS formats
       const responsesPayload: any[] = [];
       listeningSection?.question_groups?.forEach(grp => {
         grp.responses?.forEach(resp => {
@@ -481,7 +695,17 @@ export default function IELTSListeningSessionScreen() {
           const item: any = { question_id: qId };
           let hasData = false;
 
-          const answerText = answers[qId];
+          if (resp.selected_choice !== null && resp.selected_choice !== undefined) {
+            item.choice_id = resp.selected_choice;
+            hasData = true;
+          }
+
+          if (resp.metadata && Object.keys(resp.metadata).length > 0) {
+            item.metadata = resp.metadata;
+            hasData = true;
+          }
+
+          const answerText = answers[qId] || resp.written_response;
           if (answerText && answerText.trim().length > 0) {
             item.written_response = answerText.trim();
             hasData = true;
@@ -651,6 +875,8 @@ export default function IELTSListeningSessionScreen() {
         params: {
           attempt_id: attemptId ? String(attemptId) : (params.attempt_id || ''),
           exam_name: params.exam_name || 'IELTS Listening',
+          is_ielts: 'true',
+          section_names: params.section_names || 'Listening',
         },
       });
     } finally {
@@ -674,15 +900,15 @@ export default function IELTSListeningSessionScreen() {
   const sectionTabs = useMemo(() => {
     if (listeningSection?.question_groups && listeningSection.question_groups.length >= 4) {
       return listeningSection.question_groups.map((grp, idx) => ({
-        title: grp.group_title || `Section ${idx + 1}`,
-        duration: '~10mins',
+        title: grp.group_title || `Part ${idx + 1}`,
+        duration: '~8 mins',
       }));
     }
     return [
-      { title: 'Section 1', duration: '~10mins' },
-      { title: 'Section 2', duration: '~10mins' },
-      { title: 'Section 3', duration: '~10mins' },
-      { title: 'Section 4', duration: '~10mins' },
+      { title: 'Part 1', duration: '~8 mins' },
+      { title: 'Part 2', duration: '~8 mins' },
+      { title: 'Part 3', duration: '~8 mins' },
+      { title: 'Part 4', duration: '~8 mins' },
     ];
   }, [listeningSection?.question_groups]);
 
@@ -697,7 +923,8 @@ export default function IELTSListeningSessionScreen() {
     );
   }
 
-  const progressPercent = audioDuration > 0 ? (audioPosition / audioDuration) * 100 : 0;
+  const isPartAudioPlayed = Boolean(playedSections[activeGroupIndex]);
+  const progressPercent = audioDuration > 0 ? Math.min(100, Math.max(0, (audioPosition / audioDuration) * 100)) : 0;
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -773,7 +1000,7 @@ export default function IELTSListeningSessionScreen() {
           {/* Subheader: Range Label + Bookmark */}
           <View style={styles.subheaderRow}>
             <Text style={styles.questionRangeLabel}>
-              Question {sectionStartQuestionNumber}-{sectionEndQuestionNumber}
+              Questions {sectionStartQuestionNumber}–{sectionEndQuestionNumber}
             </Text>
 
             <TouchableOpacity
@@ -792,16 +1019,37 @@ export default function IELTSListeningSessionScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* Question Title & Prompt */}
-          <Text style={styles.questionTitle}>
-            Question {currentGlobalQuestionNumber}
-          </Text>
-          <Text style={styles.questionPrompt}>
-            {currentQ?.text ? formatQuestionText(currentQ.text) : (currentQ?.instructions || 'Listen to the recording and answer the question')}
-          </Text>
+          {/* Audio Player Section - Official Continuous Play-Once Standard */}
+          <View style={styles.audioPlayerCard}>
+            {/* Audio Header & Status */}
+            <View style={styles.audioPlayerHeader}>
+              <View style={styles.audioTrackBadge}>
+                <Ionicons name="headset" size={13} color="#4C1D95" />
+                <Text style={styles.audioTrackBadgeText}>Part {activeGroupIndex + 1} Audio Track</Text>
+              </View>
 
-          {/* Audio Player Section */}
-          <View style={styles.audioPlayerSection}>
+              {isPartAudioPlayed ? (
+                <View style={styles.audioEndedBadge}>
+                  <Feather name="check-circle" size={12} color="#059669" />
+                  <Text style={styles.audioEndedText}>Audio Completed</Text>
+                </View>
+              ) : isPlaying ? (
+                <View style={styles.audioPlayingBadge}>
+                  <View style={styles.greenLiveDot} />
+                  <Text style={styles.audioPlayingText}>Playing Continuously</Text>
+                </View>
+              ) : audioLoading ? (
+                <View style={styles.audioLoadingBadge}>
+                  <ActivityIndicator size="small" color="#4C1D95" />
+                  <Text style={styles.audioLoadingText}>Loading audio...</Text>
+                </View>
+              ) : (
+                <View style={styles.audioReadyBadge}>
+                  <Text style={styles.audioReadyText}>Plays Once Only</Text>
+                </View>
+              )}
+            </View>
+
             {/* Waveform Equalizer */}
             <View style={styles.waveformContainer}>
               {waveformHeights.map((animH, i) => (
@@ -809,7 +1057,7 @@ export default function IELTSListeningSessionScreen() {
                   key={i}
                   style={[
                     styles.waveformBar,
-                    { height: animH },
+                    { height: isPlaying ? animH : 8 },
                   ]}
                 />
               ))}
@@ -821,87 +1069,188 @@ export default function IELTSListeningSessionScreen() {
               <Text style={styles.timeText}>{formatAudioTime(audioDuration)}</Text>
             </View>
 
-            {/* Scrubber / Progress Bar */}
-            <TouchableOpacity
-              style={styles.progressBarWrapper}
-              activeOpacity={1}
-              onPress={handleProgressBarPress}
-              onLayout={e => {
-                progressBarWidth.current = e.nativeEvent.layout.width;
-              }}
-            >
+            {/* Scrubber / Progress Bar (Strictly Read-Only / Non-Interactive per IELTS CBT Standard) */}
+            <View style={styles.progressBarWrapperReadOnly} pointerEvents="none">
               <View style={styles.progressBarTrack}>
                 <View style={[styles.progressBarFilled, { width: `${progressPercent}%` }]} />
               </View>
-              {/* Scrubber Knob */}
-              <View
-                style={[
-                  styles.scrubberThumb,
-                  { left: `${Math.max(0, Math.min(97, progressPercent))}%` },
-                ]}
-              />
-            </TouchableOpacity>
-
-            {/* Audio Controls Row (-10s, Play/Pause, +10s) */}
-            <View style={styles.controlsRow}>
-              <TouchableOpacity
-                style={styles.controlButton}
-                onPress={handleRewind10}
-                activeOpacity={0.7}
-              >
-                <MaterialCommunityIcons name="rewind-10" size={30} color="#111827" />
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.playPauseButton}
-                onPress={togglePlayPause}
-                activeOpacity={0.85}
-              >
-                <Ionicons
-                  name={isPlaying ? "pause" : "play"}
-                  size={28}
-                  color="#FFFFFF"
-                  style={isPlaying ? undefined : { marginLeft: 3 }}
-                />
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.controlButton}
-                onPress={handleForward10}
-                activeOpacity={0.7}
-              >
-                <MaterialCommunityIcons name="fast-forward-10" size={30} color="#111827" />
-              </TouchableOpacity>
             </View>
-          </View>
 
-          {/* Answer Input Section */}
-          <View style={styles.answerSection}>
-            <View style={styles.answerHeaderRow}>
-              <Text style={styles.answerSectionTitle}>Answer the question below</Text>
-              <Text style={styles.charCountText}>
-                {currentAnswerText.length}/100
+            {/* Audio Rules Notice Banner */}
+            <View style={styles.audioNoticeBanner}>
+              <Ionicons name="information-circle-outline" size={15} color="#6D28D9" />
+              <Text style={styles.audioNoticeText}>
+                {isPartAudioPlayed
+                  ? "Recording ended. In accordance with IELTS standards, audio cannot be replayed."
+                  : isPlaying
+                  ? "Audio is playing once continuously. Scrubbing, rewinding, and pausing are disabled."
+                  : "Audio plays once continuously. Ensure your headphones/speakers are ready."}
               </Text>
             </View>
 
-            <View style={styles.inputCard}>
-              <TextInput
-                style={styles.textInputArea}
-                placeholder="Type your answer here..."
-                placeholderTextColor="#9CA3AF"
-                value={currentAnswerText}
-                onChangeText={txt => currentQ?.id && handleAnswerChange(currentQ.id, txt)}
-                multiline
-                textAlignVertical="top"
-                maxLength={200}
-              />
+            {/* Manual Start button if autoplay was prevented or awaiting start */}
+            {!isPlaying && !isPartAudioPlayed && (
+              <TouchableOpacity
+                style={styles.startAudioButton}
+                onPress={() => playSectionAudio(activeGroupIndex)}
+                disabled={audioLoading}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="play" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
+                <Text style={styles.startAudioButtonText}>
+                  {audioLoading ? 'Loading Audio Track...' : `Start Part ${activeGroupIndex + 1} Audio`}
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {/* Section Information / Context box if available */}
+          {activeGroup?.context_text ? (
+            <View style={styles.contextBox}>
+              <View style={styles.contextBoxHeader}>
+                <Feather name="info" size={13} color="#6D28D9" />
+                <Text style={styles.contextBoxTitle}>Part {activeGroupIndex + 1} Instructions</Text>
+              </View>
+              <Text style={styles.contextBoxText}>{activeGroup.context_text}</Text>
             </View>
+          ) : null}
+
+          {/* Question Title & Prompt */}
+          <Text style={styles.questionTitle}>
+            Question {currentGlobalQuestionNumber}
+          </Text>
+          <Text style={styles.questionPrompt}>
+            {currentQ?.text ? formatQuestionText(currentQ.text) : (currentQ?.instructions || 'Listen to the recording and answer the question')}
+          </Text>
+
+          {/* Authentic IELTS Question Formats Rendering */}
+          <View style={styles.questionContentContainer}>
+            {/* FORMAT 1: Matching */}
+            {currentQ?.question_type === 'MATCHING' ? (
+              <MatchingQuestion
+                items={currentQ.metadata?.items || []}
+                options={currentQ.metadata?.options || []}
+                matches={currentResponse?.metadata?.matches || {}}
+                onMatch={handleUpdateMatching}
+                onClearMatch={handleClearMatching}
+              />
+            ) : currentQ?.question_type === 'LABELING' ? (
+              /* FORMAT 2: Diagram / Map Labelling */
+              <DiagramLabelingQuestion
+                imageUrl={currentQ.image || activeGroup?.context_media}
+                labels={currentResponse?.metadata?.labels || {}}
+                targets={currentQ.metadata?.targets || []}
+                options={currentQ.metadata?.options}
+                onChangeLabel={handleUpdateDiagramLabel}
+              />
+            ) : currentQ?.question_type === 'GAP_FILL' && (currentQ.metadata?.word_bank || currentQ.metadata?.options) ? (
+              /* FORMAT 3: Summary Completion with Word Bank */
+              <WordBankQuestion
+                summaryText={currentQ.text}
+                instructionText={currentQ.instructions}
+                blanks={currentResponse?.metadata?.blanks || {}}
+                blanksConfig={currentQ.metadata?.blanks || []}
+                wordBank={currentQ.metadata?.word_bank || currentQ.metadata?.options || []}
+                onSelectWord={(blankId, wordId) => handleUpdateGapFill(blankId, wordId)}
+                onClearBlank={(blankId) => handleUpdateGapFill(blankId, '')}
+              />
+            ) : currentQ?.question_type === 'GAP_FILL' ? (
+              /* FORMAT 4: Standard Gap Fill / Sentence Completion */
+              <GapFillQuestion
+                sentence={currentQ.text}
+                blanks={currentResponse?.metadata?.blanks || {}}
+                blanksConfig={currentQ.metadata?.blanks || []}
+                maxWords={currentQ.metadata?.max_words || 2}
+                instructionText={currentQ.instructions}
+                onChangeBlank={handleUpdateGapFill}
+              />
+            ) : (currentQ?.question_type === 'MCQ' && (
+              currentQ.metadata?.is_multi_select || 
+              (currentQ.metadata?.max_choices && currentQ.metadata?.max_choices > 1) ||
+              (currentQ.metadata?.max_selections && currentQ.metadata?.max_selections > 1)
+            )) ? (
+              /* FORMAT 5: Multi-Select MCQ ("Choose 2 or 3 options") */
+              <MultiSelectQuestion
+                choices={currentQ.choices || []}
+                maxChoices={currentQ.metadata?.max_choices || currentQ.metadata?.max_selections || 2}
+                selectedChoiceIds={currentResponse?.metadata?.selected_choices || []}
+                onSelect={handleSelectMultiChoice}
+              />
+            ) : currentQ?.choices && currentQ.choices.length > 0 ? (
+              /* FORMAT 6: Single-Select MCQ Radio Cards */
+              <View style={styles.mcqContainer}>
+                <Text style={styles.mcqInstruction}>Select one option:</Text>
+                {currentQ.choices.map((choice, cIdx) => {
+                  const isSelected = currentResponse?.selected_choice === choice.id;
+                  const letter = String.fromCharCode(65 + cIdx);
+
+                  return (
+                    <TouchableOpacity
+                      key={choice.id}
+                      style={[
+                        styles.mcqCard,
+                        isSelected && styles.mcqCardSelected,
+                      ]}
+                      onPress={() => handleSelectChoice(choice.id)}
+                      activeOpacity={0.7}
+                    >
+                      <View style={[
+                        styles.mcqLetterBadge,
+                        isSelected && styles.mcqLetterBadgeSelected,
+                      ]}>
+                        <Text style={[
+                          styles.mcqLetterText,
+                          isSelected && styles.mcqLetterTextSelected,
+                        ]}>
+                          {letter}
+                        </Text>
+                      </View>
+                      <Text style={[
+                        styles.mcqChoiceText,
+                        isSelected && styles.mcqChoiceTextSelected,
+                      ]}>
+                        {formatQuestionText(choice.text)}
+                      </Text>
+                      <View style={[
+                        styles.mcqRadioOuter,
+                        isSelected && styles.mcqRadioOuterSelected,
+                      ]}>
+                        {isSelected && <View style={styles.mcqRadioInner} />}
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            ) : (
+              /* FORMAT 7: Short Answer / Text Entry */
+              <View style={styles.answerSection}>
+                <View style={styles.answerHeaderRow}>
+                  <Text style={styles.answerSectionTitle}>Answer the question below</Text>
+                  <Text style={styles.charCountText}>
+                    {currentAnswerText.length}/100
+                  </Text>
+                </View>
+
+                <View style={styles.inputCard}>
+                  <TextInput
+                    style={styles.textInputArea}
+                    placeholder="Type your answer here (e.g. NO MORE THAN TWO WORDS)..."
+                    placeholderTextColor="#9CA3AF"
+                    value={currentAnswerText}
+                    onChangeText={txt => currentQ?.id && handleAnswerChange(currentQ.id, txt)}
+                    multiline
+                    textAlignVertical="top"
+                    maxLength={200}
+                  />
+                </View>
+              </View>
+            )}
           </View>
 
           <View style={{ height: 24 }} />
         </ScrollView>
 
-        {/* Bottom Bar: Question Counter & Next Button */}
+        {/* Bottom Bar: Question Counter & Prev/Next Buttons */}
         <View style={styles.bottomCardContainer}>
           <View style={styles.bottomCard}>
             <View style={styles.bottomCounterCol}>
@@ -911,28 +1260,42 @@ export default function IELTSListeningSessionScreen() {
               </Text>
             </View>
 
-            <TouchableOpacity
-              style={[
-                styles.nextButton,
-                isLastQuestionOfTest && styles.submitButton,
-              ]}
-              onPress={handleNextQuestion}
-              disabled={isSubmitting}
-              activeOpacity={0.88}
-            >
-              {isSubmitting ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
-              ) : (
-                <View style={styles.nextButtonContent}>
-                  {isLastQuestionOfTest && (
-                    <Feather name="flag" size={15} color="#FFFFFF" style={{ marginRight: 6 }} />
-                  )}
-                  <Text style={styles.nextButtonText}>
-                    {isLastQuestionOfTest ? 'Submit' : isLastQuestionOfSection ? 'Next Section' : 'Next Question'}
-                  </Text>
-                </View>
+            <View style={styles.bottomActionsRow}>
+              {currentResponseIndex > 0 && (
+                <TouchableOpacity
+                  style={styles.prevButton}
+                  onPress={() => setCurrentResponseIndex(prev => prev - 1)}
+                  disabled={isSubmitting}
+                  activeOpacity={0.8}
+                >
+                  <Feather name="chevron-left" size={16} color="#4C1D95" />
+                  <Text style={styles.prevButtonText}>Prev</Text>
+                </TouchableOpacity>
               )}
-            </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.nextButton,
+                  isLastQuestionOfTest && styles.submitButton,
+                ]}
+                onPress={handleNextQuestion}
+                disabled={isSubmitting}
+                activeOpacity={0.88}
+              >
+                {isSubmitting ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <View style={styles.nextButtonContent}>
+                    {isLastQuestionOfTest && (
+                      <Feather name="flag" size={15} color="#FFFFFF" style={{ marginRight: 6 }} />
+                    )}
+                    <Text style={styles.nextButtonText}>
+                      {isLastQuestionOfTest ? 'Submit' : isLastQuestionOfSection ? 'Next Section' : 'Next'}
+                    </Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
 
@@ -960,7 +1323,7 @@ export default function IELTSListeningSessionScreen() {
                   <View key={gIdx} style={styles.modalGroupItem}>
                     <View style={styles.modalGroupHeader}>
                       <Text style={styles.modalGroupName}>
-                        {grp.group_title || `Section ${gIdx + 1}`}
+                        {grp.group_title || `Part ${gIdx + 1}`}
                       </Text>
                       <Text style={styles.modalGroupStatus}>
                         {gIdx === activeGroupIndex
@@ -976,8 +1339,14 @@ export default function IELTSListeningSessionScreen() {
                           gIdx === activeGroupIndex && rIdx === currentResponseIndex;
                         const isQBookmarked =
                           resp.question?.id && bookmarkedQuestions.includes(resp.question.id);
-                        const hasAnswer =
-                          resp.question?.id && answers[resp.question.id]?.trim().length > 0;
+                        const hasAnswer = Boolean(
+                          (resp.selected_choice !== null && resp.selected_choice !== undefined) ||
+                          (resp.metadata?.selected_choices && resp.metadata.selected_choices.length > 0) ||
+                          (resp.metadata?.blanks && Object.values(resp.metadata.blanks).some((v: any) => typeof v === 'string' && v.trim().length > 0)) ||
+                          (resp.metadata?.matches && Object.keys(resp.metadata.matches).length > 0) ||
+                          (resp.metadata?.labels && Object.keys(resp.metadata.labels).length > 0) ||
+                          (resp.question?.id && answers[resp.question.id]?.trim().length > 0)
+                        );
                         const isCurrentGroup = gIdx === activeGroupIndex;
 
                         return (
@@ -1272,18 +1641,107 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
 
-  // Audio Player Section
-  audioPlayerSection: {
+  // Audio Player Section (Authentic IELTS Continuous Playback)
+  audioPlayerCard: {
+    width: '100%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#EDE9FE',
+    padding: 16,
+    marginBottom: 20,
+    shadowColor: '#4C1D95',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  audioPlayerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 24,
+    marginBottom: 8,
+  },
+  audioTrackBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#F5F3FF',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+  },
+  audioTrackBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#4C1D95',
+  },
+  audioPlayingBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  audioPlayingText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#059669',
+  },
+  greenLiveDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: '#10B981',
+  },
+  audioEndedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#F3F4F6',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  audioEndedText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#4B5563',
+  },
+  audioLoadingBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#F5F3FF',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  audioLoadingText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#4C1D95',
+  },
+  audioReadyBadge: {
+    backgroundColor: '#F3F4F6',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  audioReadyText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#6B7280',
   },
   waveformContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    height: 75,
+    height: 65,
     gap: 4,
-    marginVertical: 10,
+    marginVertical: 6,
   },
   waveformBar: {
     width: 3.5,
@@ -1295,68 +1753,62 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     width: '100%',
     paddingHorizontal: 2,
-    marginTop: 6,
-    marginBottom: 6,
+    marginTop: 4,
+    marginBottom: 4,
   },
   timeText: {
     fontSize: 12,
     color: '#6B7280',
     fontWeight: '500',
   },
-  progressBarWrapper: {
+  progressBarWrapperReadOnly: {
     width: '100%',
-    height: 20,
+    height: 8,
     justifyContent: 'center',
-    position: 'relative',
+    marginVertical: 4,
   },
   progressBarTrack: {
     width: '100%',
-    height: 4,
-    borderRadius: 2,
+    height: 5,
+    borderRadius: 2.5,
     backgroundColor: '#E5E7EB',
     overflow: 'hidden',
   },
   progressBarFilled: {
     height: '100%',
     backgroundColor: '#5B21B6',
-    borderRadius: 2,
+    borderRadius: 2.5,
   },
-  scrubberThumb: {
-    position: 'absolute',
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: '#5B21B6',
-    top: 3,
-    marginLeft: -7,
-  },
-
-  // Controls Row
-  controlsRow: {
+  audioNoticeBanner: {
     flexDirection: 'row',
-    justifyContent: 'center',
     alignItems: 'center',
-    gap: 36,
-    marginTop: 14,
+    gap: 8,
+    backgroundColor: '#F5F3FF',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginTop: 10,
   },
-  controlButton: {
-    width: 44,
-    height: 44,
-    justifyContent: 'center',
-    alignItems: 'center',
+  audioNoticeText: {
+    fontSize: 11.5,
+    color: '#5B21B6',
+    flex: 1,
+    lineHeight: 16,
   },
-  playPauseButton: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: '#5B21B6',
-    justifyContent: 'center',
+  startAudioButton: {
+    flexDirection: 'row',
     alignItems: 'center',
-    shadowColor: '#5B21B6',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.35,
-    shadowRadius: 12,
-    elevation: 6,
+    justifyContent: 'center',
+    backgroundColor: '#4C1D95',
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    marginTop: 12,
+  },
+  startAudioButtonText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
 
   // Answer Section
@@ -1384,14 +1836,124 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
     borderColor: '#E5E7EB',
-    minHeight: 160,
-    padding: 16,
+    minHeight: 110,
+    padding: 14,
   },
   textInputArea: {
     fontSize: 14,
     color: '#111827',
     lineHeight: 22,
     flex: 1,
+  },
+
+  // Context & Instructions Box
+  contextBox: {
+    width: '100%',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 14,
+    marginBottom: 16,
+  },
+  contextBoxHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 6,
+  },
+  contextBoxTitle: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#6D28D9',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  contextBoxText: {
+    fontSize: 13,
+    color: '#475569',
+    lineHeight: 19,
+  },
+
+  // Question Content Container
+  questionContentContainer: {
+    width: '100%',
+    marginTop: 4,
+  },
+
+  // MCQ Styles
+  mcqContainer: {
+    width: '100%',
+    marginTop: 6,
+  },
+  mcqInstruction: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#6B7280',
+    marginBottom: 10,
+  },
+  mcqCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: '#E5E7EB',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 10,
+  },
+  mcqCardSelected: {
+    borderColor: '#4C1D95',
+    backgroundColor: '#FAF5FF',
+  },
+  mcqLetterBadge: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#F3F4F6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  mcqLetterBadgeSelected: {
+    backgroundColor: '#4C1D95',
+  },
+  mcqLetterText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#4B5563',
+  },
+  mcqLetterTextSelected: {
+    color: '#FFFFFF',
+  },
+  mcqChoiceText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#1F2937',
+    lineHeight: 20,
+  },
+  mcqChoiceTextSelected: {
+    color: '#111827',
+    fontWeight: '600',
+  },
+  mcqRadioOuter: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: '#D1D5DB',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 8,
+  },
+  mcqRadioOuterSelected: {
+    borderColor: '#4C1D95',
+  },
+  mcqRadioInner: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#4C1D95',
   },
 
   // Bottom Card Bar
@@ -1422,6 +1984,27 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#111827',
     marginTop: 2,
+  },
+  bottomActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  prevButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: '#DDD6FE',
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+  prevButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#4C1D95',
+    marginLeft: 2,
   },
   nextButton: {
     backgroundColor: '#4C1D95',

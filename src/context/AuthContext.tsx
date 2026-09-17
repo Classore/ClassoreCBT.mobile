@@ -1,8 +1,9 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Platform } from 'react-native';
-import { api } from '@/services/api';
+import { Platform, Alert } from 'react-native';
+import { api, setUnauthorizedListener } from '@/services/api';
+import { router } from 'expo-router';
 
 export interface UserProfile {
   id: number;
@@ -154,6 +155,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
 
     bootstrapAsync();
+  }, []);
+
+  useEffect(() => {
+    setUnauthorizedListener(() => {
+      setToken(null);
+      setUser(null);
+      saveCachedUser(null);
+      Alert.alert(
+        'Session Expired',
+        'Your session has expired or is invalid. Please sign in again to continue.',
+        [
+          {
+            text: 'Sign In',
+            onPress: () => {
+              router.replace('/(auth)/login' as any);
+            },
+          },
+        ],
+        { cancelable: false }
+      );
+    });
+
+    return () => {
+      setUnauthorizedListener(null);
+    };
   }, []);
 
   const login = async (newToken: string) => {

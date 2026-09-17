@@ -10,6 +10,7 @@ import {
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
 import { AppText } from '@/components/AppText';
+import { resolveMediaUrl } from '@/services/mediaCache';
 
 export interface AudioResponseQuestionProps {
   audioUri?: string | null;
@@ -166,8 +167,11 @@ export const AudioResponseQuestion: React.FC<AudioResponseQuestionProps> = ({
           setIsPlaying(true);
         }
       } else {
+        const resolved = resolveMediaUrl(audioUri);
+        if (!resolved) return;
+
         const { sound: newSound } = await Audio.Sound.createAsync(
-          { uri: audioUri },
+          { uri: resolved },
           { shouldPlay: true },
           (status) => {
             if (status.isLoaded) {
@@ -185,6 +189,7 @@ export const AudioResponseQuestion: React.FC<AudioResponseQuestionProps> = ({
       }
     } catch (err) {
       console.error('Error playing audio:', err);
+      setIsPlaying(false);
     }
   };
 

@@ -1,6 +1,6 @@
 import { AppText } from '@/components/AppText';
 import { useAuth } from '@/context/AuthContext';
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, Platform, Alert } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -28,11 +28,18 @@ export default function TestInstructionsScreen() {
     question_count?: string;
     time_limit?: string;
     is_timed?: string;
+    auto_start?: string;
   }>();
 
   const [isStarting, setIsStarting] = useState(false);
   const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
   const [subscriptionMessage, setSubscriptionMessage] = useState<string | undefined>();
+
+  useEffect(() => {
+    if (params.auto_start === 'true') {
+      handleBeginTest();
+    }
+  }, [params.auto_start]);
 
   const handleBeginTest = async () => {
     if (isStarting) return;
@@ -261,6 +268,13 @@ export default function TestInstructionsScreen() {
           else router.replace('/');
         }}
         customMessage={subscriptionMessage}
+        pendingRedirect={{
+          pathname: '/(exam)/instructions',
+          params: {
+            ...params,
+            auto_start: 'true',
+          },
+        }}
         onViewBundles={() => {
           setShowSubscriptionModal(false);
           router.push('/(tabs)/bundles' as any);

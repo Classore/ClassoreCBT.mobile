@@ -1,5 +1,30 @@
 import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
+import { BASE_URL } from './api';
+
+/**
+ * Resolves a media URL (relative path, local asset, or full remote URL) into a complete, playable URI string.
+ */
+export const resolveMediaUrl = (url: string | null | undefined): string => {
+  if (!url || typeof url !== 'string' || !url.trim()) {
+    return '';
+  }
+  const trimmed = url.trim();
+  if (
+    trimmed.startsWith('http://') ||
+    trimmed.startsWith('https://') ||
+    trimmed.startsWith('file://') ||
+    trimmed.startsWith('data:') ||
+    trimmed.startsWith('blob:')
+  ) {
+    return trimmed;
+  }
+  const cleanBase = (BASE_URL || 'http://127.0.0.1:8000').replace(/\/$/, '');
+  if (trimmed.startsWith('/')) {
+    return `${cleanBase}${trimmed}`;
+  }
+  return `${cleanBase}/${trimmed}`;
+};
 
 /**
  * Service to pre-download and cache audio clips & heavy images to local disk.
@@ -11,21 +36,27 @@ export const mediaCache = {
    * If already downloaded, returns the cached file path immediately.
    */
   getCachedAudioUri: async (remoteUrl: string): Promise<string> => {
-    if (!remoteUrl || typeof remoteUrl !== 'string') {
-      return remoteUrl;
+    const resolvedUrl = resolveMediaUrl(remoteUrl);
+    if (!resolvedUrl) {
+      return '';
     }
 
-    // On Web or for local assets / file URIs, return as is
-    if (Platform.OS === 'web' || remoteUrl.startsWith('file://') || remoteUrl.startsWith('data:')) {
-      return remoteUrl;
+    // On Web or for local assets / file URIs / data URIs, return resolved URL
+    if (
+      Platform.OS === 'web' ||
+      resolvedUrl.startsWith('file://') ||
+      resolvedUrl.startsWith('data:') ||
+      resolvedUrl.startsWith('blob:')
+    ) {
+      return resolvedUrl;
     }
 
     try {
       // Create a deterministic filename based on URL hash/name
-      const cleanUrl = remoteUrl.split('?')[0];
+      const cleanUrl = resolvedUrl.split('?')[0];
       const filename = cleanUrl.substring(cleanUrl.lastIndexOf('/') + 1) || `audio_${Date.now()}.mp3`;
       const docDir = FileSystem.documentDirectory || FileSystem.cacheDirectory;
-      if (!docDir) return remoteUrl;
+      if (!docDir) return resolvedUrl;
 
       const localUri = `${docDir}cached_${filename}`;
 
@@ -36,14 +67,14 @@ export const mediaCache = {
       }
 
       // Download file to disk
-      const downloadResult = await FileSystem.downloadAsync(remoteUrl, localUri);
+      const downloadResult = await FileSystem.downloadAsync(resolvedUrl, localUri);
       if (downloadResult && downloadResult.status === 200) {
         return downloadResult.uri;
       }
-      return remoteUrl;
+      return resolvedUrl;
     } catch (error) {
       console.warn('[mediaCache] Failed to download media, falling back to remote URL:', error);
-      return remoteUrl;
+      return resolvedUrl;
     }
   },
 

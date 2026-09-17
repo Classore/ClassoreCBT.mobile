@@ -225,8 +225,19 @@ export default function TopicSelectionScreen() {
       });
 
       if (isSectionExam) {
+        const attemptSecNames: string[] = newAttempt.sections?.map((s: any) => s.section_name) || [];
+        const sectionNamesParam = attemptSecNames.join(',');
+
+        const firstSecName = (attemptSecNames[0] || '').toLowerCase();
+        let targetPath: '/(exam)/ielts-listening-session' | '/(exam)/ielts-speaking-session' | '/(exam)/ielts-session' = '/(exam)/ielts-session';
+        if (firstSecName.includes('listening')) {
+          targetPath = '/(exam)/ielts-listening-session';
+        } else if (firstSecName.includes('speaking')) {
+          targetPath = '/(exam)/ielts-speaking-session';
+        }
+
         router.push({
-          pathname: '/(exam)/ielts-session',
+          pathname: targetPath,
           params: {
             attempt_id: String(newAttempt.id),
             exam: String(examId),
@@ -234,6 +245,9 @@ export default function TopicSelectionScreen() {
             mode: 'Practice',
             sections: JSON.stringify(selectedSubjectsList),
             section_order: selectedSubjectsList.join(','),
+            section_names: sectionNamesParam,
+            section_index: '0',
+            section_name: attemptSecNames[0] || undefined,
             difficulty: difficulty,
             question_count: String(questionCount),
             time_limit: isTimed ? String(timeMinutes) : '0',
@@ -417,6 +431,13 @@ export default function TopicSelectionScreen() {
           subjectName={subjectName}
           topicName={modalTopicName}
           customMessage={subscriptionMessage}
+          pendingRedirect={{
+            pathname: '/(tabs)/practice/topic-selection',
+            params: {
+              ...params,
+              auto_start: 'true',
+            },
+          }}
         />
       </View>
     </SafeAreaView>

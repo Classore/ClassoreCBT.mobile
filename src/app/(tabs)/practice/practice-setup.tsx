@@ -443,8 +443,24 @@ export default function PracticeSetupScreen() {
       });
 
       if (isSectionExam) {
+        const selectedSubjectNamesList = selectedSubjects
+          .map(id => subjects.find(s => String(s.id) === String(id))?.name)
+          .filter((name): name is string => Boolean(name));
+        
+        const attemptSecNames = newAttempt.sections?.map(s => s.section_name) || [];
+        const finalSecNames = selectedSubjectNamesList.length > 0 ? selectedSubjectNamesList : attemptSecNames;
+        const sectionNamesParam = finalSecNames.join(',');
+
+        const firstSecName = (finalSecNames[0] || '').toLowerCase();
+        let targetPath: '/(exam)/ielts-listening-session' | '/(exam)/ielts-speaking-session' | '/(exam)/ielts-session' = '/(exam)/ielts-session';
+        if (firstSecName.includes('listening')) {
+          targetPath = '/(exam)/ielts-listening-session';
+        } else if (firstSecName.includes('speaking')) {
+          targetPath = '/(exam)/ielts-speaking-session';
+        }
+
         router.push({
-          pathname: '/(exam)/ielts-session',
+          pathname: targetPath,
           params: {
             attempt_id: String(newAttempt.id),
             exam: String(examId),
@@ -452,6 +468,9 @@ export default function PracticeSetupScreen() {
             mode: 'Practice',
             sections: JSON.stringify(selectedSubjects),
             section_order: selectedSubjects.join(','),
+            section_names: sectionNamesParam,
+            section_index: '0',
+            section_name: finalSecNames[0] || undefined,
             difficulty: difficulty,
             question_count: String(questionCount),
             time_limit: isTimed ? String(timeMinutes) : '0',
@@ -1110,6 +1129,13 @@ export default function PracticeSetupScreen() {
         subjectName={currentActiveSubject?.name}
         topicName={modalTopicName}
         customMessage={subscriptionMessage || (modalTopicName ? 'This topic requires an active subscription or bundle. Upgrade now to practice all topics!' : undefined)}
+        pendingRedirect={{
+          pathname: '/(tabs)/practice/practice-setup',
+          params: {
+            ...params,
+            auto_start: 'true',
+          },
+        }}
         onViewBundles={() => {
           setShowSubscriptionModal(false);
           setSubscriptionMessage(undefined);

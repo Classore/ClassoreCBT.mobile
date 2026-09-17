@@ -13,7 +13,8 @@ const cardWidth = width * 0.36;
 import { examService, ExamType, isSectionBasedExam } from '@/services/exam';
 
 export default function ExamSetupScreen() {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
+  const isGuest = !token;
   const { hasUnread } = useNotifications();
   const router = useRouter();
   const params = useLocalSearchParams<{ exam?: string }>();
@@ -49,7 +50,6 @@ export default function ExamSetupScreen() {
     let isMounted = true;
 
     const loadExams = async () => {
-      // 1. If we don't have exams from memory cache yet, try persistent storage
       if (!initialCached || initialCached.length === 0) {
         const storedExams = await examService.getCachedExams();
         if (isMounted && storedExams && storedExams.length > 0) {
@@ -58,20 +58,16 @@ export default function ExamSetupScreen() {
           setSelectedExam(prev => resolveExamId(storedExams, prev));
         }
       }
-
-      // 2. Fetch fresh updated exams from backend in background
       try {
-        const freshExams = await examService.getExams();
-        if (isMounted && freshExams && freshExams.length > 0) {
-          setExams(freshExams);
-          setSelectedExam(prev => resolveExamId(freshExams, prev));
+        const fetchedExams = await examService.getExams();
+        if (isMounted && fetchedExams && fetchedExams.length > 0) {
+          setExams(fetchedExams);
+          setSelectedExam(prev => resolveExamId(fetchedExams, prev));
         }
-      } catch (error) {
-        console.error('Failed to fetch exams from backend:', error);
+      } catch (err) {
+        console.error('Failed to load fresh exams:', err);
       } finally {
-        if (isMounted) {
-          setLoading(false);
-        }
+        if (isMounted) setLoading(false);
       }
     };
 
@@ -124,7 +120,9 @@ export default function ExamSetupScreen() {
     if (lowerName.includes('waec')) return require('../../../../assets/images/waec-logo.png');
     if (lowerName.includes('neco')) return require('../../../../assets/images/neco-logo.png');
     return null;
-  };  return (
+  };
+
+  return (
     <SafeAreaView style={styles.container}>
       {/* Header Bar */}
       <View style={styles.topHeader}>
@@ -137,9 +135,8 @@ export default function ExamSetupScreen() {
             <AppText style={styles.fireText}>{user?.streak || 0}</AppText>
           </View>
           <TouchableOpacity 
-            style={styles.notifButton}
-            activeOpacity={0.7}
-            onPress={() => router.push('/notifications' as any)}
+            style={styles.notifButton} 
+            onPress={() => router.push('/notifications')}
           >
             <Feather name="bell" size={20} color="#000" />
             {hasUnread && <View style={styles.notifDot} />}
@@ -148,7 +145,6 @@ export default function ExamSetupScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        
         {/* Main Header */}
         <View style={styles.mainHeader}>
           <View style={styles.headerTextContainer}>

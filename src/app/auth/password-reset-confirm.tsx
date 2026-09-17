@@ -20,13 +20,13 @@ export default function PasswordResetConfirmScreen() {
         </View>
 
         {/* Title */}
-        <AppText style={styles.title}>Password reset</AppText>
+        <AppText style={styles.title}>Verification successful</AppText>
         <AppText style={styles.subtitle}>
-          Your password has been successfully reset. click{'\n'}confirm to set a new password
+          Your code has been successfully verified. Click{'\n'}continue to set a new password.
         </AppText>
 
         <CustomButton 
-          title="Confirm" 
+          title="Continue" 
           onPress={() => router.push({
             pathname: '/auth/reset-password',
             params: { email, otpCode }

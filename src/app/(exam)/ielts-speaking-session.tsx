@@ -18,12 +18,14 @@ import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { examService, UserAttempt, AttemptSection, QuestionGroupItem, UserResponseItem } from '@/services/exam';
 import { storage } from '@/services/storage';
+import { mediaCache, resolveMediaUrl } from '@/services/mediaCache';
 import { Audio } from 'expo-av';
 import {
   SubscriptionRequiredModal,
   isSubscriptionError,
   getSubscriptionErrorMessage,
 } from '@/components/SubscriptionRequiredModal';
+import { formatQuestionText } from '@/utils/questionFormatter';
 
 type SpeakingSubState = 'get-ready' | 'listen' | 'recording';
 
@@ -43,7 +45,9 @@ const FALLBACK_SPEAKING_STRUCTURE: AttemptSection = {
             id: 101,
             question_type: 'AUDIO',
             text: 'Let us talk about your hometown. Where is your hometown located?',
-            instructions: 'Answer clearly and naturally.'
+            instructions: 'Answer clearly and naturally.',
+            prep_time_seconds: 5,
+            recording_time_seconds: 45
           }
         },
         {
@@ -52,7 +56,9 @@ const FALLBACK_SPEAKING_STRUCTURE: AttemptSection = {
             id: 102,
             question_type: 'AUDIO',
             text: 'What do you like most about your hometown?',
-            instructions: 'Provide specific examples.'
+            instructions: 'Provide specific examples.',
+            prep_time_seconds: 5,
+            recording_time_seconds: 45
           }
         },
         {
@@ -61,7 +67,9 @@ const FALLBACK_SPEAKING_STRUCTURE: AttemptSection = {
             id: 103,
             question_type: 'AUDIO',
             text: 'Has your hometown changed much since you were a child?',
-            instructions: 'Describe the developments.'
+            instructions: 'Describe the developments.',
+            prep_time_seconds: 5,
+            recording_time_seconds: 45
           }
         }
       ]
@@ -78,7 +86,9 @@ const FALLBACK_SPEAKING_STRUCTURE: AttemptSection = {
             id: 201,
             question_type: 'AUDIO',
             text: 'Long Turn - Talk about a book you have read.',
-            instructions: 'You should say:\n• What the book is\n• When you read it\n• What it is about\n• And explain why you liked it.'
+            instructions: 'You should say:\n• What the book is\n• When you read it\n• What it is about\n• And explain why you liked it.',
+            prep_time_seconds: 60,
+            recording_time_seconds: 120
           }
         }
       ]
@@ -95,7 +105,9 @@ const FALLBACK_SPEAKING_STRUCTURE: AttemptSection = {
             id: 301,
             question_type: 'AUDIO',
             text: 'Do people in your country read as many books today as in the past?',
-            instructions: 'Discuss reading trends and digital media.'
+            instructions: 'Discuss reading trends and digital media.',
+            prep_time_seconds: 5,
+            recording_time_seconds: 60
           }
         },
         {
@@ -104,7 +116,9 @@ const FALLBACK_SPEAKING_STRUCTURE: AttemptSection = {
             id: 302,
             question_type: 'AUDIO',
             text: 'What are the main advantages of reading physical books versus digital e-books?',
-            instructions: 'Compare convenience, focus, and comprehension.'
+            instructions: 'Compare convenience, focus, and comprehension.',
+            prep_time_seconds: 5,
+            recording_time_seconds: 60
           }
         }
       ]
@@ -136,13 +150,55 @@ export default function IELTSSpeakingSessionScreen() {
   const [activeGroupIndex, setActiveGroupIndex] = useState(0); // 0 = Part 1, 1 = Part 2, 2 = Part 3
   const [currentResponseIndex, setCurrentResponseIndex] = useState(0);
 
+  // Derived current group and question pointers
+  const activeGroup = speakingSection?.question_groups[activeGroupIndex];
+  const currentResponse = activeGroup?.responses[currentResponseIndex];
+  const currentQ = currentResponse?.question;
+
+  // Authentic IELTS timing helper functions:
+  // Part 1: 5s get-ready buffer, 45s maximum recording per question (authentic answer is 20-30s)
+  // Part 2: 60s (1 min) preparation countdown, 120s (2 mins) maximum speech recording
+  // Part 3: 5s get-ready buffer, 60s maximum recording per question
+  const getPrepDuration = (question?: any, groupIndex?: number) => {
+    if (question?.prep_time_seconds && question.prep_time_seconds > 0) {
+      return question.prep_time_seconds;
+    }
+    const grpIdx = groupIndex !== undefined ? groupIndex : activeGroupIndex;
+    if (grpIdx === 1) {
+      return 60; // 1 minute (60s) prep time for Part 2 Candidate Task Card
+    }
+    return 5; // 5s get-ready buffer for Part 1 & Part 3
+  };
+
+  const getRecordingDuration = (question?: any, groupIndex?: number) => {
+    if (question?.recording_time_seconds && question.recording_time_seconds > 0) {
+      return question.recording_time_seconds;
+    }
+    const grpIdx = groupIndex !== undefined ? groupIndex : activeGroupIndex;
+    if (grpIdx === 1) {
+      return 120; // Exactly 2:00 (120s) for Part 2 Long Turn
+    }
+    if (grpIdx === 2) {
+      return 60; // 60s for Part 3 Discussion
+    }
+    return 45; // 45s for Part 1 Introduction
+  };
+
+  const getListenDuration = (question?: any, groupIndex?: number) => {
+    const grpIdx = groupIndex !== undefined ? groupIndex : activeGroupIndex;
+    if (grpIdx === 1) {
+      return 15; // Brief intro for Part 2
+    }
+    return 10; // Prompt listening time for Part 1 & Part 3
+  };
+
   // Sub-state machine: 'get-ready' -> 'listen' -> 'recording'
   const [subState, setSubState] = useState<SpeakingSubState>('get-ready');
   
   // Timers
   const [totalTimeLeft, setTotalTimeLeft] = useState(900); // 15:00
   const [getReadyCountdown, setGetReadyCountdown] = useState(5); // 00:05
-  const [questionTimeLeft, setQuestionTimeLeft] = useState(208); // 03:28 as in mockup
+  const [questionTimeLeft, setQuestionTimeLeft] = useState(45); // Standard 45s for Part 1
 
   // Candidate Notes (useful for Part 2 Long Turn)
   const [prepNotes, setPrepNotes] = useState('');
@@ -157,6 +213,10 @@ export default function IELTSSpeakingSessionScreen() {
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [audioPermission, setAudioPermission] = useState<boolean>(false);
   const [sound, setSound] = useState<Audio.Sound | null>(null);
+  const [isPlayingQuestionAudio, setIsPlayingQuestionAudio] = useState(false);
+  const [questionAudioLoading, setQuestionAudioLoading] = useState(false);
+  const [questionAudioPosition, setQuestionAudioPosition] = useState(0);
+  const [questionAudioDuration, setQuestionAudioDuration] = useState(0);
 
   // Concentric Mic Pulse Animations for 'recording'
   const pulseAnim1 = useRef(new Animated.Value(1)).current;
@@ -206,12 +266,20 @@ export default function IELTSSpeakingSessionScreen() {
           
           const speakSec = res.sections?.find(s => 
             s.section_name.toLowerCase().includes('speaking')
-          );
+          ) || (res.sections && res.sections.length > 0 ? res.sections[0] : undefined);
           
           if (speakSec && speakSec.question_groups && speakSec.question_groups.length > 0) {
             setSpeakingSection(speakSec);
+            const firstQ = speakSec.question_groups[0]?.responses[0]?.question;
+            setGetReadyCountdown(getPrepDuration(firstQ, 0));
+            setQuestionTimeLeft(getRecordingDuration(firstQ, 0));
           } else {
+            console.warn('Attempt has no questions in speaking section, clearing stale attempt ID:', params.attempt_id);
+            setAttempt(null);
             setSpeakingSection(FALLBACK_SPEAKING_STRUCTURE);
+            const firstQ = FALLBACK_SPEAKING_STRUCTURE.question_groups[0]?.responses[0]?.question;
+            setGetReadyCountdown(getPrepDuration(firstQ, 0));
+            setQuestionTimeLeft(getRecordingDuration(firstQ, 0));
           }
 
           const initialBookmarks: number[] = [];
@@ -236,11 +304,19 @@ export default function IELTSSpeakingSessionScreen() {
           setTotalTimeLeft(res.timer_info?.remaining_seconds ?? 900);
           const speakSec = res.sections?.find(s => 
             s.section_name.toLowerCase().includes('speaking')
-          );
+          ) || (res.sections && res.sections.length > 0 ? res.sections[0] : undefined);
           if (speakSec && speakSec.question_groups && speakSec.question_groups.length > 0) {
             setSpeakingSection(speakSec);
+            const firstQ = speakSec.question_groups[0]?.responses[0]?.question;
+            setGetReadyCountdown(getPrepDuration(firstQ, 0));
+            setQuestionTimeLeft(getRecordingDuration(firstQ, 0));
           } else {
+            console.warn('New attempt has no questions in speaking section, clearing attempt ID');
+            setAttempt(null);
             setSpeakingSection(FALLBACK_SPEAKING_STRUCTURE);
+            const firstQ = FALLBACK_SPEAKING_STRUCTURE.question_groups[0]?.responses[0]?.question;
+            setGetReadyCountdown(getPrepDuration(firstQ, 0));
+            setQuestionTimeLeft(getRecordingDuration(firstQ, 0));
           }
         }
       } catch (e: any) {
@@ -254,6 +330,7 @@ export default function IELTSSpeakingSessionScreen() {
           return;
         }
         console.warn('Could not initialize speaking session, using fallback speaking structure:', e);
+        setAttempt(null);
         setSpeakingSection(FALLBACK_SPEAKING_STRUCTURE);
       } finally {
         setLoading(false);
@@ -369,6 +446,95 @@ export default function IELTSSpeakingSessionScreen() {
     }
   }, [subState]);
 
+  // Load and play question audio received from backend during 'listen' subState
+  useEffect(() => {
+    let isCancelled = false;
+
+    const playQuestionAudio = async () => {
+      if (subState !== 'listen' || !speakingSection) return;
+
+      const activeGroup = speakingSection.question_groups[activeGroupIndex];
+      const currentResponse = activeGroup?.responses[currentResponseIndex];
+      const currentQ = currentResponse?.question;
+      if (!currentQ) return;
+
+      if (sound) {
+        try {
+          await sound.unloadAsync();
+        } catch {}
+        setSound(null);
+      }
+
+      const rawAudioUrl = 
+        (currentQ as any)?.audio_file || 
+        (currentQ as any)?.audio || 
+        (currentResponse as any)?.audio_file || 
+        (activeGroup as any)?.context_media || 
+        (activeGroup as any)?.audio_file;
+
+      if (rawAudioUrl) {
+        try {
+          setQuestionAudioLoading(true);
+          await Audio.setAudioModeAsync({ playsInSilentModeIOS: true, allowsRecordingIOS: false });
+          const cachedUri = await mediaCache.getCachedAudioUri(rawAudioUrl);
+          
+          if (isCancelled) return;
+
+          if (cachedUri) {
+            const { sound: newSound } = await Audio.Sound.createAsync(
+              { uri: cachedUri },
+              { shouldPlay: true },
+              (status) => {
+                if (status.isLoaded) {
+                  setQuestionAudioPosition(status.positionMillis || 0);
+                  setQuestionAudioDuration(status.durationMillis || 0);
+                  if (status.durationMillis && status.positionMillis !== undefined) {
+                    const remainingSec = Math.max(1, Math.ceil((status.durationMillis - status.positionMillis) / 1000));
+                    setQuestionTimeLeft(remainingSec);
+                  }
+                  if (status.didJustFinish && !isCancelled) {
+                    setIsPlayingQuestionAudio(false);
+                    // Automatically transition to recording state when question audio finishes!
+                    handleListenComplete();
+                  }
+                }
+              }
+            );
+            if (isCancelled) {
+              newSound.unloadAsync().catch(() => {});
+              return;
+            }
+            setSound(newSound);
+            setIsPlayingQuestionAudio(true);
+          }
+        } catch (err) {
+          console.warn('Question audio playback error:', err);
+        } finally {
+          if (!isCancelled) {
+            setQuestionAudioLoading(false);
+          }
+        }
+      } else {
+        // Fallback when no audio URL exists: set authentic listen timeout
+        setQuestionTimeLeft(getListenDuration(currentQ, activeGroupIndex));
+      }
+    };
+
+    if (subState === 'listen') {
+      playQuestionAudio();
+    } else {
+      if (sound) {
+        sound.unloadAsync().catch(() => {});
+        setSound(null);
+        setIsPlayingQuestionAudio(false);
+      }
+    }
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [subState, activeGroupIndex, currentResponseIndex, speakingSection]);
+
   // Sub-State Timers & Auto-Transitions
   useEffect(() => {
     let timer: ReturnType<typeof setInterval>;
@@ -456,7 +622,7 @@ export default function IELTSSpeakingSessionScreen() {
   // Transitions
   const handleGetReadyComplete = () => {
     setSubState('listen');
-    setQuestionTimeLeft(208); // 03:28 display as in mockup
+    setQuestionTimeLeft(getListenDuration(currentQ, activeGroupIndex));
   };
 
   const handleStartNow = () => {
@@ -465,7 +631,7 @@ export default function IELTSSpeakingSessionScreen() {
 
   const handleListenComplete = async () => {
     setSubState('recording');
-    setQuestionTimeLeft(208); // 03:28 as in mockup
+    setQuestionTimeLeft(getRecordingDuration(currentQ, activeGroupIndex));
     await startRecording();
   };
 
@@ -486,7 +652,8 @@ export default function IELTSSpeakingSessionScreen() {
     
     if (uri && attempt && activeGroup) {
       const q = activeGroup.responses[currentResponseIndex];
-      if (q?.question?.id) {
+      // Only upload to backend if question belongs to a real server attempt (not fallback mock structure)
+      if (q?.question?.id && speakingSection !== FALLBACK_SPEAKING_STRUCTURE) {
         examService.uploadAudio(attempt.id, q.question.id, uri).catch(err => {
           console.warn('Audio upload warning:', err);
         });
@@ -495,14 +662,19 @@ export default function IELTSSpeakingSessionScreen() {
 
     // Move to next question or next part
     if (activeGroup && currentResponseIndex < activeGroup.responses.length - 1) {
-      setCurrentResponseIndex(prev => prev + 1);
+      const nextIdx = currentResponseIndex + 1;
+      const nextQ = activeGroup.responses[nextIdx]?.question;
+      setCurrentResponseIndex(nextIdx);
       setSubState('get-ready');
-      setGetReadyCountdown(5);
+      setGetReadyCountdown(getPrepDuration(nextQ, activeGroupIndex));
     } else if (speakingSection && activeGroupIndex < speakingSection.question_groups.length - 1) {
-      setActiveGroupIndex(prev => prev + 1);
+      const nextGrpIdx = activeGroupIndex + 1;
+      const nextGrp = speakingSection.question_groups[nextGrpIdx];
+      const nextQ = nextGrp?.responses[0]?.question;
+      setActiveGroupIndex(nextGrpIdx);
       setCurrentResponseIndex(0);
       setSubState('get-ready');
-      setGetReadyCountdown(5);
+      setGetReadyCountdown(getPrepDuration(nextQ, nextGrpIdx));
       setPrepNotes('');
     } else {
       handleSubmit();
@@ -642,6 +814,7 @@ export default function IELTSSpeakingSessionScreen() {
           attempt_id: attemptId ? String(attemptId) : (params.attempt_id || ''),
           exam_name: params.exam_name || 'IELTS Speaking Test',
           is_ielts: 'true',
+          section_names: params.section_names || 'Speaking',
           total_score: submitRes?.total_score !== undefined ? String(submitRes.total_score) : '',
           streak: submitRes?.streak !== undefined ? String(submitRes.streak) : '',
           ai_feedbacks: submitRes?.ai_feedbacks ? JSON.stringify(submitRes.ai_feedbacks) : '',
@@ -666,9 +839,6 @@ export default function IELTSSpeakingSessionScreen() {
     }
   };
 
-  const activeGroup = speakingSection?.question_groups[activeGroupIndex];
-  const currentResponse = activeGroup?.responses[currentResponseIndex];
-  const currentQ = currentResponse?.question;
   const isBookmarked = currentQ?.id ? bookmarkedQuestions.includes(currentQ.id) : false;
 
   // Title calculation: strictly "IELTS Speaking"
@@ -702,6 +872,64 @@ export default function IELTSSpeakingSessionScreen() {
 
   const { mins: countdownMins, secs: countdownSecs } = formatDigits(getReadyCountdown);
   const { mins: timerMins, secs: timerSecs } = formatDigits(questionTimeLeft);
+
+  const renderCueCard = (question?: any) => {
+    if (!question) return null;
+
+    let topic = question.text ? formatQuestionText(question.text) : '';
+    topic = topic.replace(/^Long Turn\s*[-–:]\s*/i, '').trim();
+
+    const rawInstructions = question.instructions ? formatQuestionText(question.instructions) : '';
+
+    let bulletLines: string[] = [];
+    if (rawInstructions) {
+      bulletLines = rawInstructions
+        .split('\n')
+        .map((l: string) => l.trim())
+        .filter(Boolean);
+    } else if (topic.includes('\n')) {
+      const parts = topic.split('\n').map((l: string) => l.trim()).filter(Boolean);
+      topic = parts[0] || topic;
+      bulletLines = parts.slice(1);
+    }
+
+    return (
+      <View style={styles.cueCardContainer}>
+        <View style={styles.cueCardHeader}>
+          <View style={styles.cueCardBadge}>
+            <Feather name="file-text" size={13} color="#4C1D95" />
+            <Text style={styles.cueCardBadgeText}>Candidate Task Card</Text>
+          </View>
+          <Text style={styles.cueCardPartTag}>Part 2 Topic</Text>
+        </View>
+
+        <Text style={styles.cueCardTopic}>{topic}</Text>
+
+        {bulletLines.length > 0 && (
+          <View style={styles.cueCardBulletsContainer}>
+            {bulletLines.map((line: string, idx: number) => {
+              const lower = line.toLowerCase();
+              const isLead = lower.startsWith('you should say') || lower.startsWith('describe ') || lower.startsWith('talk about');
+              if (isLead) {
+                return (
+                  <Text key={idx} style={styles.cueCardLeadText}>
+                    {line}
+                  </Text>
+                );
+              }
+              const cleanBullet = line.replace(/^[•\-\*\d+\.]\s*/, '');
+              return (
+                <View key={idx} style={styles.cueCardBulletRow}>
+                  <View style={styles.cueCardBulletDot} />
+                  <Text style={styles.cueCardBulletText}>{cleanBullet}</Text>
+                </View>
+              );
+            })}
+          </View>
+        )}
+      </View>
+    );
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -742,8 +970,10 @@ export default function IELTSSpeakingSessionScreen() {
                   if (idx <= activeGroupIndex) {
                     setActiveGroupIndex(idx);
                     setCurrentResponseIndex(0);
+                    const grp = speakingSection?.question_groups[idx];
+                    const q = grp?.responses[0]?.question;
                     setSubState('get-ready');
-                    setGetReadyCountdown(5);
+                    setGetReadyCountdown(getPrepDuration(q, idx));
                   }
                 }}
                 activeOpacity={0.8}
@@ -792,43 +1022,19 @@ export default function IELTSSpeakingSessionScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* Section & Question Titles */}
-          {activeGroupIndex === 0 && (
-            <View style={styles.textIntroSection}>
-              <Text style={styles.sectionHeading}>Introduction & Interview</Text>
-              <Text style={styles.sectionDescription}>
-                The examiner will ask you general questions about yourself, your home, your work or studies and other familiar topics.
-              </Text>
-            </View>
-          )}
-
-          {activeGroupIndex === 1 && (
-            <View style={styles.textIntroSection}>
-              <Text style={styles.sectionHeading}>
-                {currentQ?.text?.includes('Long Turn') 
-                  ? currentQ.text 
-                  : `Long Turn - ${currentQ?.text || 'Talk about a book you have read.'}`}
-              </Text>
-
-              {/* Part 2 Cue Card Bullets */}
-              <View style={styles.cueCardBox}>
-                <Text style={styles.cueCardIntro}>You should say:</Text>
-                <Text style={styles.cueBullet}>• What the book is</Text>
-                <Text style={styles.cueBullet}>• When you read it</Text>
-                <Text style={styles.cueBullet}>• What it is about</Text>
-                <Text style={styles.cueBullet}>• And explain why you liked it.</Text>
-              </View>
-            </View>
-          )}
-
-          {activeGroupIndex === 2 && (
-            <View style={styles.textIntroSection}>
-              <Text style={styles.sectionHeading}>Two-way Discussion</Text>
-              <Text style={styles.sectionDescription}>
-                The examiner will ask further questions connected to the topic in Part 2.
-              </Text>
-            </View>
-          )}
+          {/* Section Headers (No on-screen question prompt text or cue card text) */}
+          <View style={styles.textIntroSection}>
+            <Text style={styles.sectionHeading}>
+              {activeGroupIndex === 0 
+                ? 'Part 1: Introduction & Interview' 
+                : activeGroupIndex === 1 
+                ? 'Part 2: Individual Long Turn' 
+                : 'Part 3: Two-way Discussion'}
+            </Text>
+            <Text style={styles.sectionDescription}>
+              Question {currentResponseIndex + 1} of {activeGroup?.responses?.length || 1}
+            </Text>
+          </View>
 
           {/* ======================================================== */}
           {/* STATE 1: GET READY (Mockup 3 & Mockup 1)                 */}
@@ -840,9 +1046,17 @@ export default function IELTSSpeakingSessionScreen() {
                 <Ionicons name="mic-outline" size={48} color="#4C1D95" />
               </View>
 
-              <Text style={styles.stateTitle}>Get Ready</Text>
-              <Text style={styles.stateSubtitle}>Please listen carefully and respond clearly.</Text>
-              <Text style={styles.stateSubtitleSub}>Part {activeGroupIndex + 1} will start in</Text>
+              <Text style={styles.stateTitle}>
+                {activeGroupIndex === 1 ? 'Preparation Time' : 'Get Ready'}
+              </Text>
+              <Text style={styles.stateSubtitle}>
+                {activeGroupIndex === 1
+                  ? 'You have 1 minute to read the task card and prepare your talk.'
+                  : 'Please listen carefully to the examiner audio and respond clearly.'}
+              </Text>
+              <Text style={styles.stateSubtitleSub}>
+                {activeGroupIndex === 1 ? 'Speaking begins in' : `Question ${currentResponseIndex + 1} will start in`}
+              </Text>
 
               {/* Digital Countdown */}
               <View style={styles.countdownRow}>
@@ -864,11 +1078,14 @@ export default function IELTSSpeakingSessionScreen() {
                   <View style={{ flex: 1 }}>
                     <Text style={styles.tipTitle}>Tip</Text>
                     <Text style={styles.tipDescription}>
-                      Speak clearly and naturally. There are no right or wrong answers.
+                      Speak clearly and naturally into your microphone when recording begins.
                     </Text>
                   </View>
                 </View>
               )}
+
+              {/* Part 2 Candidate Task Card (Visible during 1-minute preparation) */}
+              {activeGroupIndex === 1 && renderCueCard(currentQ)}
 
               {/* Part 2 Quick Scratchpad Notes Toggle */}
               {activeGroupIndex === 1 && (
@@ -886,7 +1103,7 @@ export default function IELTSSpeakingSessionScreen() {
                   {showNotesInRecording && (
                     <TextInput
                       style={styles.scratchpadInput}
-                      placeholder="Jot down keywords or key points for your 2-minute talk..."
+                      placeholder="Jot down keywords or key points for your talk..."
                       placeholderTextColor="#9CA3AF"
                       value={prepNotes}
                       onChangeText={setPrepNotes}
@@ -918,7 +1135,9 @@ export default function IELTSSpeakingSessionScreen() {
               </View>
 
               <Text style={styles.stateTitle}>Listen to the Question</Text>
-              <Text style={styles.stateSubtitleDark}>The examiner is asking the question</Text>
+              <Text style={styles.stateSubtitleDark}>
+                {questionAudioLoading ? 'Loading examiner audio...' : 'The examiner is speaking the question audio'}
+              </Text>
 
               {/* Notice Banner with amber dot */}
               <View style={styles.noticeBanner}>
@@ -927,6 +1146,9 @@ export default function IELTSSpeakingSessionScreen() {
                   Recording will start automatically, when the question ends.
                 </Text>
               </View>
+
+              {/* Part 2 Candidate Task Card during Examiner Intro */}
+              {activeGroupIndex === 1 && renderCueCard(currentQ)}
 
               {/* Digital Timer */}
               <View style={styles.countdownRow}>
@@ -951,11 +1173,12 @@ export default function IELTSSpeakingSessionScreen() {
           {subState === 'recording' && (
             <View style={styles.stateContainer}>
               {/* Concentric Pulsating Microphone Circle */}
-              <View style={styles.pulseContainer}>
+              <View style={[styles.pulseContainer, activeGroupIndex === 1 && styles.pulseContainerCompact]}>
                 {/* Outer Ring 2 */}
                 <Animated.View 
                   style={[
                     styles.pulseRing2, 
+                    activeGroupIndex === 1 && styles.pulseRing2Compact,
                     { 
                       transform: [{ scale: pulseAnim2 }],
                       opacity: pulseOpacity2,
@@ -966,6 +1189,7 @@ export default function IELTSSpeakingSessionScreen() {
                 <Animated.View 
                   style={[
                     styles.pulseRing1, 
+                    activeGroupIndex === 1 && styles.pulseRing1Compact,
                     { 
                       transform: [{ scale: pulseAnim1 }],
                       opacity: pulseOpacity1,
@@ -973,8 +1197,8 @@ export default function IELTSSpeakingSessionScreen() {
                   ]} 
                 />
                 {/* Center Solid Circle */}
-                <View style={styles.pulseCoreCircle}>
-                  <Feather name="mic" size={36} color="#FFFFFF" />
+                <View style={[styles.pulseCoreCircle, activeGroupIndex === 1 && styles.pulseCoreCircleCompact]}>
+                  <Feather name="mic" size={activeGroupIndex === 1 ? 24 : 36} color="#FFFFFF" />
                 </View>
               </View>
 
@@ -998,10 +1222,16 @@ export default function IELTSSpeakingSessionScreen() {
 
               <Text style={styles.timeLeftLabel}>Time Left</Text>
 
+              {/* Part 2 Candidate Task Card (Pinned while speaking for 2 minutes) */}
+              {activeGroupIndex === 1 && renderCueCard(currentQ)}
+
               {/* Display candidate notes if written during prep */}
               {prepNotes.trim().length > 0 && (
                 <View style={styles.prepNotesPreview}>
-                  <Text style={styles.prepNotesPreviewTitle}>Your Notes:</Text>
+                  <View style={styles.prepNotesPreviewHeader}>
+                    <Feather name="edit-3" size={13} color="#4C1D95" />
+                    <Text style={styles.prepNotesPreviewTitle}>Your Scratchpad Notes</Text>
+                  </View>
                   <Text style={styles.prepNotesPreviewText}>{prepNotes}</Text>
                 </View>
               )}
@@ -1015,11 +1245,11 @@ export default function IELTSSpeakingSessionScreen() {
         <View style={styles.bottomBar}>
           <TouchableOpacity 
             style={styles.primaryActionButton}
-            onPress={subState === 'get-ready' && activeGroupIndex === 0 ? handleStartNow : handleNextAnswer}
+            onPress={subState === 'get-ready' ? handleStartNow : handleNextAnswer}
             activeOpacity={0.88}
           >
             <Text style={styles.primaryActionButtonText}>
-              {subState === 'get-ready' && activeGroupIndex === 0 ? 'Start Now' : 'Next'}
+              {subState === 'get-ready' ? (activeGroupIndex === 1 ? 'Start Speaking' : 'Start Now') : 'Next'}
             </Text>
           </TouchableOpacity>
         </View>
@@ -1503,6 +1733,11 @@ const styles = StyleSheet.create({
     marginVertical: 14,
     position: 'relative',
   },
+  pulseContainerCompact: {
+    width: 110,
+    height: 110,
+    marginVertical: 6,
+  },
   pulseRing2: {
     position: 'absolute',
     width: 150,
@@ -1510,12 +1745,22 @@ const styles = StyleSheet.create({
     borderRadius: 75,
     backgroundColor: '#7C3AED',
   },
+  pulseRing2Compact: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+  },
   pulseRing1: {
     position: 'absolute',
     width: 120,
     height: 120,
     borderRadius: 60,
     backgroundColor: '#7C3AED',
+  },
+  pulseRing1Compact: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
   },
   pulseCoreCircle: {
     width: 90,
@@ -1529,6 +1774,93 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 10,
     elevation: 4,
+  },
+  pulseCoreCircleCompact: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+  },
+
+  // Candidate Task Card (Part 2 Cue Card)
+  cueCardContainer: {
+    width: '100%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: '#EDE9FE',
+    padding: 16,
+    marginVertical: 12,
+    shadowColor: '#4C1D95',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  cueCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  cueCardBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F5F3FF',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    gap: 6,
+  },
+  cueCardBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#4C1D95',
+    letterSpacing: 0.3,
+    textTransform: 'uppercase',
+  },
+  cueCardPartTag: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#8B5CF6',
+  },
+  cueCardTopic: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#111827',
+    lineHeight: 22,
+    marginBottom: 8,
+  },
+  cueCardBulletsContainer: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 10,
+    padding: 12,
+    marginTop: 4,
+  },
+  cueCardLeadText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 6,
+  },
+  cueCardBulletRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginVertical: 3,
+    paddingRight: 8,
+  },
+  cueCardBulletDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#7C3AED',
+    marginTop: 6,
+    marginRight: 8,
+  },
+  cueCardBulletText: {
+    fontSize: 13,
+    color: '#4B5563',
+    lineHeight: 19,
+    flex: 1,
   },
 
   // Scratchpad & Prep Notes
@@ -1563,7 +1895,7 @@ const styles = StyleSheet.create({
     color: '#1F2937',
   },
   prepNotesPreview: {
-    marginTop: 16,
+    marginTop: 14,
     width: '100%',
     padding: 12,
     backgroundColor: '#F9FAFB',
@@ -1571,11 +1903,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E5E7EB',
   },
+  prepNotesPreviewHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
+  },
   prepNotesPreviewTitle: {
     fontSize: 12,
     fontWeight: '700',
     color: '#4B5563',
-    marginBottom: 4,
   },
   prepNotesPreviewText: {
     fontSize: 13,

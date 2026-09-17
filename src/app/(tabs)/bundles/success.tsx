@@ -12,6 +12,7 @@ import { Feather, Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
+import { subscriptionRedirect } from '@/services/subscriptionRedirect';
 
 export default function BundleSuccessScreen() {
   const router = useRouter();
@@ -22,6 +23,7 @@ export default function BundleSuccessScreen() {
     billing_type?: string;
   }>();
   const { user } = useAuth();
+  const pendingRedirect = subscriptionRedirect.getPendingRedirect();
 
   const bundleName = params.bundle_name || 'IELTS Bundle';
   const isJamb = bundleName.toLowerCase().includes('jamb');
@@ -36,7 +38,19 @@ export default function BundleSuccessScreen() {
   });
 
   const handleStartPractice = () => {
-    router.replace('/(tabs)/practice');
+    const pending = subscriptionRedirect.getPendingRedirect();
+    subscriptionRedirect.clearPendingRedirect();
+    if (pending) {
+      router.replace({
+        pathname: pending.pathname as any,
+        params: {
+          ...(pending.params || {}),
+          auto_start: 'true',
+        },
+      });
+    } else {
+      router.replace('/(tabs)/practice');
+    }
   };
 
   return (
@@ -179,7 +193,9 @@ export default function BundleSuccessScreen() {
             onPress={handleStartPractice}
             activeOpacity={0.85}
           >
-            <Text style={styles.startPracticeButtonText}>Start Practice</Text>
+            <Text style={styles.startPracticeButtonText}>
+              {pendingRedirect ? 'Continue to Test' : 'Start Practice'}
+            </Text>
           </TouchableOpacity>
 
           <View style={{ height: 100 }} />

@@ -1,5 +1,5 @@
 import { useAuth } from '@/context/AuthContext';
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { 
   View, 
   Text, 
@@ -15,6 +15,27 @@ import Svg, { Circle } from 'react-native-svg';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { examService, isSectionBasedExam } from '@/services/exam';
 
+function getIeltsDescriptor(score: number): string {
+  if (score >= 9.0) return 'Expert User';
+  if (score >= 8.0) return 'Very Good User';
+  if (score >= 7.0) return 'Good User';
+  if (score >= 6.0) return 'Competent User';
+  if (score >= 5.0) return 'Modest User';
+  if (score >= 4.0) return 'Limited User';
+  if (score >= 3.0) return 'Extremely Limited User';
+  if (score >= 2.0) return 'Intermittent User';
+  return 'Non User';
+}
+
+function calculateCefr(score: number): string {
+  if (score >= 8.5) return 'C2 (Mastery)';
+  if (score >= 7.0) return 'C1 (Effective Operational Proficiency)';
+  if (score >= 5.5) return 'B2 (Vantage)';
+  if (score >= 4.0) return 'B1 (Threshold)';
+  if (score >= 3.0) return 'A2 (Waystage)';
+  return 'A1 (Breakthrough)';
+}
+
 interface AiFeedbackItem {
   question_id?: number;
   score_awarded?: number;
@@ -29,23 +50,48 @@ interface AiFeedbackItem {
   [key: string]: any;
 }
 
-// Official IELTS CEFR Calculator
-export const calculateCefr = (band: number): string => {
-  if (band >= 8.5) return 'C2 • Mastery';
-  if (band >= 7.0) return 'C1 • Advanced';
-  if (band >= 5.5) return 'B2 • Vantage';
-  if (band >= 4.0) return 'B1 • Intermediate';
-  return 'A2 • Elementary';
-};
+export interface IeltsSectionDef {
+  label: string;
+  key: string;
+  altKeys: string[];
+  icon: any;
+  color: string;
+  bg: string;
+}
 
-// Official IELTS Descriptor
-export function getIeltsDescriptor(band: number): string {
-  if (band >= 8.5) return 'Expert User';
-  if (band >= 7.5) return 'Very Good User';
-  if (band >= 6.5) return 'Good User';
-  if (band >= 5.5) return 'Competent User';
-  if (band >= 4.5) return 'Modest User';
-  return 'Limited User';
+export const ALL_IELTS_SECTIONS: IeltsSectionDef[] = [
+  { label: 'Reading', key: 'Reading Band', altKeys: ['Reading', 'Reading Score'], icon: 'book-outline', color: '#7C3AED', bg: '#F3E8FF' },
+  { label: 'Listening', key: 'Listening Band', altKeys: ['Listening', 'Listening Score'], icon: 'headset-outline', color: '#2563EB', bg: '#DBEAFE' },
+  { label: 'Writing', key: 'Writing Band', altKeys: ['Writing', 'Writing Score'], icon: 'create-outline', color: '#D97706', bg: '#FEF3C7' },
+  { label: 'Speaking', key: 'Speaking Band', altKeys: ['Speaking', 'Speaking Score'], icon: 'mic-outline', color: '#059669', bg: '#D1FAE5' },
+];
+
+export function getSectionScore(item: IeltsSectionDef, scores: Record<string, number>): number | null {
+  if (!scores || typeof scores !== 'object') return null;
+  for (const k of [item.key, item.label, ...item.altKeys]) {
+    if (scores[k] !== undefined && scores[k] !== null) {
+      const val = parseFloat(String(scores[k]));
+      if (!isNaN(val)) return val;
+    }
+  }
+  const foundKey = Object.keys(scores).find(k => k.toLowerCase().includes(item.label.toLowerCase()));
+  if (foundKey && scores[foundKey] !== undefined && scores[foundKey] !== null) {
+    const val = parseFloat(String(scores[foundKey]));
+    if (!isNaN(val)) return val;
+  }
+  return null;
+}
+
+export function roundIeltsBand(score: number): number {
+  const floor = Math.floor(score);
+  const decimal = score - floor;
+  if (decimal < 0.25) {
+    return floor;
+  } else if (decimal < 0.75) {
+    return floor + 0.5;
+  } else {
+    return floor + 1.0;
+  }
 }
 
 export default function TestResultScreen() {
@@ -60,6 +106,9 @@ export default function TestResultScreen() {
     ai_feedbacks?: string;
     ai_assessment_status?: string;
     ai_skip_reason?: string;
+    section_names?: string;
+    section_order?: string;
+    sections?: string;
   }>();
 
   // Initial detection
@@ -72,9 +121,8 @@ export default function TestResultScreen() {
     ? parseFloat(params.total_score)
     : null;
 
-
-
   const [isIelts, setIsIelts] = useState<boolean>(detectedIsIelts);
+  const [analyticsData, setAnalyticsData] = useState<any>(null);
   const [loading, setLoading] = useState<boolean>(initialScore === null && Boolean(params.attempt_id));
   const [analyticsLoading, setAnalyticsLoading] = useState<boolean>(Boolean(params.attempt_id));
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
@@ -117,10 +165,9 @@ export default function TestResultScreen() {
   const pollCountRef = useRef(0);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-
-
   const processAnalyticsData = useCallback((data: any) => {
     if (!data) return;
+    setAnalyticsData(data);
 
     const examName = data.exam_name || params.exam_name || '';
     const examNameLower = examName.toLowerCase();
@@ -157,29 +204,71 @@ export default function TestResultScreen() {
     setIsIelts(isIeltsTest);
     if (examName) setExamTitle(examName);
 
+    // Section bands update
+    const secScores = (data.score_per_section && typeof data.score_per_section === 'object')
+      ? data.score_per_section
+      : {};
+    if (Object.keys(secScores).length > 0) {
+      setScorePerSection(secScores);
+
+      const writingBand = secScores['Writing Band'] ?? secScores['Writing'];
+      const speakingBand = secScores['Speaking Band'] ?? secScores['Speaking'];
+      const isStillEvaluating = (writingBand === undefined || writingBand === null || writingBand === 0) &&
+                                (speakingBand === undefined || speakingBand === null || speakingBand === 0);
+      setIsAiEvaluating(isStillEvaluating && data.ai_assessment_status !== 'Skipped');
+    }
+
     // Score parsing
     if (isIeltsTest) {
-      const rawScore = data.total_score !== undefined
-        ? parseFloat(String(data.total_score))
-        : (data.overall_band !== undefined ? parseFloat(String(data.overall_band)) : initialScore);
+      const dataSecNames: string[] = [];
+      if (data?.sections && Array.isArray(data.sections)) {
+        data.sections.forEach((s: any) => {
+          const name = s.section_name || s.name || '';
+          if (name) dataSecNames.push(name.toLowerCase());
+        });
+      }
+      if (data?.subjects && Array.isArray(data.subjects)) {
+        data.subjects.forEach((s: any) => {
+          const name = s.section_name || s.name || '';
+          if (name) dataSecNames.push(name.toLowerCase());
+        });
+      }
+
+      const rawParamsStr = [params.section_names, params.section_order, params.sections, params.exam_name].filter(Boolean).join(',').toLowerCase();
+
+      const matchedSecs = ALL_IELTS_SECTIONS.filter(sec => {
+        const labelLower = sec.label.toLowerCase();
+        if (dataSecNames.length > 0 && dataSecNames.some((d: string) => d.includes(labelLower))) return true;
+        if (rawParamsStr && rawParamsStr.includes(labelLower)) return true;
+        if (getSectionScore(sec, secScores) !== null) return true;
+        return false;
+      });
+
+      const effectiveSecs = matchedSecs.length > 0 ? matchedSecs : ALL_IELTS_SECTIONS;
+      const activeScores: number[] = [];
+
+      effectiveSecs.forEach(sec => {
+        const val = getSectionScore(sec, secScores);
+        if (val !== null && !isNaN(val) && val > 0) {
+          activeScores.push(val);
+        }
+      });
+
+      let rawScore: number | null = null;
+      if (activeScores.length > 0) {
+        const sum = activeScores.reduce((acc, curr) => acc + curr, 0);
+        rawScore = roundIeltsBand(sum / activeScores.length);
+      } else {
+        rawScore = data.total_score !== undefined
+          ? parseFloat(String(data.total_score))
+          : (data.overall_band !== undefined ? parseFloat(String(data.overall_band)) : initialScore);
+      }
 
       if (rawScore !== null && !isNaN(rawScore)) {
         setScore(rawScore);
         setTotalScore(9.0);
         setPerformanceTag(getIeltsDescriptor(rawScore));
         setCefrLevel(data.cefr_level || data.cefr || calculateCefr(rawScore));
-      }
-
-      // Section bands
-      if (data.score_per_section && typeof data.score_per_section === 'object') {
-        setScorePerSection(data.score_per_section);
-
-        // Check if Writing or Speaking is awaiting AI grading
-        const writingBand = data.score_per_section['Writing Band'] ?? data.score_per_section['Writing'];
-        const speakingBand = data.score_per_section['Speaking Band'] ?? data.score_per_section['Speaking'];
-        const isStillEvaluating = (writingBand === undefined || writingBand === null || writingBand === 0) &&
-                                  (speakingBand === undefined || speakingBand === null || speakingBand === 0);
-        setIsAiEvaluating(isStillEvaluating && data.ai_assessment_status !== 'Skipped');
       }
 
       // Reading Diagnostic WPM (support both assessments.reading and root)
@@ -224,7 +313,7 @@ export default function TestResultScreen() {
         setTimeUsedFormatted(`${sec}s`);
       }
     }
-  }, [detectedIsIelts, initialScore, params.exam_name]);
+  }, [detectedIsIelts, initialScore, params.exam_name, params.is_ielts, params.section_names, params.section_order, params.sections]);
 
   const fetchResults = useCallback(async (isPolling = false) => {
     if (!params.attempt_id) {
@@ -325,20 +414,74 @@ export default function TestResultScreen() {
     };
   }, [isAiEvaluating, fetchResults, params.attempt_id]);
 
+  // Active IELTS Sections considering selected/done practice sections
+  const activeIeltsSections = useMemo(() => {
+    if (!isIelts) return ALL_IELTS_SECTIONS;
+
+    const dataSecNames: string[] = [];
+    if (analyticsData?.sections && Array.isArray(analyticsData.sections)) {
+      analyticsData.sections.forEach((s: any) => {
+        const name = s.section_name || s.name || '';
+        if (name) dataSecNames.push(name.toLowerCase());
+      });
+    }
+    if (analyticsData?.subjects && Array.isArray(analyticsData.subjects)) {
+      analyticsData.subjects.forEach((s: any) => {
+        const name = s.section_name || s.name || '';
+        if (name) dataSecNames.push(name.toLowerCase());
+      });
+    }
+
+    const rawParamsStr = [
+      params.section_names,
+      params.section_order,
+      params.sections,
+      params.exam_name,
+    ].filter(Boolean).join(',').toLowerCase();
+
+    const matched = ALL_IELTS_SECTIONS.filter(sec => {
+      const labelLower = sec.label.toLowerCase();
+
+      // Check data.sections or data.subjects
+      if (dataSecNames.length > 0) {
+        if (dataSecNames.some(d => d.includes(labelLower))) return true;
+      }
+
+      // Check router params string
+      if (rawParamsStr) {
+        if (rawParamsStr.includes(labelLower)) return true;
+      }
+
+      // Check scorePerSection
+      const val = getSectionScore(sec, scorePerSection);
+      if (val !== null && val !== undefined) return true;
+
+      return false;
+    });
+
+    if (matched.length > 0) {
+      return matched;
+    }
+
+    return ALL_IELTS_SECTIONS;
+  }, [isIelts, analyticsData, params.section_names, params.section_order, params.sections, params.exam_name, scorePerSection]);
+
   // Calculations for donut
   const displayScore = score !== null ? (isIelts ? score.toFixed(1) : String(score)) : '--';
   const percentage = isIelts
     ? Math.min(100, Math.round(((score ?? 0) / 9.0) * 100))
     : (totalScore && totalScore > 0 ? Math.round(((score ?? 0) / totalScore) * 100) : 0);
 
+  const totalIeltsQuestions = analyticsData?.total_questions_attempted || analyticsData?.total_questions || (activeIeltsSections.length * 40);
+
   const correctPct = totalScore && totalScore > 0 && correctAnswers !== null
-    ? Math.round((correctAnswers / (isIelts ? 40 : totalScore)) * 100)
+    ? Math.round((correctAnswers / (isIelts ? totalIeltsQuestions : totalScore)) * 100)
     : null;
   const wrongPct = totalScore && totalScore > 0 && wrongAnswers !== null
-    ? Math.round((wrongAnswers / (isIelts ? 40 : totalScore)) * 100)
+    ? Math.round((wrongAnswers / (isIelts ? totalIeltsQuestions : totalScore)) * 100)
     : null;
   const skippedPct = totalScore && totalScore > 0 && skippedQuestions !== null
-    ? Math.round((skippedQuestions / (isIelts ? 40 : totalScore)) * 100)
+    ? Math.round((skippedQuestions / (isIelts ? totalIeltsQuestions : totalScore)) * 100)
     : null;
 
   // SVG Circular progress
@@ -347,14 +490,6 @@ export default function TestResultScreen() {
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset = circumference - (circumference * percentage) / 100;
-
-  // Default section keys for IELTS
-  const defaultIeltsSections: { label: string; key: string; icon: any; color: string; bg: string }[] = [
-    { label: 'Reading', key: 'Reading Band', icon: 'book-outline', color: '#7C3AED', bg: '#F3E8FF' },
-    { label: 'Listening', key: 'Listening Band', icon: 'headset-outline', color: '#2563EB', bg: '#DBEAFE' },
-    { label: 'Writing', key: 'Writing Band', icon: 'create-outline', color: '#D97706', bg: '#FEF3C7' },
-    { label: 'Speaking', key: 'Speaking Band', icon: 'mic-outline', color: '#059669', bg: '#D1FAE5' },
-  ];
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -432,7 +567,9 @@ export default function TestResultScreen() {
               </Text>
               <Text style={styles.mainSubtitle}>
                 {isIelts 
-                  ? "You've completed your IELTS examination" 
+                  ? (activeIeltsSections.length < 4
+                      ? `You've completed your IELTS practice session (${activeIeltsSections.map((s: any) => s.label).join(', ')})`
+                      : "You've completed your IELTS examination")
                   : "You've completed the standard practice simulation"}
               </Text>
             </View>
@@ -510,15 +647,15 @@ export default function TestResultScreen() {
               </View>
             )}
 
-            {/* IELTS 4-Skill Band Breakdown */}
+            {/* IELTS Skill Band Breakdown (Considers active/selected practice sections) */}
             {isIelts && (
               <View style={styles.sectionContainer}>
-                <Text style={styles.sectionHeading}>IELTS Skill Breakdown</Text>
+                <Text style={styles.sectionHeading}>
+                  {activeIeltsSections.length < 4 ? 'IELTS Practice Skill Breakdown' : 'IELTS Skill Breakdown'}
+                </Text>
                 <View style={styles.ieltsGrid}>
-                  {defaultIeltsSections.map(item => {
-                    const foundVal = scorePerSection[item.key] ?? 
-                                     scorePerSection[item.label] ?? 
-                                     scorePerSection[`${item.label} Score`];
+                  {activeIeltsSections.map(item => {
+                    const foundVal = getSectionScore(item, scorePerSection);
                     const isPending = (foundVal === undefined || foundVal === null) && isAiEvaluating;
                     const isCardLoading = analyticsLoading && (foundVal === undefined || foundVal === null);
 

@@ -22,6 +22,7 @@ import {
   isSubscriptionError,
   getSubscriptionErrorMessage,
 } from '@/components/SubscriptionRequiredModal';
+import { navigateWithFrom } from '@/utils/helpNavigation';
 
 export default function ExamSessionScreen() {
   const router = useRouter();
@@ -540,43 +541,9 @@ export default function ExamSessionScreen() {
             <AppText style={[styles.bottomBarText, { color: '#EF4444' }]}>Submit</AppText>
           </TouchableOpacity>
           
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.bottomBarItem}
-            onPress={() => {
-              Alert.alert(
-                'Report Question / Exam Issue',
-                'Is there an issue with this question? What would you like to report?',
-                [
-                  { text: 'Cancel', style: 'cancel' },
-                  {
-                    text: 'Incorrect Options',
-                    onPress: async () => {
-                      if (attempt?.id) {
-                        await examService.reportIssue(attempt.id, {
-                          question_id: currentQuestion?.id,
-                          issue_type: 'incorrect_options',
-                          description: 'Candidate reported incorrect options.',
-                        });
-                        Alert.alert('Thank You', 'Your feedback has been submitted to our team.');
-                      }
-                    }
-                  },
-                  {
-                    text: 'Technical Glitch',
-                    onPress: async () => {
-                      if (attempt?.id) {
-                        await examService.reportIssue(attempt.id, {
-                          question_id: currentQuestion?.id,
-                          issue_type: 'technical_glitch',
-                          description: 'Candidate reported a technical glitch.',
-                        });
-                        Alert.alert('Thank You', 'Technical support has been notified.');
-                      }
-                    }
-                  }
-                ]
-              );
-            }}
+            onPress={() => navigateWithFrom('/(tabs)/contact-support', '/(exam)/session', undefined, params)}
           >
             <Feather name="headphones" size={24} color="#6B7280" />
             <AppText style={styles.bottomBarText}>Support</AppText>
