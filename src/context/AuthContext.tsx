@@ -2,7 +2,14 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform, Alert } from 'react-native';
-import { api, setUnauthorizedListener } from '@/services/api';
+import { 
+  api, 
+  setUnauthorizedListener, 
+  persistAuthTokens, 
+  purgeStoredAuthTokens, 
+  setAuthTokens, 
+  getStoredTokenWithFallback 
+} from '@/services/api';
 import { router } from 'expo-router';
 
 export interface UserProfile {
@@ -42,7 +49,7 @@ type AuthContextType = {
   user: UserProfile | null;
   isLoading: boolean;
   isRefreshingUser: boolean;
-  login: (token: string) => Promise<void>;
+  login: (token: string, refreshToken?: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
   updateUserProfile: (data: Partial<UserProfile> | FormData) => Promise<UserProfile>;
@@ -107,11 +114,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     setIsRefreshingUser(true);
     try {
-      const response = await api.get('/api/auth/me/', {
-        headers: {
-          Authorization: `Token ${activeToken}`,
-        },
-      });
+      const response = await api.get('/api/auth/me/');
 
       if (response.data) {
         setUser(response.data);
@@ -136,15 +139,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setUser(cachedUser);
         }
 
-        let storedToken = null;
-        if (Platform.OS === 'web') {
-          storedToken = localStorage.getItem('auth_token');
-        } else {
-          storedToken = await SecureStore.getItemAsync('auth_token');
-        }
-        
+        const storedToken = await getStoredTokenWithFallback();
         if (storedToken) {
           setToken(storedToken);
+          setAuthTokens(storedToken);
           // 2. Fetch fresh user details in background (stale-while-revalidate)
           await fetchUserDetails(storedToken);
         }
@@ -183,13 +181,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  const login = async (newToken: string) => {
+  const login = async (newToken: string, newRefreshToken?: string) => {
     try {
-      if (Platform.OS === 'web') {
-        localStorage.setItem('auth_token', newToken);
-      } else {
-        await SecureStore.setItemAsync('auth_token', newToken);
-      }
+      await persistAuthTokens(newToken, newRefreshToken);
       setToken(newToken);
       // Fetch details asynchronously without blocking the login resolution
       fetchUserDetails(newToken).catch(err => console.error('Failed to fetch user after login', err));
@@ -208,11 +202,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
-      if (Platform.OS === 'web') {
-        localStorage.removeItem('auth_token');
-      } else {
-        await SecureStore.deleteItemAsync('auth_token');
-      }
+      await purgeStoredAuthTokens();
       await saveCachedUser(null);
       setToken(null);
       setUser(null);

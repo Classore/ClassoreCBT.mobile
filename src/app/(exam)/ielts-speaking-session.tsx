@@ -19,6 +19,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { examService, UserAttempt, AttemptSection, QuestionGroupItem, UserResponseItem } from '@/services/exam';
 import { storage } from '@/services/storage';
 import { mediaCache, resolveMediaUrl } from '@/services/mediaCache';
+import { soundManager } from '@/services/soundManager';
 import { Audio } from 'expo-av';
 import {
   SubscriptionRequiredModal,
@@ -492,6 +493,9 @@ export default function IELTSSpeakingSessionScreen() {
             }
             setSound(newSound);
             setIsPlayingQuestionAudio(true);
+            soundManager.registerAndPlay(newSound, () => {
+              setIsPlayingQuestionAudio(false);
+            });
           }
         } catch (err) {
           console.warn('Question audio playback error:', err);
@@ -510,8 +514,7 @@ export default function IELTSSpeakingSessionScreen() {
       playQuestionAudio();
     } else {
       if (sound) {
-        sound.setOnPlaybackStatusUpdate(null);
-        sound.unloadAsync().catch(() => {});
+        soundManager.stopCurrent();
         setSound(null);
         setIsPlayingQuestionAudio(false);
       }
@@ -520,7 +523,7 @@ export default function IELTSSpeakingSessionScreen() {
     return () => {
       isCancelled = true;
       if (sound) {
-        sound.setOnPlaybackStatusUpdate(null);
+        soundManager.stopCurrent();
       }
     };
   }, [subState, activeGroupIndex, currentResponseIndex, speakingSection]);
@@ -665,13 +668,15 @@ export default function IELTSSpeakingSessionScreen() {
       isRecorderPausedRef.current = true;
       setRecording(null);
 
-      if (currentQ?.id) {
+      if (currentQ?.id && subState === 'recording') {
         const start = Number(currentQStartTimeRef.current.toFixed(2));
         const end = Number(Math.max(start + 0.5, durationSec).toFixed(2));
-        questionTimestampsRef.current = [
-          ...questionTimestampsRef.current.filter(t => t.questionId !== currentQ.id),
-          { questionId: currentQ.id, start, end }
-        ];
+        if (end - start >= 1.0) {
+          questionTimestampsRef.current = [
+            ...questionTimestampsRef.current.filter(t => t.questionId !== currentQ.id),
+            { questionId: currentQ.id, start, end }
+          ];
+        }
       }
     } catch (err) {
       console.warn('Failed to pause collated recording, stopping instead:', err);
@@ -689,16 +694,18 @@ export default function IELTSSpeakingSessionScreen() {
   const stopAndFinalizeCollatedAudio = async (): Promise<string | null> => {
     if (collatedRecordingRef.current) {
       try {
-        if (!isRecorderPausedRef.current && currentQ?.id) {
+        if (!isRecorderPausedRef.current && currentQ?.id && subState === 'recording') {
           try {
             const status = await collatedRecordingRef.current.getStatusAsync();
             const durationSec = (status?.durationMillis || 0) / 1000.0;
             const start = Number(currentQStartTimeRef.current.toFixed(2));
             const end = Number(Math.max(start + 0.5, durationSec).toFixed(2));
-            questionTimestampsRef.current = [
-              ...questionTimestampsRef.current.filter(t => t.questionId !== currentQ.id),
-              { questionId: currentQ.id, start, end }
-            ];
+            if (end - start >= 1.0) {
+              questionTimestampsRef.current = [
+                ...questionTimestampsRef.current.filter(t => t.questionId !== currentQ.id),
+                { questionId: currentQ.id, start, end }
+              ];
+            }
           } catch {}
         }
         await collatedRecordingRef.current.stopAndUnloadAsync();
@@ -836,25 +843,14 @@ export default function IELTSSpeakingSessionScreen() {
 
       // Submit collated speaking audio with per-question timestamps
       if (collatedUri && attemptId && speakingSection) {
-        const primaryQId = speakingSection.question_groups?.[0]?.responses?.[0]?.question?.id;
         if (speakingSection !== FALLBACK_SPEAKING_STRUCTURE) {
           try {
             const metadata = questionTimestampsRef.current;
             if (metadata.length > 0) {
               await examService.submitBulkAudio(attemptId, collatedUri, metadata, 'audio/m4a');
-            } else if (primaryQId) {
-              await examService.uploadAudio(attemptId, primaryQId, collatedUri, 'audio/m4a');
             }
           } catch (uploadErr) {
             console.warn('Speaking bulk audio upload warning:', uploadErr);
-            // Fallback to primary question upload if bulk endpoint encounters any issue
-            if (primaryQId) {
-              try {
-                await examService.uploadAudio(attemptId, primaryQId, collatedUri, 'audio/m4a');
-              } catch (fallbackErr) {
-                console.warn('Speaking fallback upload warning:', fallbackErr);
-              }
-            }
           }
         }
       }

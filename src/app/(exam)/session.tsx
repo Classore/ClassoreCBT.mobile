@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   View, 
   Text, 
+  TextInput,
   StyleSheet, 
   SafeAreaView, 
   ScrollView, 
@@ -14,8 +15,11 @@ import {
 } from 'react-native';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import axios from 'axios';
 import { examService, UserAttempt, UserResponseItem, isSectionBasedExam } from '@/services/exam';
 import { storage } from '@/services/storage';
+import { BASE_URL } from '@/services/api';
+import { useAuth } from '@/context/AuthContext';
 import { formatQuestionText } from '@/utils/questionFormatter';
 import {
   SubscriptionRequiredModal,
@@ -35,12 +39,19 @@ export default function ExamSessionScreen() {
     exam_name?: string;
   }>();
 
+  const { user, login } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [attempt, setAttempt] = useState<UserAttempt | null>(null);
   const [examName, setExamName] = useState<string>(params.exam_name || '');
   const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
   const [subscriptionMessage, setSubscriptionMessage] = useState<string | undefined>();
+
+  // In-place re-authentication for 401 recovery (Zero-Data-Loss)
+  const [showReauthModal, setShowReauthModal] = useState(false);
+  const [reauthPassword, setReauthPassword] = useState('');
+  const [isReauthenticating, setIsReauthenticating] = useState(false);
+  const [reauthError, setReauthError] = useState<string | null>(null);
 
   // Active indices
   const [activeSubjectIndex, setActiveSubjectIndex] = useState(0);
@@ -290,10 +301,68 @@ export default function ExamSessionScreen() {
     }
   };
 
+  // Auto-save heartbeat every 2 minutes to keep session warm and back up answers
+  useEffect(() => {
+    if (!attempt?.id) return;
+    const interval = setInterval(async () => {
+      try {
+        const answeredIds = Object.keys(userAnswers).map(Number);
+        if (answeredIds.length > 0) {
+          const autoSavePayload = answeredIds.map(qId => ({
+            question_id: qId,
+            choice_id: userAnswers[qId] || null,
+            is_bookmarked: bookmarkedQuestions.includes(qId),
+          }));
+          await examService.autoSave(attempt.id, { responses: autoSavePayload });
+        }
+      } catch (err) {
+        console.warn('Exam auto-save heartbeat warning (non-fatal):', err);
+      }
+    }, 120000);
+
+    return () => clearInterval(interval);
+  }, [attempt?.id, userAnswers, bookmarkedQuestions]);
+
   const handleTimeExpired = () => {
     Alert.alert('Time Up!', 'Your examination time has elapsed. Your answers will now be submitted.', [
       { text: 'OK', onPress: executeSubmit }
     ]);
+  };
+
+  const handleInPlaceReauth = async () => {
+    if (!reauthPassword.trim()) {
+      setReauthError('Please enter your password.');
+      return;
+    }
+    const targetEmail = user?.email || (await storage.get('@classore_last_email'));
+    if (!targetEmail) {
+      setReauthError('Account email not found. Please log in again.');
+      return;
+    }
+
+    try {
+      setIsReauthenticating(true);
+      setReauthError(null);
+      const res = await axios.post(`${BASE_URL}/api/auth/login/`, {
+        username: targetEmail,
+        password: reauthPassword.trim(),
+      });
+      const newToken = res.data?.token || res.data?.access || res.data?.key;
+      if (newToken) {
+        await login(newToken, res.data?.refresh || undefined);
+        setShowReauthModal(false);
+        setReauthPassword('');
+        // Retry submission immediately with new authenticated session!
+        await executeSubmit();
+      } else {
+        setReauthError('No authentication token returned by server.');
+      }
+    } catch (err: any) {
+      const msg = err?.response?.data?.detail || err?.response?.data?.error || err?.response?.data?.message || 'Invalid password. Please try again.';
+      setReauthError(msg);
+    } finally {
+      setIsReauthenticating(false);
+    }
   };
 
   const executeSubmit = async () => {
@@ -308,9 +377,20 @@ export default function ExamSessionScreen() {
           choice_id: userAnswers[qId] || null,
           is_bookmarked: allBookmarkedQIds.has(qId),
         }));
+
+        // Zero-Data-Loss: Always cache pending submission locally before firing API call
+        const pendingKey = `@classore_pending_submission_${attempt.id}`;
+        await storage.set(pendingKey, {
+          attempt_id: attempt.id,
+          responses: responsesPayload,
+          saved_at: Date.now(),
+        });
+
         const submitRes = await examService.submitExam(attempt.id, { responses: responsesPayload });
+        await storage.remove(pendingKey);
         await storage.remove('@classore_active_attempt');
         setShowSubmitModal(false);
+        setShowReauthModal(false);
         router.replace({
           pathname: '/(exam)/test-result',
           params: { 
@@ -323,8 +403,15 @@ export default function ExamSessionScreen() {
       }
     } catch (err: any) {
       console.error('Submit error:', err);
-      const errorMsg = err?.response?.data?.error || err?.response?.data?.message || err?.message || 'Could not submit test. Please try again.';
-      Alert.alert('Submit Failed', errorMsg);
+      const is401 = err?.response?.status === 401 || err?.status === 401;
+      if (is401) {
+        // Open in-place re-authentication modal to avoid losing candidate responses
+        setShowSubmitModal(false);
+        setShowReauthModal(true);
+      } else {
+        const errorMsg = err?.response?.data?.error || err?.response?.data?.message || err?.message || 'Could not submit test. Please try again.';
+        Alert.alert('Submit Failed', errorMsg);
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -749,6 +836,77 @@ export default function ExamSessionScreen() {
                   <ActivityIndicator color="#FFF" size="small" />
                 ) : (
                   <AppText style={styles.confirmSubmitBtnText}>Yes, Submit</AppText>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* In-Place Re-Authentication Modal on 401 (Zero-Data-Loss) */}
+      <Modal
+        visible={showReauthModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (!isReauthenticating) setShowReauthModal(false);
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.submitModalCard}>
+            <View style={styles.submitModalHeader}>
+              <View style={[styles.submitIconBg, { backgroundColor: '#FEF3C7' }]}>
+                <Ionicons name="lock-closed" size={24} color="#D97706" />
+              </View>
+              <TouchableOpacity 
+                onPress={() => setShowReauthModal(false)}
+                style={styles.closeExitBtn}
+                disabled={isReauthenticating}
+              >
+                <Feather name="x" size={20} color="#6B7280" />
+              </TouchableOpacity>
+            </View>
+            <AppText style={styles.submitModalTitle}>Session Expired</AppText>
+            <AppText style={styles.submitModalSubtitle}>
+              Your test is finished and your answers are safely saved. Please enter your password to finalize and grade your submission.
+            </AppText>
+
+            <View style={styles.reauthInputWrap}>
+              <AppText style={styles.reauthInputLabel}>Account Password</AppText>
+              <TextInput
+                style={styles.reauthInput}
+                placeholder="Enter your password"
+                placeholderTextColor="#9CA3AF"
+                secureTextEntry
+                value={reauthPassword}
+                onChangeText={(t) => {
+                  setReauthPassword(t);
+                  if (reauthError) setReauthError(null);
+                }}
+                autoCapitalize="none"
+              />
+              {reauthError ? (
+                <AppText style={styles.reauthErrorText}>{reauthError}</AppText>
+              ) : null}
+            </View>
+
+            <View style={styles.submitModalActions}>
+              <TouchableOpacity 
+                style={styles.cancelSubmitBtn} 
+                onPress={() => setShowReauthModal(false)}
+                disabled={isReauthenticating}
+              >
+                <AppText style={styles.cancelSubmitBtnText}>Cancel</AppText>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.confirmSubmitBtn, isReauthenticating && { opacity: 0.7 }]} 
+                onPress={handleInPlaceReauth}
+                disabled={isReauthenticating}
+              >
+                {isReauthenticating ? (
+                  <ActivityIndicator color="#FFF" size="small" />
+                ) : (
+                  <AppText style={styles.confirmSubmitBtnText}>Authorize & Submit</AppText>
                 )}
               </TouchableOpacity>
             </View>
@@ -1308,5 +1466,31 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: '#FFFFFF',
+  },
+  reauthInputWrap: {
+    width: '100%',
+    marginBottom: 20,
+  },
+  reauthInputLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#374151',
+    marginBottom: 6,
+  },
+  reauthInput: {
+    borderWidth: 1.5,
+    borderColor: '#E5E7EB',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 15,
+    color: '#111827',
+    backgroundColor: '#F9FAFB',
+  },
+  reauthErrorText: {
+    fontSize: 12,
+    color: '#DC2626',
+    marginTop: 6,
+    fontWeight: '600',
   },
 });

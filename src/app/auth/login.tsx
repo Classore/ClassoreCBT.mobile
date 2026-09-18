@@ -220,6 +220,7 @@ export default function LoginScreen() {
                   
                   const responseData = await res.json();
                   const token = responseData.token || responseData.key || responseData.access;
+                  const refreshToken = responseData.refresh || responseData.refresh_token;
                   if (!token) {
                     throw new Error('No authentication token received from the server.');
                   }
@@ -230,7 +231,7 @@ export default function LoginScreen() {
                     await clearRememberedCredentials();
                   }
 
-                  login(token).catch(err => console.error("Login storage failed:", err));
+                  login(token, refreshToken).catch(err => console.error("Login storage failed:", err));
                   router.replace('/(tabs)');
                 } catch (error: any) {
                   console.log("Login error:", error);

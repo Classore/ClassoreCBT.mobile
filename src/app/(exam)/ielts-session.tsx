@@ -970,7 +970,16 @@ export default function IELTSSessionScreen() {
         });
       });
 
+      // Zero-Data-Loss: Pre-submit local persistence
+      const pendingKey = `@classore_pending_submission_${attempt.id}`;
+      await storage.set(pendingKey, {
+        attempt_id: attempt.id,
+        responses: responsesPayload,
+        saved_at: Date.now(),
+      });
+
       const submitRes = await examService.submitExam(attempt.id, { responses: responsesPayload });
+      await storage.remove(pendingKey);
       await storage.remove('@classore_active_attempt');
       examService.saveRecentAttempt({
         id: attempt.id,

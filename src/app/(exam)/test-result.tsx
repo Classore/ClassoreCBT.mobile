@@ -12,13 +12,11 @@ import {
 } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import Svg, { Circle } from 'react-native-svg';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { examService, isSectionBasedExam } from '@/services/exam';
+import { soundManager } from '@/services/soundManager';
 
-import { Audio } from 'expo-av';
-import { resolveMediaUrl } from '@/services/mediaCache';
-
-function getIeltsDescriptor(score: number): string {
+export function getIeltsDescriptor(score: number): string {
   if (score >= 9.0) return 'Expert User';
   if (score >= 8.0) return 'Very Good User';
   if (score >= 7.0) return 'Good User';
@@ -30,7 +28,7 @@ function getIeltsDescriptor(score: number): string {
   return 'Non User';
 }
 
-function calculateCefr(score: number): string {
+export function calculateCefr(score: number): string {
   if (score >= 8.5) return 'C2 (Mastery)';
   if (score >= 7.0) return 'C1 (Effective Operational Proficiency)';
   if (score >= 5.5) return 'B2 (Vantage)';
@@ -144,126 +142,6 @@ export function roundIeltsBand(score: number): number {
   }
 }
 
-function SpeakingAudioPlayer({ audioUrl, startTime, endTime }: { audioUrl: string; startTime?: number | null; endTime?: number | null }) {
-  const [sound, setSound] = useState<Audio.Sound | null>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [position, setPosition] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const [isLoading, setIsLoading] = useState(false);
-
-  const hasRange = typeof startTime === 'number' && typeof endTime === 'number' && endTime > startTime;
-  const startMillis = hasRange ? (startTime as number) * 1000 : 0;
-  const endMillis = hasRange ? (endTime as number) * 1000 : 0;
-  const segmentDurationMillis = hasRange ? (endMillis - startMillis) : duration;
-
-  useEffect(() => {
-    return () => {
-      if (sound) {
-        sound.unloadAsync().catch(() => {});
-      }
-    };
-  }, [sound]);
-
-  const togglePlayback = async () => {
-    if (!audioUrl) return;
-    try {
-      if (sound) {
-        if (isPlaying) {
-          await sound.pauseAsync();
-          setIsPlaying(false);
-        } else {
-          if (hasRange && position >= segmentDurationMillis) {
-            await sound.setPositionAsync(startMillis);
-            setPosition(0);
-          }
-          await sound.playAsync();
-          setIsPlaying(true);
-        }
-      } else {
-        setIsLoading(true);
-        const resolved = resolveMediaUrl(audioUrl);
-        if (!resolved) {
-          setIsLoading(false);
-          return;
-        }
-
-        await Audio.setAudioModeAsync({ playsInSilentModeIOS: true, allowsRecordingIOS: false });
-        const { sound: newSound } = await Audio.Sound.createAsync(
-          { uri: resolved },
-          { shouldPlay: true, positionMillis: startMillis },
-          (status) => {
-            if (status.isLoaded) {
-              const currentPos = status.positionMillis || 0;
-              const totalDur = status.durationMillis || 0;
-              setDuration(totalDur);
-
-              if (hasRange) {
-                const relativePos = Math.max(0, currentPos - startMillis);
-                setPosition(Math.min(segmentDurationMillis, relativePos));
-                if (currentPos >= endMillis || status.didJustFinish) {
-                  newSound.pauseAsync().catch(() => {});
-                  newSound.setPositionAsync(startMillis).catch(() => {});
-                  setIsPlaying(false);
-                  setPosition(0);
-                }
-              } else {
-                setPosition(currentPos);
-                if (status.didJustFinish) {
-                  setIsPlaying(false);
-                  setPosition(0);
-                }
-              }
-            }
-          }
-        );
-        setSound(newSound);
-        setIsPlaying(true);
-        setIsLoading(false);
-      }
-    } catch (err) {
-      console.warn('Audio playback error:', err);
-      setIsPlaying(false);
-      setIsLoading(false);
-    }
-  };
-
-  const formatTime = (millis: number) => {
-    const totalSecs = Math.floor(millis / 1000);
-    const mins = Math.floor(totalSecs / 60);
-    const secs = totalSecs % 60;
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  const effectiveDuration = hasRange ? segmentDurationMillis : duration;
-  const progressPct = effectiveDuration > 0 ? Math.min(100, Math.round((position / effectiveDuration) * 100)) : 0;
-
-  return (
-    <View style={styles.audioPlayerContainer}>
-      <TouchableOpacity 
-        style={styles.audioPlayButton} 
-        onPress={togglePlayback}
-        disabled={isLoading}
-        activeOpacity={0.8}
-      >
-        {isLoading ? (
-          <ActivityIndicator size="small" color="#FFFFFF" />
-        ) : (
-          <Ionicons name={isPlaying ? "pause" : "play"} size={16} color="#FFFFFF" />
-        )}
-      </TouchableOpacity>
-      <View style={styles.audioProgressCol}>
-        <View style={styles.audioProgressBarBg}>
-          <View style={[styles.audioProgressBarFill, { width: `${progressPct}%` }]} />
-        </View>
-        <View style={styles.audioTimeRow}>
-          <Text style={styles.audioTimeText}>{formatTime(position)}</Text>
-          <Text style={styles.audioTimeText}>{formatTime(duration)}</Text>
-        </View>
-      </View>
-    </View>
-  );
-}
-
 export default function TestResultScreen() {
   const { user } = useAuth();
   const router = useRouter();
@@ -285,6 +163,15 @@ export default function TestResultScreen() {
   const detectedIsIelts = Boolean(
     params.is_ielts === 'true' ||
     (params.exam_name && (params.exam_name.toLowerCase().includes('ielts') || params.exam_name.toLowerCase().includes('toefl')))
+  );
+
+  // Stop any audio playing when screen blurs or unmounts
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        soundManager.stopCurrent();
+      };
+    }, [])
   );
 
   const initialScore = params.total_score && !isNaN(parseFloat(params.total_score))
@@ -1094,203 +981,6 @@ export default function TestResultScreen() {
                 </View>
                 <Feather name="chevron-right" size={20} color="#9CA3AF" />
               </TouchableOpacity>
-            )}
-
-            {/* AI Rubric Feedback for Writing & Speaking constructed responses */}
-            {aiFeedbacks.length > 0 && (
-              <View style={styles.sectionContainer}>
-                <Text style={styles.sectionHeading}>AI Examiner Rubric Evaluation</Text>
-                {aiFeedbacks.map((fb, idx) => {
-                  const isSpeaking = Boolean(
-                    fb.fluency_coherence || 
-                    fb.fluency_coherence_score !== undefined || 
-                    fb.audio_response || 
-                    fb.vocabulary_score !== undefined ||
-                    (fb.question_text && fb.question_text.toLowerCase().includes('speaking'))
-                  );
-
-                  return (
-                    <View key={fb.question_id || idx} style={styles.aiFeedbackCard}>
-                      <View style={styles.aiFeedbackHeader}>
-                        <Ionicons 
-                          name={isSpeaking ? "mic" : "sparkles"} 
-                          size={16} 
-                          color={isSpeaking ? "#059669" : "#7C3AED"} 
-                        />
-                        <Text style={[styles.aiFeedbackTitle, isSpeaking && { color: '#065F46' }]}>
-                          {isSpeaking ? 'IELTS Speaking Assessment' : 'IELTS Writing Assessment'}
-                        </Text>
-                        {fb.score_awarded !== undefined && (
-                          <View style={[styles.rubricScorePill, { backgroundColor: isSpeaking ? '#D1FAE5' : '#EDE9FE', marginLeft: 'auto' }]}>
-                            <Text style={[styles.rubricScorePillText, { color: isSpeaking ? '#059669' : '#6D28D9' }]}>
-                              Band {parseFloat(String(fb.score_awarded)).toFixed(1)} / 9.0
-                            </Text>
-                          </View>
-                        )}
-                      </View>
-
-                      {fb.question_text && (
-                        <Text style={styles.aiFeedbackQuestionText}>{fb.question_text}</Text>
-                      )}
-
-                      {/* Speaking Specific Criteria Breakdown */}
-                      {isSpeaking && (
-                        <View style={styles.rubricCriteriaContainer}>
-                          {/* 1. Fluency & Coherence */}
-                          {(fb.fluency_coherence || fb.fluency_coherence_score !== undefined) && (
-                            <View style={styles.rubricBlock}>
-                              <View style={styles.rubricTitleRow}>
-                                <Text style={styles.rubricLabel}>Fluency & Coherence</Text>
-                                {fb.fluency_coherence_score !== undefined && (
-                                  <View style={[styles.rubricScorePill, { backgroundColor: '#D1FAE5' }]}>
-                                    <Text style={[styles.rubricScorePillText, { color: '#059669' }]}>
-                                      {parseFloat(String(fb.fluency_coherence_score)).toFixed(1)} / 9.0
-                                    </Text>
-                                  </View>
-                                )}
-                              </View>
-                              {fb.fluency_coherence && (
-                                <Text style={styles.rubricValue}>{fb.fluency_coherence}</Text>
-                              )}
-                            </View>
-                          )}
-
-                          {/* 2. Lexical Resource / Vocabulary */}
-                          {(fb.vocabulary || fb.vocabulary_score !== undefined) && (
-                            <View style={styles.rubricBlock}>
-                              <View style={styles.rubricTitleRow}>
-                                <Text style={styles.rubricLabel}>Lexical Resource (Vocabulary)</Text>
-                                {fb.vocabulary_score !== undefined && (
-                                  <View style={[styles.rubricScorePill, { backgroundColor: '#D1FAE5' }]}>
-                                    <Text style={[styles.rubricScorePillText, { color: '#059669' }]}>
-                                      {parseFloat(String(fb.vocabulary_score)).toFixed(1)} / 9.0
-                                    </Text>
-                                  </View>
-                                )}
-                              </View>
-                              {fb.vocabulary && (
-                                <Text style={styles.rubricValue}>{fb.vocabulary}</Text>
-                              )}
-                            </View>
-                          )}
-
-                          {/* 3. Grammatical Range & Accuracy */}
-                          {(fb.grammar || fb.grammar_score !== undefined) && (
-                            <View style={styles.rubricBlock}>
-                              <View style={styles.rubricTitleRow}>
-                                <Text style={styles.rubricLabel}>Grammar & Accuracy</Text>
-                                {fb.grammar_score !== undefined && (
-                                  <View style={[styles.rubricScorePill, { backgroundColor: '#D1FAE5' }]}>
-                                    <Text style={[styles.rubricScorePillText, { color: '#059669' }]}>
-                                      {parseFloat(String(fb.grammar_score)).toFixed(1)} / 9.0
-                                    </Text>
-                                  </View>
-                                )}
-                              </View>
-                              {fb.grammar && (
-                                <Text style={styles.rubricValue}>{fb.grammar}</Text>
-                              )}
-                            </View>
-                          )}
-                        </View>
-                      )}
-
-                      {/* Writing Specific Criteria Breakdown */}
-                      {!isSpeaking && (
-                        <View style={styles.rubricCriteriaContainer}>
-                          {fb.task_achievement && (
-                            <View style={styles.rubricBlock}>
-                              <View style={styles.rubricTitleRow}>
-                                <Text style={styles.rubricLabel}>Task Achievement</Text>
-                                {fb.task_achievement_score !== undefined && (
-                                  <View style={[styles.rubricScorePill, { backgroundColor: '#EDE9FE' }]}>
-                                    <Text style={[styles.rubricScorePillText, { color: '#6D28D9' }]}>
-                                      {parseFloat(String(fb.task_achievement_score)).toFixed(1)} / 9.0
-                                    </Text>
-                                  </View>
-                                )}
-                              </View>
-                              <Text style={styles.rubricValue}>{fb.task_achievement}</Text>
-                            </View>
-                          )}
-                          {fb.coherence_cohesion && (
-                            <View style={styles.rubricBlock}>
-                              <View style={styles.rubricTitleRow}>
-                                <Text style={styles.rubricLabel}>Coherence & Cohesion</Text>
-                                {fb.coherence_cohesion_score !== undefined && (
-                                  <View style={[styles.rubricScorePill, { backgroundColor: '#EDE9FE' }]}>
-                                    <Text style={[styles.rubricScorePillText, { color: '#6D28D9' }]}>
-                                      {parseFloat(String(fb.coherence_cohesion_score)).toFixed(1)} / 9.0
-                                    </Text>
-                                  </View>
-                                )}
-                              </View>
-                              <Text style={styles.rubricValue}>{fb.coherence_cohesion}</Text>
-                            </View>
-                          )}
-                          {fb.lexical_resource && (
-                            <View style={styles.rubricBlock}>
-                              <View style={styles.rubricTitleRow}>
-                                <Text style={styles.rubricLabel}>Lexical Resource</Text>
-                              </View>
-                              <Text style={styles.rubricValue}>{fb.lexical_resource}</Text>
-                            </View>
-                          )}
-                          {fb.grammatical_range && (
-                            <View style={styles.rubricBlock}>
-                              <View style={styles.rubricTitleRow}>
-                                <Text style={styles.rubricLabel}>Grammar & Accuracy</Text>
-                              </View>
-                              <Text style={styles.rubricValue}>{fb.grammatical_range}</Text>
-                            </View>
-                          )}
-                        </View>
-                      )}
-
-                      {/* Overall Examiner Summary */}
-                      {(fb.ai_feedback || fb.detailed_feedback) && (
-                        <View style={styles.examinerSummaryBox}>
-                          <View style={styles.examinerSummaryHeader}>
-                            <Ionicons name="chatbox-ellipses-outline" size={13} color={isSpeaking ? "#059669" : "#7C3AED"} style={{ marginRight: 5 }} />
-                            <Text style={[styles.examinerSummaryTitle, isSpeaking && { color: '#065F46' }]}>
-                              Examiner Summary
-                            </Text>
-                          </View>
-                          <Text style={styles.aiFeedbackDetailed}>{fb.ai_feedback || fb.detailed_feedback}</Text>
-                        </View>
-                      )}
-
-                      {/* Candidate Audio Playback Stream */}
-                      {fb.audio_response && (
-                        <View style={styles.mediaSection}>
-                          <View style={styles.mediaSectionHeader}>
-                            <Ionicons name="headset-outline" size={13} color="#374151" style={{ marginRight: 5 }} />
-                            <Text style={styles.mediaSectionTitle}>Your Recorded Speech</Text>
-                          </View>
-                          <SpeakingAudioPlayer 
-                            audioUrl={fb.audio_response} 
-                            startTime={fb.audio_start_time}
-                            endTime={fb.audio_end_time}
-                          />
-                        </View>
-                      )}
-
-                      {/* STT Transcript Box (Deepgram) */}
-                      {fb.written_response && (
-                        <View style={styles.transcriptBox}>
-                          <View style={styles.transcriptHeader}>
-                            <Ionicons name="document-text-outline" size={13} color="#059669" style={{ marginRight: 5 }} />
-                            <Text style={styles.transcriptTitle}>
-                              {isSpeaking ? 'Speech-to-Text Transcript (Deepgram)' : 'Candidate Written Response'}
-                            </Text>
-                          </View>
-                          <Text style={styles.transcriptText}>"{fb.written_response}"</Text>
-                        </View>
-                      )}
-                    </View>
-                  );
-                })}
-              </View>
             )}
 
             {/* View Subject Performance Button (for standard exams like JAMB) */}

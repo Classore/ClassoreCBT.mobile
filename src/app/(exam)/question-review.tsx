@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   StyleSheet,
@@ -9,12 +9,13 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { Audio } from 'expo-av';
 import { AppText } from '@/components/AppText';
 import { useAuth } from '@/context/AuthContext';
 import { examService, ChoiceItem } from '@/services/exam';
 import { resolveMediaUrl } from '@/services/mediaCache';
+import { soundManager } from '@/services/soundManager';
 import { BLANK_REGEX, hasBlanks, normalizeBlankToken } from '@/utils/questionFormatter';
 import { parseSpeakingFeedback, AiFeedbackItem } from './test-result';
 
@@ -30,6 +31,7 @@ interface FlatQuestionItem {
   response: any;
   group: any;
   attemptBulkAudio?: string | null;
+  aiFeedback?: any;
 }
 
 interface AudioPlayerProps {
@@ -55,6 +57,7 @@ function AudioPlayer({ audioUrl, label, accentColor = '#7C3AED', startTime, endT
   useEffect(() => {
     return () => {
       if (sound) {
+        soundManager.onSoundFinished(sound);
         sound.unloadAsync().catch(() => {});
       }
     };
@@ -62,6 +65,7 @@ function AudioPlayer({ audioUrl, label, accentColor = '#7C3AED', startTime, endT
 
   useEffect(() => {
     if (sound) {
+      soundManager.onSoundFinished(sound);
       sound.unloadAsync().catch(() => {});
       setSound(null);
       setIsPlaying(false);
@@ -82,6 +86,11 @@ function AudioPlayer({ audioUrl, label, accentColor = '#7C3AED', startTime, endT
             await sound.setPositionAsync(startMillis);
             setPosition(0);
           }
+          await soundManager.registerAndPlay(sound, () => {
+            setIsPlaying(false);
+            setSound(null);
+            setPosition(0);
+          });
           await sound.playAsync();
           setIsPlaying(true);
         }
@@ -96,7 +105,7 @@ function AudioPlayer({ audioUrl, label, accentColor = '#7C3AED', startTime, endT
         await Audio.setAudioModeAsync({ playsInSilentModeIOS: true, allowsRecordingIOS: false });
         const { sound: newSound } = await Audio.Sound.createAsync(
           { uri: resolved },
-          { shouldPlay: true, positionMillis: startMillis },
+          { shouldPlay: false, positionMillis: startMillis },
           (status) => {
             if (status.isLoaded) {
               const currentPos = status.positionMillis || 0;
@@ -111,17 +120,27 @@ function AudioPlayer({ audioUrl, label, accentColor = '#7C3AED', startTime, endT
                   newSound.setPositionAsync(startMillis).catch(() => {});
                   setIsPlaying(false);
                   setPosition(0);
+                  soundManager.onSoundFinished(newSound);
                 }
               } else {
                 setPosition(currentPos);
                 if (status.didJustFinish) {
                   setIsPlaying(false);
                   setPosition(0);
+                  soundManager.onSoundFinished(newSound);
                 }
               }
             }
           }
         );
+
+        await soundManager.registerAndPlay(newSound, () => {
+          setIsPlaying(false);
+          setSound(null);
+          setPosition(0);
+        });
+
+        await newSound.playAsync();
         setSound(newSound);
         setIsPlaying(true);
         setIsLoading(false);
@@ -323,7 +342,7 @@ export default function QuestionReviewScreen() {
     setScoreAwarded(resp.score_awarded !== undefined && resp.score_awarded !== null ? Number(resp.score_awarded) : null);
 
     // AI Feedback
-    const rawAiFb = resp.ai_feedback || resp.metadata?.ai_feedback || null;
+    const rawAiFb = resp.ai_feedback || resp.metadata?.ai_feedback || resp.ielts_speaking_criteria || resp.ielts_writing_criteria || item.aiFeedback || null;
     setAiFeedback(parseSpeakingFeedback(rawAiFb));
 
     // Choices
@@ -489,6 +508,15 @@ export default function QuestionReviewScreen() {
     setBlankItems(resolvedItems);
   };
 
+  // Stop any playing audio when screen blurs or unmounts
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        soundManager.stopCurrent();
+      };
+    }, [])
+  );
+
   useEffect(() => {
     const loadReviewData = async () => {
       if (!params.attempt_id) {
@@ -503,9 +531,20 @@ export default function QuestionReviewScreen() {
           const items: FlatQuestionItem[] = [];
           let overallIndex = 1;
 
+          // Map top-level attempt ai_feedbacks by question ID if present
+          const aiFeedbacksMap = new Map<number, any>();
+          const rawAiFeedbacks = (attemptData as any).ai_feedbacks;
+          if (Array.isArray(rawAiFeedbacks)) {
+            rawAiFeedbacks.forEach((fb: any) => {
+              const qId = fb.question_id || fb.id;
+              if (qId) aiFeedbacksMap.set(Number(qId), fb);
+            });
+          }
+
           attemptData.sections.forEach((sec: any) => {
             sec.question_groups?.forEach((grp: any) => {
               grp.responses?.forEach((resp: any) => {
+                const fbFromAttempt = resp.question?.id ? aiFeedbacksMap.get(resp.question.id) : undefined;
                 items.push({
                   qId: resp.question.id,
                   qNum: overallIndex++,
@@ -514,6 +553,7 @@ export default function QuestionReviewScreen() {
                   response: resp,
                   group: grp,
                   attemptBulkAudio: attemptData.bulk_audio_file,
+                  aiFeedback: fbFromAttempt,
                 });
               });
             });
@@ -545,6 +585,7 @@ export default function QuestionReviewScreen() {
 
   const handleNavigate = (newIndex: number) => {
     if (newIndex < 0 || newIndex >= flatQuestions.length) return;
+    soundManager.stopCurrent();
     setCurrentIndex(newIndex);
     populateQuestion(flatQuestions[newIndex], flatQuestions.length);
   };
@@ -820,7 +861,7 @@ export default function QuestionReviewScreen() {
             </View>
           )}
 
-          {/* Deepgram Speech-to-Text Transcript */}
+          {/* Deepgram Speech-to-Text Transcript (Speaking) */}
           {isSpeaking && speechTranscript && (
             <View style={styles.transcriptCard}>
               <View style={styles.transcriptHeader}>
@@ -834,90 +875,210 @@ export default function QuestionReviewScreen() {
             </View>
           )}
 
-          {/* Speaking AI Rubric Evaluation */}
-          {isSpeaking && aiFeedback && (
-            <View style={styles.rubricContainer}>
-              <View style={styles.rubricHeaderRow}>
-                <Ionicons name="sparkles" size={16} color="#059669" style={{ marginRight: 6 }} />
-                <AppText style={styles.rubricHeaderTitle}>AI Examiner Rubric Evaluation</AppText>
-                {scoreAwarded !== null && (
-                  <View style={styles.rubricOverallBandPill}>
-                    <AppText style={styles.rubricOverallBandText}>Band {scoreAwarded.toFixed(1)} / 9.0</AppText>
+          {/* Candidate Written Response (Writing) */}
+          {!isSpeaking && speechTranscript && (
+            <View style={styles.transcriptCardWriting}>
+              <View style={styles.transcriptHeader}>
+                <Ionicons name="document-text-outline" size={16} color="#7C3AED" style={{ marginRight: 6 }} />
+                <AppText style={styles.transcriptHeaderTitleWriting}>Your Written Response</AppText>
+                <View style={styles.essayPill}>
+                  <AppText style={styles.essayPillText}>Candidate Response</AppText>
+                </View>
+              </View>
+              <AppText style={styles.transcriptBodyWriting}>"{speechTranscript}"</AppText>
+            </View>
+          )}
+
+          {/* AI Examiner Rubric Evaluation (Speaking & Writing) */}
+          {aiFeedback && (() => {
+            const isSpeakingCard = Boolean(
+              isSpeaking ||
+              aiFeedback.fluency_coherence ||
+              aiFeedback.fluency_coherence_score !== undefined ||
+              aiFeedback.vocabulary_score !== undefined ||
+              candidateAudioUrl
+            );
+
+            const displayScore = scoreAwarded !== null 
+              ? scoreAwarded.toFixed(1) 
+              : (aiFeedback.score_awarded !== undefined ? Number(aiFeedback.score_awarded).toFixed(1) : null);
+
+            if (isSpeakingCard) {
+              return (
+                <View style={styles.rubricContainer}>
+                  <View style={styles.rubricHeaderRow}>
+                    <Ionicons name="mic" size={16} color="#059669" style={{ marginRight: 6 }} />
+                    <AppText style={[styles.rubricHeaderTitle, { color: '#065F46' }]}>
+                      IELTS Speaking Assessment
+                    </AppText>
+                    {displayScore !== null && (
+                      <View style={styles.rubricOverallBandPill}>
+                        <AppText style={styles.rubricOverallBandText}>Band {displayScore} / 9.0</AppText>
+                      </View>
+                    )}
+                  </View>
+
+                  {/* Fluency & Coherence */}
+                  {(aiFeedback.fluency_coherence || aiFeedback.fluency_coherence_score !== undefined) && (
+                    <View style={styles.rubricCriteriaCard}>
+                      <View style={styles.rubricCriteriaTitleRow}>
+                        <AppText style={styles.rubricCriteriaName}>Fluency & Coherence</AppText>
+                        {aiFeedback.fluency_coherence_score !== undefined && (
+                          <View style={styles.rubricScorePill}>
+                            <AppText style={styles.rubricScorePillText}>
+                              {Number(aiFeedback.fluency_coherence_score).toFixed(1)} / 9.0
+                            </AppText>
+                          </View>
+                        )}
+                      </View>
+                      {aiFeedback.fluency_coherence ? (
+                        <AppText style={styles.rubricCriteriaDesc}>{aiFeedback.fluency_coherence}</AppText>
+                      ) : null}
+                    </View>
+                  )}
+
+                  {/* Lexical Resource */}
+                  {(aiFeedback.vocabulary || aiFeedback.vocabulary_score !== undefined || aiFeedback.lexical_resource) && (
+                    <View style={styles.rubricCriteriaCard}>
+                      <View style={styles.rubricCriteriaTitleRow}>
+                        <AppText style={styles.rubricCriteriaName}>Lexical Resource (Vocabulary)</AppText>
+                        {aiFeedback.vocabulary_score !== undefined && (
+                          <View style={styles.rubricScorePill}>
+                            <AppText style={styles.rubricScorePillText}>
+                              {Number(aiFeedback.vocabulary_score).toFixed(1)} / 9.0
+                            </AppText>
+                          </View>
+                        )}
+                      </View>
+                      <AppText style={styles.rubricCriteriaDesc}>
+                        {aiFeedback.vocabulary || aiFeedback.lexical_resource}
+                      </AppText>
+                    </View>
+                  )}
+
+                  {/* Grammatical Range & Accuracy */}
+                  {(aiFeedback.grammar || aiFeedback.grammar_score !== undefined || aiFeedback.grammatical_range) && (
+                    <View style={styles.rubricCriteriaCard}>
+                      <View style={styles.rubricCriteriaTitleRow}>
+                        <AppText style={styles.rubricCriteriaName}>Grammar & Accuracy</AppText>
+                        {aiFeedback.grammar_score !== undefined && (
+                          <View style={styles.rubricScorePill}>
+                            <AppText style={styles.rubricScorePillText}>
+                              {Number(aiFeedback.grammar_score).toFixed(1)} / 9.0
+                            </AppText>
+                          </View>
+                        )}
+                      </View>
+                      <AppText style={styles.rubricCriteriaDesc}>
+                        {aiFeedback.grammar || aiFeedback.grammatical_range}
+                      </AppText>
+                    </View>
+                  )}
+
+                  {/* Overall Examiner Summary */}
+                  {(aiFeedback.ai_feedback || aiFeedback.detailed_feedback) && (
+                    <View style={styles.examinerSummaryCard}>
+                      <View style={styles.examinerSummaryHeader}>
+                        <Ionicons name="chatbox-ellipses-outline" size={14} color="#065F46" style={{ marginRight: 5 }} />
+                        <AppText style={[styles.examinerSummaryTitle, { color: '#065F46' }]}>Examiner Summary</AppText>
+                      </View>
+                      <AppText style={styles.examinerSummaryText}>
+                        {aiFeedback.ai_feedback || aiFeedback.detailed_feedback}
+                      </AppText>
+                    </View>
+                  )}
+                </View>
+              );
+            }
+
+            // Writing Rubric Card
+            return (
+              <View style={styles.rubricContainer}>
+                <View style={styles.rubricHeaderRow}>
+                  <Ionicons name="sparkles" size={16} color="#7C3AED" style={{ marginRight: 6 }} />
+                  <AppText style={[styles.rubricHeaderTitle, { color: '#6D28D9' }]}>
+                    IELTS Writing Assessment
+                  </AppText>
+                  {displayScore !== null && (
+                    <View style={styles.rubricOverallBandPillWriting}>
+                      <AppText style={styles.rubricOverallBandTextWriting}>Band {displayScore} / 9.0</AppText>
+                    </View>
+                  )}
+                </View>
+
+                {/* Task Achievement */}
+                {(aiFeedback.task_achievement || aiFeedback.task_achievement_score !== undefined) && (
+                  <View style={styles.rubricCriteriaCard}>
+                    <View style={styles.rubricCriteriaTitleRow}>
+                      <AppText style={styles.rubricCriteriaName}>Task Achievement</AppText>
+                      {aiFeedback.task_achievement_score !== undefined && (
+                        <View style={styles.rubricScorePillWriting}>
+                          <AppText style={styles.rubricScorePillTextWriting}>
+                            {Number(aiFeedback.task_achievement_score).toFixed(1)} / 9.0
+                          </AppText>
+                        </View>
+                      )}
+                    </View>
+                    {aiFeedback.task_achievement ? (
+                      <AppText style={styles.rubricCriteriaDesc}>{aiFeedback.task_achievement}</AppText>
+                    ) : null}
+                  </View>
+                )}
+
+                {/* Coherence & Cohesion */}
+                {(aiFeedback.coherence_cohesion || aiFeedback.coherence_cohesion_score !== undefined) && (
+                  <View style={styles.rubricCriteriaCard}>
+                    <View style={styles.rubricCriteriaTitleRow}>
+                      <AppText style={styles.rubricCriteriaName}>Coherence & Cohesion</AppText>
+                      {aiFeedback.coherence_cohesion_score !== undefined && (
+                        <View style={styles.rubricScorePillWriting}>
+                          <AppText style={styles.rubricScorePillTextWriting}>
+                            {Number(aiFeedback.coherence_cohesion_score).toFixed(1)} / 9.0
+                          </AppText>
+                        </View>
+                      )}
+                    </View>
+                    {aiFeedback.coherence_cohesion ? (
+                      <AppText style={styles.rubricCriteriaDesc}>{aiFeedback.coherence_cohesion}</AppText>
+                    ) : null}
+                  </View>
+                )}
+
+                {/* Lexical Resource */}
+                {aiFeedback.lexical_resource && (
+                  <View style={styles.rubricCriteriaCard}>
+                    <View style={styles.rubricCriteriaTitleRow}>
+                      <AppText style={styles.rubricCriteriaName}>Lexical Resource</AppText>
+                    </View>
+                    <AppText style={styles.rubricCriteriaDesc}>{aiFeedback.lexical_resource}</AppText>
+                  </View>
+                )}
+
+                {/* Grammatical Range & Accuracy */}
+                {aiFeedback.grammatical_range && (
+                  <View style={styles.rubricCriteriaCard}>
+                    <View style={styles.rubricCriteriaTitleRow}>
+                      <AppText style={styles.rubricCriteriaName}>Grammar & Accuracy</AppText>
+                    </View>
+                    <AppText style={styles.rubricCriteriaDesc}>{aiFeedback.grammatical_range}</AppText>
+                  </View>
+                )}
+
+                {/* Overall Examiner Summary */}
+                {(aiFeedback.ai_feedback || aiFeedback.detailed_feedback) && (
+                  <View style={[styles.examinerSummaryCard, { backgroundColor: '#F5F3FF', borderColor: '#DDD6FE' }]}>
+                    <View style={styles.examinerSummaryHeader}>
+                      <Ionicons name="chatbox-ellipses-outline" size={14} color="#7C3AED" style={{ marginRight: 5 }} />
+                      <AppText style={[styles.examinerSummaryTitle, { color: '#6D28D9' }]}>Examiner Summary</AppText>
+                    </View>
+                    <AppText style={[styles.examinerSummaryText, { color: '#4C1D95' }]}>
+                      {aiFeedback.ai_feedback || aiFeedback.detailed_feedback}
+                    </AppText>
                   </View>
                 )}
               </View>
-
-              {/* Fluency & Coherence */}
-              {(aiFeedback.fluency_coherence || aiFeedback.fluency_coherence_score !== undefined) && (
-                <View style={styles.rubricCriteriaCard}>
-                  <View style={styles.rubricCriteriaTitleRow}>
-                    <AppText style={styles.rubricCriteriaName}>Fluency & Coherence</AppText>
-                    {aiFeedback.fluency_coherence_score !== undefined && (
-                      <View style={styles.rubricScorePill}>
-                        <AppText style={styles.rubricScorePillText}>
-                          {Number(aiFeedback.fluency_coherence_score).toFixed(1)} / 9.0
-                        </AppText>
-                      </View>
-                    )}
-                  </View>
-                  {aiFeedback.fluency_coherence ? (
-                    <AppText style={styles.rubricCriteriaDesc}>{aiFeedback.fluency_coherence}</AppText>
-                  ) : null}
-                </View>
-              )}
-
-              {/* Lexical Resource */}
-              {(aiFeedback.vocabulary || aiFeedback.vocabulary_score !== undefined || aiFeedback.lexical_resource) && (
-                <View style={styles.rubricCriteriaCard}>
-                  <View style={styles.rubricCriteriaTitleRow}>
-                    <AppText style={styles.rubricCriteriaName}>Lexical Resource (Vocabulary)</AppText>
-                    {aiFeedback.vocabulary_score !== undefined && (
-                      <View style={styles.rubricScorePill}>
-                        <AppText style={styles.rubricScorePillText}>
-                          {Number(aiFeedback.vocabulary_score).toFixed(1)} / 9.0
-                        </AppText>
-                      </View>
-                    )}
-                  </View>
-                  <AppText style={styles.rubricCriteriaDesc}>
-                    {aiFeedback.vocabulary || aiFeedback.lexical_resource}
-                  </AppText>
-                </View>
-              )}
-
-              {/* Grammatical Range & Accuracy */}
-              {(aiFeedback.grammar || aiFeedback.grammar_score !== undefined || aiFeedback.grammatical_range) && (
-                <View style={styles.rubricCriteriaCard}>
-                  <View style={styles.rubricCriteriaTitleRow}>
-                    <AppText style={styles.rubricCriteriaName}>Grammar & Accuracy</AppText>
-                    {aiFeedback.grammar_score !== undefined && (
-                      <View style={styles.rubricScorePill}>
-                        <AppText style={styles.rubricScorePillText}>
-                          {Number(aiFeedback.grammar_score).toFixed(1)} / 9.0
-                        </AppText>
-                      </View>
-                    )}
-                  </View>
-                  <AppText style={styles.rubricCriteriaDesc}>
-                    {aiFeedback.grammar || aiFeedback.grammatical_range}
-                  </AppText>
-                </View>
-              )}
-
-              {/* Overall Examiner Summary */}
-              {(aiFeedback.ai_feedback || aiFeedback.detailed_feedback) && (
-                <View style={styles.examinerSummaryCard}>
-                  <View style={styles.examinerSummaryHeader}>
-                    <Ionicons name="chatbox-ellipses-outline" size={14} color="#065F46" style={{ marginRight: 5 }} />
-                    <AppText style={styles.examinerSummaryTitle}>Examiner Summary</AppText>
-                  </View>
-                  <AppText style={styles.examinerSummaryText}>
-                    {aiFeedback.ai_feedback || aiFeedback.detailed_feedback}
-                  </AppText>
-                </View>
-              )}
-            </View>
-          )}
+            );
+          })()}
 
           {/* Blanks & Answers Breakdown Card */}
           {blankItems.length > 0 && (
@@ -1787,6 +1948,58 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#064E3B',
     lineHeight: 19,
+  },
+  rubricOverallBandPillWriting: {
+    backgroundColor: '#EDE9FE',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  rubricOverallBandTextWriting: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#6D28D9',
+  },
+  rubricScorePillWriting: {
+    backgroundColor: '#EDE9FE',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  rubricScorePillTextWriting: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#6D28D9',
+  },
+  transcriptCardWriting: {
+    backgroundColor: '#FAF5FF',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#E9D5FF',
+    marginBottom: 16,
+  },
+  transcriptHeaderTitleWriting: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#5B21B6',
+    flex: 1,
+  },
+  transcriptBodyWriting: {
+    fontSize: 14,
+    color: '#3B0764',
+    lineHeight: 22,
+  },
+  essayPill: {
+    backgroundColor: '#EDE9FE',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  essayPillText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#6D28D9',
   },
 
   // Sticky Bottom Navigation Footer
