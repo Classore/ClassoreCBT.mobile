@@ -114,8 +114,9 @@ export default function IELTSListeningSessionScreen() {
   useEffect(() => {
     const initListening = async () => {
       try {
-        if (params.attempt_id) {
-          const res = await examService.resumeExam(Number(params.attempt_id));
+        const attemptId = examService.parseAttemptId(params.attempt_id) || (await examService.getActiveAttemptId());
+        if (attemptId) {
+          const res = await examService.resumeExam(attemptId);
           setAttempt(res);
           setTotalTimeLeft(res.timer_info?.remaining_seconds ?? 1920);
 
@@ -147,33 +148,9 @@ export default function IELTSListeningSessionScreen() {
           setBookmarkedQuestions(initialBookmarks);
           setAnswers(initialAnswers);
         } else {
-          const examId = params.exam ? Number(params.exam) : (params.exam_type_id ? Number(params.exam_type_id) : 42);
-          const newAttempt = await examService.startExam({
-            exam_type_id: examId,
-            mode: 'Standard',
-          });
-          const res = await examService.resumeExam(newAttempt.id);
-          setAttempt(res);
-          setTotalTimeLeft(res.timer_info?.remaining_seconds ?? 1920);
-
-          const listSec = res.sections.find(s =>
-            s.section_name.toLowerCase().includes('listening')
-          ) || res.sections[0];
-
-          if (listSec) {
-            setListeningSection(listSec);
-          }
+          console.warn('No active attempt ID found for listening session, generating mock session structure');
         }
       } catch (e: any) {
-        if (isSubscriptionError(e)) {
-          const errorMsg = getSubscriptionErrorMessage(
-            e,
-            'You do not have an active subscription or bundle to access IELTS Listening.'
-          );
-          setSubscriptionMessage(errorMsg);
-          setShowSubscriptionModal(true);
-          return;
-        }
         console.warn('Could not initialize listening session, generating mock session structure:', e);
         // Fallback IELTS authentic 4-part structure (40 questions, 10 per part)
         const mockStructure: AttemptSection = {
@@ -722,10 +699,11 @@ export default function IELTSListeningSessionScreen() {
         });
       });
 
-      const attemptId = attempt?.id || Number(params.attempt_id);
+      const activeId = attempt?.id || examService.parseAttemptId(params.attempt_id) || examService.getActiveAttemptIdSync();
+      const attemptId = activeId || undefined;
 
       // Save responses for listening
-      if (attemptId && !isNaN(attemptId) && responsesPayload.length > 0) {
+      if (attemptId && responsesPayload.length > 0) {
         await examService.autoSave(attemptId, { responses: responsesPayload }).catch(err => {
           console.warn('Auto-save warning in listening session:', err);
         });
@@ -757,7 +735,7 @@ export default function IELTSListeningSessionScreen() {
         setIsOverviewVisible(false);
 
         const commonParams = {
-          attempt_id: String(attemptId || ''),
+          attempt_id: attemptId ? String(attemptId) : '',
           exam: params.exam || params.exam_type_id || '42',
           exam_id: params.exam || params.exam_type_id || '42',
           exam_name: params.exam_name || 'IELTS Academic',
@@ -899,16 +877,27 @@ export default function IELTSListeningSessionScreen() {
   // NOTE: Must be above any early return to satisfy React's Rules of Hooks
   const sectionTabs = useMemo(() => {
     if (listeningSection?.question_groups && listeningSection.question_groups.length >= 4) {
-      return listeningSection.question_groups.map((grp, idx) => ({
-        title: grp.group_title || `Part ${idx + 1}`,
-        duration: '~8 mins',
-      }));
+      return listeningSection.question_groups.map((grp, idx) => {
+        let cleanTitle = `Part ${idx + 1}`;
+        const rawTitle = grp.group_title || '';
+        const match = rawTitle.match(/(Part\s+\d+|Section\s+\d+)/i);
+        if (match) {
+          cleanTitle = match[1].replace(/section/i, 'Part');
+        } else if (rawTitle && rawTitle.trim().length <= 10) {
+          cleanTitle = rawTitle.trim();
+        }
+        return {
+          title: cleanTitle,
+          fullTitle: rawTitle || `Part ${idx + 1}`,
+          duration: '~8 mins',
+        };
+      });
     }
     return [
-      { title: 'Part 1', duration: '~8 mins' },
-      { title: 'Part 2', duration: '~8 mins' },
-      { title: 'Part 3', duration: '~8 mins' },
-      { title: 'Part 4', duration: '~8 mins' },
+      { title: 'Part 1', fullTitle: 'Part 1', duration: '~8 mins' },
+      { title: 'Part 2', fullTitle: 'Part 2', duration: '~8 mins' },
+      { title: 'Part 3', fullTitle: 'Part 3', duration: '~8 mins' },
+      { title: 'Part 4', fullTitle: 'Part 4', duration: '~8 mins' },
     ];
   }, [listeningSection?.question_groups]);
 
@@ -962,13 +951,14 @@ export default function IELTSListeningSessionScreen() {
                   { opacity: isActive ? 1 : isCompleted ? 0.9 : 0.6 },
                 ]}
               >
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, flexShrink: 1, maxWidth: '100%' }}>
                   <Text
                     style={[
                       styles.sectionTabTitle,
                       isActive ? styles.sectionTabTitleActive : styles.sectionTabTitleInactive,
                     ]}
                     numberOfLines={1}
+                    ellipsizeMode="tail"
                   >
                     {tab.title}
                   </Text>
@@ -1554,18 +1544,19 @@ const styles = StyleSheet.create({
   // Section Tabs Row
   sectionTabsContainer: {
     flexDirection: 'row',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    gap: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    gap: 4,
     backgroundColor: '#FFFFFF',
   },
   sectionTab: {
     flex: 1,
-    borderRadius: 12,
-    paddingVertical: 8,
-    paddingHorizontal: 4,
+    borderRadius: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 2,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
   sectionTabActive: {
     backgroundColor: '#4C1D95',
@@ -1574,8 +1565,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#F3F4F6',
   },
   sectionTabTitle: {
-    fontSize: 11.5,
+    fontSize: 11,
     fontWeight: '700',
+    flexShrink: 1,
   },
   sectionTabTitleActive: {
     color: '#FFFFFF',
@@ -1584,8 +1576,8 @@ const styles = StyleSheet.create({
     color: '#374151',
   },
   sectionTabSub: {
-    fontSize: 10,
-    marginTop: 2,
+    fontSize: 9.5,
+    marginTop: 1,
   },
   sectionTabSubActive: {
     color: 'rgba(255, 255, 255, 0.85)',

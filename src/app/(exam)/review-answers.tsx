@@ -24,6 +24,8 @@ interface ReviewQuestion {
   correctAnswer: string;
   aiExplanation?: string | null;
   isBookmarked?: boolean;
+  questionType?: string;
+  isSpeaking?: boolean;
 }
 
 export default function ReviewAnswersScreen() {
@@ -93,6 +95,12 @@ export default function ReviewAnswersScreen() {
             sec.question_groups?.forEach(grp => {
               grp.responses?.forEach(resp => {
                 const q = resp.question;
+                const isSpeaking = q.question_type === 'AUDIO' || 
+                  sec.section_name?.toLowerCase().includes('speaking') || 
+                  Boolean(resp.audio_response);
+                const isWriting = q.question_type === 'TEXT' || 
+                  sec.section_name?.toLowerCase().includes('writing');
+
                 let qStatus: 'correct' | 'incorrect' | 'unattempted' = 'unattempted';
                 if ((resp.score_awarded || 0) > 0) {
                   qStatus = 'correct';
@@ -101,15 +109,43 @@ export default function ReviewAnswersScreen() {
                 }
 
                 let userAnsText = '';
-                if (q.choices && resp.selected_choice) {
-                  const userChoiceIdx = q.choices.findIndex((c: any) => c.id === resp.selected_choice);
-                  if (userChoiceIdx !== -1) userAnsText = String.fromCharCode(65 + userChoiceIdx);
-                }
+                let correctAnsText = '';
 
-                let correctAnsText = 'A';
-                if (q.choices) {
-                  const correctChoiceIdx = q.choices.findIndex((c: any) => c.is_correct);
-                  if (correctChoiceIdx !== -1) correctAnsText = String.fromCharCode(65 + correctChoiceIdx);
+                if (isSpeaking) {
+                  if (resp.written_response) {
+                    const cleanSnippet = resp.written_response.replace(/\s+/g, ' ').trim();
+                    userAnsText = cleanSnippet.length > 32 ? `"${cleanSnippet.slice(0, 32)}..."` : `"${cleanSnippet}"`;
+                  } else if (resp.audio_response) {
+                    userAnsText = '🎙️ Audio Recording';
+                  }
+
+                  if (resp.score_awarded !== undefined && resp.score_awarded !== null) {
+                    correctAnsText = `Band ${parseFloat(String(resp.score_awarded)).toFixed(1)} / 9.0`;
+                  } else {
+                    correctAnsText = 'AI Evaluated';
+                  }
+                } else if (isWriting) {
+                  if (resp.written_response) {
+                    const cleanSnippet = resp.written_response.replace(/\s+/g, ' ').trim();
+                    userAnsText = cleanSnippet.length > 32 ? `"${cleanSnippet.slice(0, 32)}..."` : `"${cleanSnippet}"`;
+                  }
+
+                  if (resp.score_awarded !== undefined && resp.score_awarded !== null) {
+                    correctAnsText = `Band ${parseFloat(String(resp.score_awarded)).toFixed(1)} / 9.0`;
+                  } else {
+                    correctAnsText = 'AI Evaluated';
+                  }
+                } else {
+                  if (q.choices && resp.selected_choice) {
+                    const userChoiceIdx = q.choices.findIndex((c: any) => c.id === resp.selected_choice);
+                    if (userChoiceIdx !== -1) userAnsText = String.fromCharCode(65 + userChoiceIdx);
+                  }
+
+                  correctAnsText = 'A';
+                  if (q.choices) {
+                    const correctChoiceIdx = q.choices.findIndex((c: any) => c.is_correct);
+                    if (correctChoiceIdx !== -1) correctAnsText = String.fromCharCode(65 + correctChoiceIdx);
+                  }
                 }
 
                 const isBk = Boolean((resp as any).is_bookmarked);
@@ -126,6 +162,8 @@ export default function ReviewAnswersScreen() {
                   correctAnswer: correctAnsText,
                   aiExplanation: resp.ai_feedback,
                   isBookmarked: isBk,
+                  questionType: q.question_type,
+                  isSpeaking,
                 });
               });
             });
@@ -390,14 +428,16 @@ export default function ReviewAnswersScreen() {
                           {q.status === 'unattempted' ? (
                             <Text style={styles.unattemptedText}>Unattempted</Text>
                           ) : (
-                            <Text style={styles.answerText}>
-                              Your Answer: <Text style={styles.answerBold}>{q.userAnswer}</Text>
+                            <Text style={styles.answerText} numberOfLines={1}>
+                              {q.isSpeaking ? 'Speech: ' : 'Your Answer: '}
+                              <Text style={styles.answerBold}>{q.userAnswer}</Text>
                             </Text>
                           )}
                         </View>
 
                         <Text style={styles.correctAnswerText}>
-                          Correct Answer: <Text style={styles.answerBold}>{q.correctAnswer}</Text>
+                          {q.isSpeaking || q.questionType === 'AUDIO' || q.questionType === 'TEXT' ? 'AI Assessment: ' : 'Correct Answer: '}
+                          <Text style={styles.answerBold}>{q.correctAnswer}</Text>
                         </Text>
 
                         {/* Action: Bookmark */}

@@ -45,12 +45,13 @@ export default function IELTSListeningInstructionsScreen() {
     if (isStarting) return;
 
     // If part of an ongoing attempt (resuming or next section)
-    if (params.attempt_id) {
+    const activeAttemptId = examService.parseAttemptId(params.attempt_id) || (await examService.getActiveAttemptId());
+    if (activeAttemptId) {
       router.push({
         pathname: '/(exam)/ielts-listening-session',
         params: {
           ...params,
-          attempt_id: params.attempt_id,
+          attempt_id: String(activeAttemptId),
           section_index: params.section_index || '0',
         },
       });

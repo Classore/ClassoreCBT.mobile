@@ -381,7 +381,7 @@ export default function HomeScreen() {
         <TouchableOpacity 
           style={styles.searchBar} 
           activeOpacity={0.9}
-          onPress={() => router.push('/(tabs)/explore')}
+          onPress={() => router.push('/search' as any)}
         >
           <Image source={require('../../../assets/images/search-icon.png')} style={{ width: 18, height: 18 }} contentFit="contain" />
           <AppText style={styles.searchText}>What do you want to practice today?</AppText>

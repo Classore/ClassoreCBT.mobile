@@ -17,7 +17,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '@/context/AuthContext';
 import { useNotifications } from '@/context/NotificationContext';
 import { useRouter } from 'expo-router';
-import { paymentService, MyBundle } from '@/services/payment';
+import { paymentService, MyBundle, getBundleStatus, isBundleActive, BundleStatus } from '@/services/payment';
 
 import { guestService, WalletPreviewData } from '@/services/guest';
 
@@ -30,9 +30,51 @@ export default function WalletScreen() {
   const tokenBalance = user?.token_balance ?? 0;
 
   const [myBundles, setMyBundles] = useState<MyBundle[]>([]);
+  const [bundleFilter, setBundleFilter] = useState<'active' | 'past'>('active');
   const [loadingBundles, setLoadingBundles] = useState(true);
   const [walletPreview, setWalletPreview] = useState<WalletPreviewData | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+
+  const formatBundleDate = (dateStr?: string) => {
+    if (!dateStr) return null;
+    try {
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return null;
+      return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+    } catch {
+      return null;
+    }
+  };
+
+  const activeBundles = myBundles.filter(b => isBundleActive(b));
+  const pastBundles = myBundles.filter(b => !isBundleActive(b));
+  const displayedBundles = bundleFilter === 'active' ? activeBundles : pastBundles;
+
+  const getStatusBadgeStyle = (status: BundleStatus) => {
+    switch (status) {
+      case 'active':
+        return styles.statusBadge_active;
+      case 'exhausted':
+        return styles.statusBadge_exhausted;
+      case 'expired':
+        return styles.statusBadge_expired;
+      default:
+        return styles.statusBadge_inactive;
+    }
+  };
+
+  const getStatusBadgeTextStyle = (status: BundleStatus) => {
+    switch (status) {
+      case 'active':
+        return styles.statusBadgeText_active;
+      case 'exhausted':
+        return styles.statusBadgeText_exhausted;
+      case 'expired':
+        return styles.statusBadgeText_expired;
+      default:
+        return styles.statusBadgeText_inactive;
+    }
+  };
 
   const fetchBundles = async () => {
     if (isGuest) {
@@ -243,7 +285,9 @@ export default function WalletScreen() {
           {/* My Active Bundles Card */}
           <View style={styles.card}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <Text style={[styles.cardSectionTitle, { marginBottom: 0 }]}>My Active Bundles</Text>
+              <Text style={[styles.cardSectionTitle, { marginBottom: 0 }]}>
+                {bundleFilter === 'active' ? 'My Active Bundles' : 'Past / Inactive Bundles'}
+              </Text>
               <TouchableOpacity 
                 onPress={() => router.push('/(tabs)/bundles' as any)}
                 activeOpacity={0.7}
@@ -253,31 +297,90 @@ export default function WalletScreen() {
                 <Feather name="chevron-right" size={14} color="#7C3AED" style={{ marginLeft: 2 }} />
               </TouchableOpacity>
             </View>
+
+            {/* Filter Toggle if user has both active and past/inactive bundles */}
+            {myBundles.length > 0 && pastBundles.length > 0 && (
+              <View style={styles.bundleTabRow}>
+                <TouchableOpacity
+                  style={[styles.bundleTab, bundleFilter === 'active' && styles.bundleTabSelected]}
+                  onPress={() => setBundleFilter('active')}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.bundleTabText, bundleFilter === 'active' && styles.bundleTabTextSelected]}>
+                    Active ({activeBundles.length})
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.bundleTab, bundleFilter === 'past' && styles.bundleTabSelected]}
+                  onPress={() => setBundleFilter('past')}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.bundleTabText, bundleFilter === 'past' && styles.bundleTabTextSelected]}>
+                    Past / Inactive ({pastBundles.length})
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
             
             <View style={styles.summaryList}>
               {loadingBundles ? (
                 <Text style={{ padding: 10, color: '#6B7280' }}>Loading bundles...</Text>
-              ) : myBundles.length === 0 ? (
+              ) : displayedBundles.length === 0 ? (
                 <View style={{ paddingVertical: 12, alignItems: 'center' }}>
-                  <Text style={{ color: '#6B7280', fontSize: 13, marginBottom: 8 }}>No active bundles.</Text>
-                  <TouchableOpacity
-                    onPress={() => router.push('/(tabs)/bundles' as any)}
-                    style={{ backgroundColor: '#F3E8FF', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 12 }}
-                  >
-                    <Text style={{ color: '#7C3AED', fontWeight: '700', fontSize: 13 }}>Browse Available Bundles</Text>
-                  </TouchableOpacity>
+                  <Text style={{ color: '#6B7280', fontSize: 13, marginBottom: 8 }}>
+                    {bundleFilter === 'active' ? 'No active bundles.' : 'No past bundles.'}
+                  </Text>
+                  {bundleFilter === 'active' && (
+                    <TouchableOpacity
+                      onPress={() => router.push('/(tabs)/bundles' as any)}
+                      style={{ backgroundColor: '#F3E8FF', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 12 }}
+                    >
+                      <Text style={{ color: '#7C3AED', fontWeight: '700', fontSize: 13 }}>Browse Available Bundles</Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
               ) : (
-                myBundles.filter(Boolean).map((b, index) => {
-                  const bundleName = b.bundle?.name || (b as any)?.bundle_name || (b as any)?.name || 'Active Bundle';
-                  const isActive = b.is_active !== undefined ? b.is_active : ((b as any)?.status === 'active');
+                displayedBundles.filter(Boolean).map((b, index) => {
+                  const bundleName = b.bundle?.name || (b as any)?.bundle_name || (b as any)?.name || 'Bundle';
+                  const status: BundleStatus = getBundleStatus(b);
+                  const expiryFormatted = formatBundleDate(b.expiry_date || b.expires_at || b.end_date);
+                  let subtext = '';
+                  if (status === 'active' && expiryFormatted) {
+                    subtext = `Expires ${expiryFormatted}`;
+                  } else if (status === 'expired') {
+                    subtext = expiryFormatted ? `Expired on ${expiryFormatted}` : 'Subscription expired';
+                  } else if (status === 'exhausted') {
+                    subtext = 'Usage limit reached';
+                  }
+
+                  const badgeLabels: Record<BundleStatus, string> = {
+                    active: 'Active',
+                    exhausted: 'Exhausted',
+                    expired: 'Expired',
+                    inactive: 'Inactive',
+                  };
+
                   return (
-                    <View key={b.id || index} style={[styles.summaryRow, index === myBundles.length - 1 && { borderBottomWidth: 0 }]}>
-                      <View style={[styles.summaryIconCircle, { backgroundColor: '#E0F2FE' }]}>
-                        <MaterialCommunityIcons name="ticket-outline" size={16} color="#0284C7" />
+                    <View key={b.id || index} style={[styles.summaryRow, index === displayedBundles.length - 1 && { borderBottomWidth: 0 }]}>
+                      <View style={[
+                        styles.summaryIconCircle,
+                        { backgroundColor: status === 'active' ? '#E0F2FE' : status === 'exhausted' ? '#FEF3C7' : '#F3F4F6' }
+                      ]}>
+                        <MaterialCommunityIcons 
+                          name="ticket-outline" 
+                          size={16} 
+                          color={status === 'active' ? '#0284C7' : status === 'exhausted' ? '#D97706' : '#9CA3AF'} 
+                        />
                       </View>
-                      <Text style={styles.summaryRowLabel}>{bundleName}</Text>
-                      <Text style={styles.summaryRowValue}>{isActive ? 'Active' : 'Expired'}</Text>
+                      <View style={{ flex: 1, marginRight: 8 }}>
+                        <Text style={styles.summaryRowLabel}>{bundleName}</Text>
+                        {subtext ? <Text style={styles.summaryRowSubtext}>{subtext}</Text> : null}
+                      </View>
+                      <View style={[styles.statusBadge, getStatusBadgeStyle(status)]}>
+                        <Text style={[styles.statusBadgeText, getStatusBadgeTextStyle(status)]}>
+                          {badgeLabels[status] || status}
+                        </Text>
+                      </View>
                     </View>
                   );
                 })
@@ -525,6 +628,37 @@ const styles = StyleSheet.create({
     color: '#111827',
     marginBottom: 14,
   },
+  bundleTabRow: {
+    flexDirection: 'row',
+    backgroundColor: '#F3F4F6',
+    borderRadius: 10,
+    padding: 3,
+    marginBottom: 12,
+    gap: 4,
+  },
+  bundleTab: {
+    flex: 1,
+    paddingVertical: 6,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  bundleTabSelected: {
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  bundleTabText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#6B7280',
+  },
+  bundleTabTextSelected: {
+    color: '#7C3AED',
+    fontWeight: '700',
+  },
   summaryList: {
     gap: 12,
   },
@@ -542,15 +676,52 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   summaryRowLabel: {
-    flex: 1,
     fontSize: 13,
-    fontWeight: '600',
-    color: '#374151',
+    fontWeight: '700',
+    color: '#1F2937',
+  },
+  summaryRowSubtext: {
+    fontSize: 11,
+    color: '#9CA3AF',
+    marginTop: 2,
   },
   summaryRowValue: {
     fontSize: 15,
     fontWeight: '800',
     color: '#111827',
+  },
+  statusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  statusBadge_active: {
+    backgroundColor: '#ECFDF5',
+  },
+  statusBadge_exhausted: {
+    backgroundColor: '#FFFBEB',
+  },
+  statusBadge_expired: {
+    backgroundColor: '#FEF2F2',
+  },
+  statusBadge_inactive: {
+    backgroundColor: '#F3F4F6',
+  },
+  statusBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  statusBadgeText_active: {
+    color: '#059669',
+  },
+  statusBadgeText_exhausted: {
+    color: '#D97706',
+  },
+  statusBadgeText_expired: {
+    color: '#DC2626',
+  },
+  statusBadgeText_inactive: {
+    color: '#6B7280',
   },
 
   // Premium Banner

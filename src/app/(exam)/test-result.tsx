@@ -15,6 +15,9 @@ import Svg, { Circle } from 'react-native-svg';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { examService, isSectionBasedExam } from '@/services/exam';
 
+import { Audio } from 'expo-av';
+import { resolveMediaUrl } from '@/services/mediaCache';
+
 function getIeltsDescriptor(score: number): string {
   if (score >= 9.0) return 'Expert User';
   if (score >= 8.0) return 'Very Good User';
@@ -36,18 +39,65 @@ function calculateCefr(score: number): string {
   return 'A1 (Breakthrough)';
 }
 
-interface AiFeedbackItem {
+export interface AiFeedbackItem {
   question_id?: number;
   score_awarded?: number;
   max_score?: number;
+  // Writing Rubric Criteria
   task_achievement?: string;
+  task_achievement_score?: number;
   coherence_cohesion?: string;
+  coherence_cohesion_score?: number;
   lexical_resource?: string;
   grammatical_range?: string;
+  // Speaking Rubric Criteria
   fluency_coherence?: string;
+  fluency_coherence_score?: number;
+  vocabulary?: string;
+  vocabulary_score?: number;
+  grammar?: string;
+  grammar_score?: number;
+  pronunciation_na?: string;
   pronunciation?: string;
+  pronunciation_score?: number;
+  ai_feedback?: string;
   detailed_feedback?: string;
+  // Media & Transcript
+  audio_response?: string;
+  audio_start_time?: number | null;
+  audio_end_time?: number | null;
+  written_response?: string;
+  question_text?: string;
   [key: string]: any;
+}
+
+export function parseSpeakingFeedback(rawFeedback: any): AiFeedbackItem | null {
+  if (!rawFeedback) return null;
+  let parsed = rawFeedback;
+  if (typeof rawFeedback === 'string') {
+    try {
+      parsed = JSON.parse(rawFeedback);
+    } catch {
+      return { ai_feedback: rawFeedback };
+    }
+  }
+  if (typeof parsed === 'object' && parsed !== null) {
+    let result = { ...parsed };
+    if (typeof result.ai_feedback === 'string' && result.ai_feedback.trim().startsWith('{')) {
+      try {
+        const nested = JSON.parse(result.ai_feedback);
+        result = { ...result, ...nested };
+      } catch {}
+    }
+    if (typeof result.raw_feedback === 'string' && result.raw_feedback.trim().startsWith('{')) {
+      try {
+        const nested = JSON.parse(result.raw_feedback);
+        result = { ...result, ...nested };
+      } catch {}
+    }
+    return result;
+  }
+  return null;
 }
 
 export interface IeltsSectionDef {
@@ -92,6 +142,126 @@ export function roundIeltsBand(score: number): number {
   } else {
     return floor + 1.0;
   }
+}
+
+function SpeakingAudioPlayer({ audioUrl, startTime, endTime }: { audioUrl: string; startTime?: number | null; endTime?: number | null }) {
+  const [sound, setSound] = useState<Audio.Sound | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [position, setPosition] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const hasRange = typeof startTime === 'number' && typeof endTime === 'number' && endTime > startTime;
+  const startMillis = hasRange ? (startTime as number) * 1000 : 0;
+  const endMillis = hasRange ? (endTime as number) * 1000 : 0;
+  const segmentDurationMillis = hasRange ? (endMillis - startMillis) : duration;
+
+  useEffect(() => {
+    return () => {
+      if (sound) {
+        sound.unloadAsync().catch(() => {});
+      }
+    };
+  }, [sound]);
+
+  const togglePlayback = async () => {
+    if (!audioUrl) return;
+    try {
+      if (sound) {
+        if (isPlaying) {
+          await sound.pauseAsync();
+          setIsPlaying(false);
+        } else {
+          if (hasRange && position >= segmentDurationMillis) {
+            await sound.setPositionAsync(startMillis);
+            setPosition(0);
+          }
+          await sound.playAsync();
+          setIsPlaying(true);
+        }
+      } else {
+        setIsLoading(true);
+        const resolved = resolveMediaUrl(audioUrl);
+        if (!resolved) {
+          setIsLoading(false);
+          return;
+        }
+
+        await Audio.setAudioModeAsync({ playsInSilentModeIOS: true, allowsRecordingIOS: false });
+        const { sound: newSound } = await Audio.Sound.createAsync(
+          { uri: resolved },
+          { shouldPlay: true, positionMillis: startMillis },
+          (status) => {
+            if (status.isLoaded) {
+              const currentPos = status.positionMillis || 0;
+              const totalDur = status.durationMillis || 0;
+              setDuration(totalDur);
+
+              if (hasRange) {
+                const relativePos = Math.max(0, currentPos - startMillis);
+                setPosition(Math.min(segmentDurationMillis, relativePos));
+                if (currentPos >= endMillis || status.didJustFinish) {
+                  newSound.pauseAsync().catch(() => {});
+                  newSound.setPositionAsync(startMillis).catch(() => {});
+                  setIsPlaying(false);
+                  setPosition(0);
+                }
+              } else {
+                setPosition(currentPos);
+                if (status.didJustFinish) {
+                  setIsPlaying(false);
+                  setPosition(0);
+                }
+              }
+            }
+          }
+        );
+        setSound(newSound);
+        setIsPlaying(true);
+        setIsLoading(false);
+      }
+    } catch (err) {
+      console.warn('Audio playback error:', err);
+      setIsPlaying(false);
+      setIsLoading(false);
+    }
+  };
+
+  const formatTime = (millis: number) => {
+    const totalSecs = Math.floor(millis / 1000);
+    const mins = Math.floor(totalSecs / 60);
+    const secs = totalSecs % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const effectiveDuration = hasRange ? segmentDurationMillis : duration;
+  const progressPct = effectiveDuration > 0 ? Math.min(100, Math.round((position / effectiveDuration) * 100)) : 0;
+
+  return (
+    <View style={styles.audioPlayerContainer}>
+      <TouchableOpacity 
+        style={styles.audioPlayButton} 
+        onPress={togglePlayback}
+        disabled={isLoading}
+        activeOpacity={0.8}
+      >
+        {isLoading ? (
+          <ActivityIndicator size="small" color="#FFFFFF" />
+        ) : (
+          <Ionicons name={isPlaying ? "pause" : "play"} size={16} color="#FFFFFF" />
+        )}
+      </TouchableOpacity>
+      <View style={styles.audioProgressCol}>
+        <View style={styles.audioProgressBarBg}>
+          <View style={[styles.audioProgressBarFill, { width: `${progressPct}%` }]} />
+        </View>
+        <View style={styles.audioTimeRow}>
+          <Text style={styles.audioTimeText}>{formatTime(position)}</Text>
+          <Text style={styles.audioTimeText}>{formatTime(duration)}</Text>
+        </View>
+      </View>
+    </View>
+  );
 }
 
 export default function TestResultScreen() {
@@ -149,7 +319,6 @@ export default function TestResultScreen() {
   const [readingWpm, setReadingWpm] = useState<number | null>(null);
   const [listeningAccuracy, setListeningAccuracy] = useState<number | null>(null);
   const [aiAssessmentStatus, setAiAssessmentStatus] = useState<string | null>(params.ai_assessment_status || null);
-  const [isAiEvaluating, setIsAiEvaluating] = useState<boolean>(false);
   const [aiFeedbacks, setAiFeedbacks] = useState<AiFeedbackItem[]>(() => {
     if (params.ai_feedbacks) {
       try {
@@ -210,12 +379,9 @@ export default function TestResultScreen() {
       : {};
     if (Object.keys(secScores).length > 0) {
       setScorePerSection(secScores);
-
-      const writingBand = secScores['Writing Band'] ?? secScores['Writing'];
-      const speakingBand = secScores['Speaking Band'] ?? secScores['Speaking'];
-      const isStillEvaluating = (writingBand === undefined || writingBand === null || writingBand === 0) &&
-                                (speakingBand === undefined || speakingBand === null || speakingBand === 0);
-      setIsAiEvaluating(isStillEvaluating && data.ai_assessment_status !== 'Skipped');
+    }
+    if (data.ai_assessment_status) {
+      setAiAssessmentStatus(data.ai_assessment_status);
     }
 
     // Score parsing
@@ -315,6 +481,52 @@ export default function TestResultScreen() {
     }
   }, [detectedIsIelts, initialScore, params.exam_name, params.is_ielts, params.section_names, params.section_order, params.sections]);
 
+  const processAttemptResponses = useCallback((attemptData: any) => {
+    if (!attemptData || !attemptData.sections) return;
+    const extractedFeedbacks: AiFeedbackItem[] = [];
+
+    attemptData.sections.forEach((sec: any) => {
+      const isSpeakingSec = sec.section_name && sec.section_name.toLowerCase().includes('speaking');
+      sec.question_groups?.forEach((grp: any) => {
+        grp.responses?.forEach((resp: any) => {
+          const isAudioResp = Boolean(resp.audio_response || resp.question?.question_type === 'AUDIO' || isSpeakingSec);
+          const rawFb = resp.ai_feedback || resp.ielts_speaking_criteria;
+
+          if (isAudioResp || resp.question?.question_type === 'TEXT') {
+            const parsed = parseSpeakingFeedback(rawFb);
+            if (parsed || resp.audio_response || resp.written_response) {
+              extractedFeedbacks.push({
+                question_id: resp.question?.id || resp.id,
+                score_awarded: resp.score_awarded ?? parsed?.score_awarded ?? parsed?.score,
+                audio_response: resp.audio_response || resp.bulk_audio_file || attemptData?.bulk_audio_file,
+                audio_start_time: resp.audio_start_time,
+                audio_end_time: resp.audio_end_time,
+                written_response: resp.written_response,
+                question_text: resp.question?.text,
+                ...(parsed || {}),
+              });
+            }
+          }
+        });
+      });
+    });
+
+    if (extractedFeedbacks.length > 0) {
+      setAiFeedbacks(prev => {
+        const merged = [...prev];
+        extractedFeedbacks.forEach(item => {
+          const idx = merged.findIndex(m => m.question_id === item.question_id);
+          if (idx >= 0) {
+            merged[idx] = { ...merged[idx], ...item };
+          } else {
+            merged.push(item);
+          }
+        });
+        return merged;
+      });
+    }
+  }, []);
+
   const fetchResults = useCallback(async (isPolling = false) => {
     if (!params.attempt_id) {
       if (initialScore === null) {
@@ -336,60 +548,68 @@ export default function TestResultScreen() {
     setAnalyticsError(null);
     setError(null);
 
+    let foundAnalytics = false;
+
+    // 1. Fetch attempt responses (candidate audio, Deepgram transcript, rubric feedback)
     try {
-      // 1. Primary: Detailed Analytics Endpoint
+      const attemptData = await examService.resumeExam(attemptId);
+      if (attemptData) {
+        processAttemptResponses(attemptData);
+      }
+    } catch (attemptErr) {
+      console.warn('Attempt responses fetch error:', attemptErr);
+    }
+
+    // 2. Primary: Detailed Analytics Endpoint
+    try {
       const data = await examService.getDetailedAnalytics(attemptId);
       if (data) {
         processAnalyticsData(data);
-        setLoading(false);
-        setAnalyticsLoading(false);
-        return;
+        foundAnalytics = true;
       }
     } catch (primaryErr) {
       console.warn('Detailed analytics not ready or endpoint returned error:', primaryErr);
     }
 
-    // 2. Fallback: Full Attempt Review Endpoint
-    try {
-      const reviewData = await examService.getAttemptReview(attemptId);
-      if (reviewData) {
-        processAnalyticsData({
-          ...reviewData,
-          total_score: reviewData.total_score,
-          exam_name: (reviewData as any).exam_name || params.exam_name,
-        });
-        setLoading(false);
-        setAnalyticsLoading(false);
-        return;
+    // 3. Fallback: Full Attempt Review Endpoint
+    if (!foundAnalytics) {
+      try {
+        const reviewData = await examService.getAttemptReview(attemptId);
+        if (reviewData) {
+          processAnalyticsData({
+            ...reviewData,
+            total_score: reviewData.total_score,
+            exam_name: (reviewData as any).exam_name || params.exam_name,
+          });
+          foundAnalytics = true;
+        }
+      } catch (reviewErr) {
+        console.warn('Attempt review fallback error:', reviewErr);
       }
-    } catch (reviewErr) {
-      console.warn('Attempt review fallback error:', reviewErr);
     }
 
-    // 3. Fallback: Last Attempt Details Endpoint
-    try {
-      const lastAttempt = await examService.getLastAttemptDetails(detectedIsIelts ? 42 : 41);
-      if (lastAttempt && (lastAttempt.total_score !== undefined || lastAttempt.score !== undefined)) {
-        processAnalyticsData(lastAttempt);
-        setLoading(false);
-        setAnalyticsLoading(false);
-        return;
+    // 4. Fallback: Last Attempt Details Endpoint
+    if (!foundAnalytics) {
+      try {
+        const lastAttempt = await examService.getLastAttemptDetails(detectedIsIelts ? 42 : 41);
+        if (lastAttempt && (lastAttempt.total_score !== undefined || lastAttempt.score !== undefined)) {
+          processAnalyticsData(lastAttempt);
+          foundAnalytics = true;
+        }
+      } catch (lastErr) {
+        console.warn('Last attempt details fallback error:', lastErr);
       }
-    } catch (lastErr) {
-      console.warn('Last attempt details fallback error:', lastErr);
     }
 
-    // If we have an initial score from submit, preserve it and don't block the screen
-    setAnalyticsLoading(false);
-    if (initialScore !== null) {
-      setAnalyticsError('Detailed skill analytics could not be retrieved.');
-      setLoading(false);
-      return;
-    }
-
-    setError('Could not retrieve results. Please check your connection and try again.');
     setLoading(false);
-  }, [params.attempt_id, initialScore, processAnalyticsData, detectedIsIelts]);
+    setAnalyticsLoading(false);
+
+    if (!foundAnalytics && initialScore === null) {
+      setError('Could not retrieve results. Please check your connection and try again.');
+    } else if (!foundAnalytics && initialScore !== null) {
+      setAnalyticsError('Detailed skill analytics could not be retrieved.');
+    }
+  }, [params.attempt_id, initialScore, processAnalyticsData, processAttemptResponses, detectedIsIelts]);
 
   useEffect(() => {
     fetchResults();
@@ -400,19 +620,6 @@ export default function TestResultScreen() {
       }
     };
   }, [fetchResults]);
-
-  // Polling for async AI evaluation if Celery is running
-  useEffect(() => {
-    if (isAiEvaluating && pollCountRef.current < 6 && params.attempt_id) {
-      pollTimerRef.current = setTimeout(() => {
-        pollCountRef.current += 1;
-        fetchResults(true);
-      }, 3500);
-    }
-    return () => {
-      if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
-    };
-  }, [isAiEvaluating, fetchResults, params.attempt_id]);
 
   // Active IELTS Sections considering selected/done practice sections
   const activeIeltsSections = useMemo(() => {
@@ -465,6 +672,88 @@ export default function TestResultScreen() {
 
     return ALL_IELTS_SECTIONS;
   }, [isIelts, analyticsData, params.section_names, params.section_order, params.sections, params.exam_name, scorePerSection]);
+
+  // Dynamically compute AI evaluation progress tailored specifically to the tests that were taken
+  const aiEvaluationInfo = useMemo(() => {
+    if (!isIelts) {
+      return { isEvaluating: false, pendingSections: [] as string[], readySections: [] as string[], title: '', message: '' };
+    }
+
+    if (analyticsData?.ai_assessment_status === 'Skipped' || analyticsData?.ai_assessment_status === 'Completed') {
+      return { isEvaluating: false, pendingSections: [] as string[], readySections: [] as string[], title: '', message: '' };
+    }
+
+    const hasWriting = activeIeltsSections.some(s => s.label.toLowerCase() === 'writing');
+    const hasSpeaking = activeIeltsSections.some(s => s.label.toLowerCase() === 'speaking');
+    const hasReading = activeIeltsSections.some(s => s.label.toLowerCase() === 'reading');
+    const hasListening = activeIeltsSections.some(s => s.label.toLowerCase() === 'listening');
+
+    const writingDef = ALL_IELTS_SECTIONS.find(s => s.label === 'Writing');
+    const speakingDef = ALL_IELTS_SECTIONS.find(s => s.label === 'Speaking');
+
+    const writingScore = writingDef ? getSectionScore(writingDef, scorePerSection) : null;
+    const speakingScore = speakingDef ? getSectionScore(speakingDef, scorePerSection) : null;
+
+    // Section is pending evaluation only if it was actually taken in this exam attempt
+    // and its band score has not yet been computed / awarded
+    const isWritingPending = hasWriting && (writingScore === undefined || writingScore === null || writingScore === 0);
+    const isSpeakingPending = hasSpeaking && (speakingScore === undefined || speakingScore === null || speakingScore === 0);
+
+    const pendingSections: string[] = [];
+    if (isWritingPending) pendingSections.push('Writing');
+    if (isSpeakingPending) pendingSections.push('Speaking');
+
+    // If neither Writing nor Speaking is pending (or neither was taken, e.g. Reading/Listening only test), no AI evaluation
+    if (pendingSections.length === 0) {
+      return { isEvaluating: false, pendingSections: [] as string[], readySections: [] as string[], title: '', message: '' };
+    }
+
+    const readySections: string[] = [];
+    if (hasReading) readySections.push('Reading');
+    if (hasListening) readySections.push('Listening');
+    if (hasWriting && !isWritingPending) readySections.push('Writing');
+    if (hasSpeaking && !isSpeakingPending) readySections.push('Speaking');
+
+    const pendingText = pendingSections.join(' & ');
+    const verb = pendingSections.length > 1 ? 'are' : 'is';
+
+    let message = '';
+    if (readySections.length > 0) {
+      const readyText = readySections.join(' & ');
+      message = `Deterministic scoring (${readyText}) is ready. ${pendingText} ${verb} currently being evaluated by our AI examiner.`;
+    } else {
+      if (pendingSections.length === 1 && pendingSections[0] === 'Speaking') {
+        message = 'Your Speaking audio is currently being evaluated by our AI examiner.';
+      } else if (pendingSections.length === 1 && pendingSections[0] === 'Writing') {
+        message = 'Your Writing response is currently being evaluated by our AI examiner.';
+      } else {
+        message = `${pendingText} responses ${verb} currently being evaluated by our AI examiner.`;
+      }
+    }
+
+    return {
+      isEvaluating: true,
+      pendingSections,
+      readySections,
+      title: 'AI Evaluation in Progress',
+      message
+    };
+  }, [isIelts, analyticsData?.ai_assessment_status, activeIeltsSections, scorePerSection]);
+
+  const isAiEvaluating = aiEvaluationInfo.isEvaluating;
+
+  // Polling for async AI evaluation if Celery is running
+  useEffect(() => {
+    if (isAiEvaluating && pollCountRef.current < 6 && params.attempt_id) {
+      pollTimerRef.current = setTimeout(() => {
+        pollCountRef.current += 1;
+        fetchResults(true);
+      }, 3500);
+    }
+    return () => {
+      if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+    };
+  }, [isAiEvaluating, fetchResults, params.attempt_id]);
 
   // Calculations for donut
   const displayScore = score !== null ? (isIelts ? score.toFixed(1) : String(score)) : '--';
@@ -552,9 +841,9 @@ export default function TestResultScreen() {
               <View style={styles.evaluatingBanner}>
                 <ActivityIndicator size="small" color="#6D28D9" style={{ marginRight: 10 }} />
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.evaluatingTitle}>AI Evaluation in Progress</Text>
+                  <Text style={styles.evaluatingTitle}>{aiEvaluationInfo.title}</Text>
                   <Text style={styles.evaluatingSub}>
-                    Deterministic scoring (Reading & Listening) is ready. Writing & Speaking are currently being evaluated.
+                    {aiEvaluationInfo.message}
                   </Text>
                 </View>
               </View>
@@ -656,7 +945,8 @@ export default function TestResultScreen() {
                 <View style={styles.ieltsGrid}>
                   {activeIeltsSections.map(item => {
                     const foundVal = getSectionScore(item, scorePerSection);
-                    const isPending = (foundVal === undefined || foundVal === null) && isAiEvaluating;
+                    const isPending = (foundVal === undefined || foundVal === null || foundVal === 0) &&
+                                      aiEvaluationInfo.pendingSections.includes(item.label);
                     const isCardLoading = analyticsLoading && (foundVal === undefined || foundVal === null);
 
                     const valDisplay = foundVal !== undefined && foundVal !== null 
@@ -809,44 +1099,197 @@ export default function TestResultScreen() {
             {/* AI Rubric Feedback for Writing & Speaking constructed responses */}
             {aiFeedbacks.length > 0 && (
               <View style={styles.sectionContainer}>
-                <Text style={styles.sectionHeading}>AI Rubric Evaluation</Text>
-                {aiFeedbacks.map((fb, idx) => (
-                  <View key={fb.question_id || idx} style={styles.aiFeedbackCard}>
-                    <View style={styles.aiFeedbackHeader}>
-                      <Ionicons name="sparkles" size={16} color="#7C3AED" />
-                      <Text style={styles.aiFeedbackTitle}>
-                        {fb.score_awarded !== undefined ? `Band Score: ${parseFloat(String(fb.score_awarded)).toFixed(1)} / 9.0` : `Question ${idx + 1}`}
-                      </Text>
+                <Text style={styles.sectionHeading}>AI Examiner Rubric Evaluation</Text>
+                {aiFeedbacks.map((fb, idx) => {
+                  const isSpeaking = Boolean(
+                    fb.fluency_coherence || 
+                    fb.fluency_coherence_score !== undefined || 
+                    fb.audio_response || 
+                    fb.vocabulary_score !== undefined ||
+                    (fb.question_text && fb.question_text.toLowerCase().includes('speaking'))
+                  );
+
+                  return (
+                    <View key={fb.question_id || idx} style={styles.aiFeedbackCard}>
+                      <View style={styles.aiFeedbackHeader}>
+                        <Ionicons 
+                          name={isSpeaking ? "mic" : "sparkles"} 
+                          size={16} 
+                          color={isSpeaking ? "#059669" : "#7C3AED"} 
+                        />
+                        <Text style={[styles.aiFeedbackTitle, isSpeaking && { color: '#065F46' }]}>
+                          {isSpeaking ? 'IELTS Speaking Assessment' : 'IELTS Writing Assessment'}
+                        </Text>
+                        {fb.score_awarded !== undefined && (
+                          <View style={[styles.rubricScorePill, { backgroundColor: isSpeaking ? '#D1FAE5' : '#EDE9FE', marginLeft: 'auto' }]}>
+                            <Text style={[styles.rubricScorePillText, { color: isSpeaking ? '#059669' : '#6D28D9' }]}>
+                              Band {parseFloat(String(fb.score_awarded)).toFixed(1)} / 9.0
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+
+                      {fb.question_text && (
+                        <Text style={styles.aiFeedbackQuestionText}>{fb.question_text}</Text>
+                      )}
+
+                      {/* Speaking Specific Criteria Breakdown */}
+                      {isSpeaking && (
+                        <View style={styles.rubricCriteriaContainer}>
+                          {/* 1. Fluency & Coherence */}
+                          {(fb.fluency_coherence || fb.fluency_coherence_score !== undefined) && (
+                            <View style={styles.rubricBlock}>
+                              <View style={styles.rubricTitleRow}>
+                                <Text style={styles.rubricLabel}>Fluency & Coherence</Text>
+                                {fb.fluency_coherence_score !== undefined && (
+                                  <View style={[styles.rubricScorePill, { backgroundColor: '#D1FAE5' }]}>
+                                    <Text style={[styles.rubricScorePillText, { color: '#059669' }]}>
+                                      {parseFloat(String(fb.fluency_coherence_score)).toFixed(1)} / 9.0
+                                    </Text>
+                                  </View>
+                                )}
+                              </View>
+                              {fb.fluency_coherence && (
+                                <Text style={styles.rubricValue}>{fb.fluency_coherence}</Text>
+                              )}
+                            </View>
+                          )}
+
+                          {/* 2. Lexical Resource / Vocabulary */}
+                          {(fb.vocabulary || fb.vocabulary_score !== undefined) && (
+                            <View style={styles.rubricBlock}>
+                              <View style={styles.rubricTitleRow}>
+                                <Text style={styles.rubricLabel}>Lexical Resource (Vocabulary)</Text>
+                                {fb.vocabulary_score !== undefined && (
+                                  <View style={[styles.rubricScorePill, { backgroundColor: '#D1FAE5' }]}>
+                                    <Text style={[styles.rubricScorePillText, { color: '#059669' }]}>
+                                      {parseFloat(String(fb.vocabulary_score)).toFixed(1)} / 9.0
+                                    </Text>
+                                  </View>
+                                )}
+                              </View>
+                              {fb.vocabulary && (
+                                <Text style={styles.rubricValue}>{fb.vocabulary}</Text>
+                              )}
+                            </View>
+                          )}
+
+                          {/* 3. Grammatical Range & Accuracy */}
+                          {(fb.grammar || fb.grammar_score !== undefined) && (
+                            <View style={styles.rubricBlock}>
+                              <View style={styles.rubricTitleRow}>
+                                <Text style={styles.rubricLabel}>Grammar & Accuracy</Text>
+                                {fb.grammar_score !== undefined && (
+                                  <View style={[styles.rubricScorePill, { backgroundColor: '#D1FAE5' }]}>
+                                    <Text style={[styles.rubricScorePillText, { color: '#059669' }]}>
+                                      {parseFloat(String(fb.grammar_score)).toFixed(1)} / 9.0
+                                    </Text>
+                                  </View>
+                                )}
+                              </View>
+                              {fb.grammar && (
+                                <Text style={styles.rubricValue}>{fb.grammar}</Text>
+                              )}
+                            </View>
+                          )}
+                        </View>
+                      )}
+
+                      {/* Writing Specific Criteria Breakdown */}
+                      {!isSpeaking && (
+                        <View style={styles.rubricCriteriaContainer}>
+                          {fb.task_achievement && (
+                            <View style={styles.rubricBlock}>
+                              <View style={styles.rubricTitleRow}>
+                                <Text style={styles.rubricLabel}>Task Achievement</Text>
+                                {fb.task_achievement_score !== undefined && (
+                                  <View style={[styles.rubricScorePill, { backgroundColor: '#EDE9FE' }]}>
+                                    <Text style={[styles.rubricScorePillText, { color: '#6D28D9' }]}>
+                                      {parseFloat(String(fb.task_achievement_score)).toFixed(1)} / 9.0
+                                    </Text>
+                                  </View>
+                                )}
+                              </View>
+                              <Text style={styles.rubricValue}>{fb.task_achievement}</Text>
+                            </View>
+                          )}
+                          {fb.coherence_cohesion && (
+                            <View style={styles.rubricBlock}>
+                              <View style={styles.rubricTitleRow}>
+                                <Text style={styles.rubricLabel}>Coherence & Cohesion</Text>
+                                {fb.coherence_cohesion_score !== undefined && (
+                                  <View style={[styles.rubricScorePill, { backgroundColor: '#EDE9FE' }]}>
+                                    <Text style={[styles.rubricScorePillText, { color: '#6D28D9' }]}>
+                                      {parseFloat(String(fb.coherence_cohesion_score)).toFixed(1)} / 9.0
+                                    </Text>
+                                  </View>
+                                )}
+                              </View>
+                              <Text style={styles.rubricValue}>{fb.coherence_cohesion}</Text>
+                            </View>
+                          )}
+                          {fb.lexical_resource && (
+                            <View style={styles.rubricBlock}>
+                              <View style={styles.rubricTitleRow}>
+                                <Text style={styles.rubricLabel}>Lexical Resource</Text>
+                              </View>
+                              <Text style={styles.rubricValue}>{fb.lexical_resource}</Text>
+                            </View>
+                          )}
+                          {fb.grammatical_range && (
+                            <View style={styles.rubricBlock}>
+                              <View style={styles.rubricTitleRow}>
+                                <Text style={styles.rubricLabel}>Grammar & Accuracy</Text>
+                              </View>
+                              <Text style={styles.rubricValue}>{fb.grammatical_range}</Text>
+                            </View>
+                          )}
+                        </View>
+                      )}
+
+                      {/* Overall Examiner Summary */}
+                      {(fb.ai_feedback || fb.detailed_feedback) && (
+                        <View style={styles.examinerSummaryBox}>
+                          <View style={styles.examinerSummaryHeader}>
+                            <Ionicons name="chatbox-ellipses-outline" size={13} color={isSpeaking ? "#059669" : "#7C3AED"} style={{ marginRight: 5 }} />
+                            <Text style={[styles.examinerSummaryTitle, isSpeaking && { color: '#065F46' }]}>
+                              Examiner Summary
+                            </Text>
+                          </View>
+                          <Text style={styles.aiFeedbackDetailed}>{fb.ai_feedback || fb.detailed_feedback}</Text>
+                        </View>
+                      )}
+
+                      {/* Candidate Audio Playback Stream */}
+                      {fb.audio_response && (
+                        <View style={styles.mediaSection}>
+                          <View style={styles.mediaSectionHeader}>
+                            <Ionicons name="headset-outline" size={13} color="#374151" style={{ marginRight: 5 }} />
+                            <Text style={styles.mediaSectionTitle}>Your Recorded Speech</Text>
+                          </View>
+                          <SpeakingAudioPlayer 
+                            audioUrl={fb.audio_response} 
+                            startTime={fb.audio_start_time}
+                            endTime={fb.audio_end_time}
+                          />
+                        </View>
+                      )}
+
+                      {/* STT Transcript Box (Deepgram) */}
+                      {fb.written_response && (
+                        <View style={styles.transcriptBox}>
+                          <View style={styles.transcriptHeader}>
+                            <Ionicons name="document-text-outline" size={13} color="#059669" style={{ marginRight: 5 }} />
+                            <Text style={styles.transcriptTitle}>
+                              {isSpeaking ? 'Speech-to-Text Transcript (Deepgram)' : 'Candidate Written Response'}
+                            </Text>
+                          </View>
+                          <Text style={styles.transcriptText}>"{fb.written_response}"</Text>
+                        </View>
+                      )}
                     </View>
-                    {fb.task_achievement && (
-                      <View style={styles.rubricRow}>
-                        <Text style={styles.rubricLabel}>Task Achievement:</Text>
-                        <Text style={styles.rubricValue}>{fb.task_achievement}</Text>
-                      </View>
-                    )}
-                    {fb.coherence_cohesion && (
-                      <View style={styles.rubricRow}>
-                        <Text style={styles.rubricLabel}>Coherence & Cohesion:</Text>
-                        <Text style={styles.rubricValue}>{fb.coherence_cohesion}</Text>
-                      </View>
-                    )}
-                    {fb.lexical_resource && (
-                      <View style={styles.rubricRow}>
-                        <Text style={styles.rubricLabel}>Lexical Resource:</Text>
-                        <Text style={styles.rubricValue}>{fb.lexical_resource}</Text>
-                      </View>
-                    )}
-                    {fb.grammatical_range && (
-                      <View style={styles.rubricRow}>
-                        <Text style={styles.rubricLabel}>Grammar & Accuracy:</Text>
-                        <Text style={styles.rubricValue}>{fb.grammatical_range}</Text>
-                      </View>
-                    )}
-                    {fb.detailed_feedback && (
-                      <Text style={styles.aiFeedbackDetailed}>{fb.detailed_feedback}</Text>
-                    )}
-                  </View>
-                ))}
+                  );
+                })}
               </View>
             )}
 
@@ -1324,9 +1767,138 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     fontStyle: 'italic',
     marginTop: 4,
-    borderTopWidth: 1,
-    borderTopColor: '#F3E8FF',
-    paddingTop: 6,
+    paddingTop: 4,
+  },
+  aiFeedbackQuestionText: {
+    fontSize: 12,
+    color: '#4B5563',
+    fontWeight: '500',
+    marginBottom: 8,
+    lineHeight: 16,
+  },
+  rubricCriteriaContainer: {
+    gap: 8,
+    marginBottom: 8,
+  },
+  rubricBlock: {
+    backgroundColor: '#F9FAFB',
+    borderRadius: 8,
+    padding: 8,
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
+  },
+  rubricTitleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  rubricScorePill: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  rubricScorePillText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  examinerSummaryBox: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 8,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    marginTop: 6,
+  },
+  examinerSummaryHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  examinerSummaryTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#4338CA',
+  },
+  mediaSection: {
+    marginTop: 10,
+  },
+  mediaSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  mediaSectionTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  audioPlayerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F1F5F9',
+    borderRadius: 12,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  audioPlayButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#059669',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  audioProgressCol: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  audioProgressBarBg: {
+    height: 6,
+    backgroundColor: '#CBD5E1',
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  audioProgressBarFill: {
+    height: 6,
+    backgroundColor: '#059669',
+    borderRadius: 3,
+  },
+  audioTimeRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 4,
+  },
+  audioTimeText: {
+    fontSize: 10.5,
+    color: '#64748B',
+    fontWeight: '600',
+  },
+  transcriptBox: {
+    backgroundColor: '#F0FDF4',
+    borderRadius: 10,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    marginTop: 10,
+  },
+  transcriptHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  transcriptTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#15803D',
+  },
+  transcriptText: {
+    fontSize: 12,
+    color: '#1E293B',
+    lineHeight: 17,
+    fontStyle: 'italic',
   },
 
   // Action Buttons

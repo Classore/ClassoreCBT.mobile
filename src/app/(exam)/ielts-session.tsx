@@ -87,14 +87,16 @@ export default function IELTSSessionScreen() {
 
     const initIelts = async () => {
       try {
-        let currentAttempt: UserAttempt;
-        if (params.attempt_id) {
-          const res = await examService.resumeExam(Number(params.attempt_id));
+        let currentAttempt: UserAttempt | undefined;
+        const attemptId = examService.parseAttemptId(params.attempt_id) || (await examService.getActiveAttemptId());
+        if (attemptId) {
+          const res = await examService.resumeExam(attemptId);
           currentAttempt = res;
           if (res.timer_info?.remaining_seconds !== undefined) {
             setTimeLeft(res.timer_info.remaining_seconds);
           }
-        } else {
+        }
+        if (!currentAttempt) {
           const examId = params.exam ? Number(params.exam) : (params.exam_type_id ? Number(params.exam_type_id) : 42);
           let order: number[] | undefined;
           if (params.section_order) {
@@ -402,7 +404,10 @@ export default function IELTSSessionScreen() {
           ? explicitKey.replace(/\b\w/g, (c: string) => c.toUpperCase())
           : (group.group_title?.trim() || `Passage ${tabNumber}`);
 
-        if (cleanTitle.length > 25) {
+        const partOrSectionMatch = cleanTitle.match(/(Part\s+\d+|Section\s+\d+|Passage\s+\d+|Task\s+\d+)/i);
+        if (partOrSectionMatch) {
+          cleanTitle = partOrSectionMatch[1].replace(/section/i, 'Part');
+        } else if (cleanTitle.length > 15) {
           const parenMatch = cleanTitle.match(/\(([^)]+)\)/);
           if (parenMatch) {
             cleanTitle = parenMatch[1];
@@ -871,8 +876,10 @@ export default function IELTSSessionScreen() {
           setIsPlayingAudio(false);
         }
 
+        const activeAttemptId = attempt?.id || examService.parseAttemptId(params.attempt_id) || examService.getActiveAttemptIdSync();
+
         const commonParams = {
-          attempt_id: String(attempt?.id || params.attempt_id || ''),
+          attempt_id: activeAttemptId ? String(activeAttemptId) : '',
           exam: params.exam || params.exam_type_id || '42',
           exam_id: params.exam || params.exam_type_id || '42',
           exam_name: (attempt as any)?.exam_type_name || params.exam_name || 'IELTS Academic',

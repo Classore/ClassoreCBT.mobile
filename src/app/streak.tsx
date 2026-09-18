@@ -39,17 +39,43 @@ export default function StreakScreen() {
   }, []);
 
   const [localProtectionCards, setLocalProtectionCards] = useState<number | null>(null);
+  const [usingCard, setUsingCard] = useState(false);
   const currentStreak = historyData?.streak ?? user?.streak ?? 0;
   const bestStreak = historyData?.best_streak ?? user?.best_streak ?? 0;
+  const daysActive =
+    historyData?.days_active ??
+    historyData?.total_days_active ??
+    historyData?.active_days ??
+    user?.days_active ??
+    (historyData?.completed_dates?.length ? Math.max(historyData.completed_dates.length, currentStreak) : currentStreak);
   const protectionCards = localProtectionCards ?? historyData?.protection_cards_count ?? user?.protection_cards_count ?? 0;
 
   const handleUseProtectionCard = async () => {
-    const success = await useStreakProtection();
-    if (success) {
-      setLocalProtectionCards(Math.max(0, protectionCards - 1));
-      Alert.alert("Success", "Streak protection activated successfully!");
-    } else {
-      Alert.alert("Notice", "Could not activate streak protection. Do you have any cards left?");
+    if (usingCard) return;
+
+    if (protectionCards <= 0) {
+      Alert.alert("No Protection Cards", "You have no streak protection cards remaining.");
+      return;
+    }
+
+    setUsingCard(true);
+    try {
+      const res = await useStreakProtection();
+      if (res && res.success) {
+        if (typeof res.remainingCards === 'number') {
+          setLocalProtectionCards(res.remainingCards);
+        } else {
+          setLocalProtectionCards(Math.max(0, protectionCards - 1));
+        }
+        Alert.alert("Streak Protected", res.message || "Streak protection activated successfully!");
+      } else {
+        Alert.alert("Notice", res?.message || "Could not activate streak protection.");
+      }
+    } catch (err: any) {
+      const msg = err?.response?.data?.detail || err?.response?.data?.message || err?.message || "Could not activate streak protection.";
+      Alert.alert("Notice", msg);
+    } finally {
+      setUsingCard(false);
     }
   };
 
@@ -104,8 +130,10 @@ export default function StreakScreen() {
           >
             <Feather name="chevron-left" size={24} color="#111827" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>My Streak</Text>
-          <View style={{ width: 40 }} />
+          <Text style={styles.headerTitle}>My Streak 🔥</Text>
+          <View style={styles.headerStreakBadge}>
+            <Text style={styles.headerStreakBadgeText}>🔥 {currentStreak}</Text>
+          </View>
         </View>
 
         {loading ? (
@@ -126,8 +154,8 @@ export default function StreakScreen() {
             >
               <View style={styles.heroContent}>
                 <View style={styles.heroTextCol}>
-                  <Text style={styles.heroTitle}>You're on fire! 🔥</Text>
-                  <Text style={styles.heroSubText}>Practice today to keep it going.</Text>
+                  <Text style={styles.heroTitle}>Keep the fire alive!</Text>
+                  <Text style={styles.heroSubText}>Consistency today, success tomorrow.</Text>
 
                   <View style={styles.statsRow}>
                     <View style={styles.statItem}>
@@ -135,14 +163,21 @@ export default function StreakScreen() {
                         <Text style={styles.statEmoji}>🔥</Text>
                         <Text style={styles.statNumber}>{currentStreak}</Text>
                       </View>
-                      <Text style={styles.statLabel}>Day Streak</Text>
+                      <Text style={styles.statLabel}>Current Streak</Text>
                     </View>
                     <View style={styles.statItem}>
                       <View style={styles.statNumberRow}>
-                        <Text style={styles.statEmoji}>👑</Text>
+                        <Text style={styles.statEmoji}>🏆</Text>
                         <Text style={styles.statNumber}>{bestStreak}</Text>
                       </View>
                       <Text style={styles.statLabel}>Best Streak</Text>
+                    </View>
+                    <View style={styles.statItem}>
+                      <View style={styles.statNumberRow}>
+                        <Text style={styles.statEmoji}>📅</Text>
+                        <Text style={styles.statNumber}>{daysActive}</Text>
+                      </View>
+                      <Text style={styles.statLabel}>Days Active</Text>
                     </View>
                   </View>
                 </View>
@@ -324,11 +359,22 @@ export default function StreakScreen() {
                 </Text>
 
                 <TouchableOpacity 
-                  style={styles.useCardButton}
+                  style={[
+                    styles.useCardButton,
+                    (usingCard || protectionCards <= 0) && styles.useCardButtonDisabled
+                  ]}
                   onPress={handleUseProtectionCard}
+                  disabled={usingCard || protectionCards <= 0}
                   activeOpacity={0.8}
                 >
-                  <Text style={styles.useCardButtonText}>Use Card</Text>
+                  {usingCard ? (
+                    <ActivityIndicator size="small" color="#4C1D95" />
+                  ) : (
+                    <Text style={[
+                      styles.useCardButtonText,
+                      protectionCards <= 0 && styles.useCardButtonTextDisabled
+                    ]}>Use Card</Text>
+                  )}
                 </TouchableOpacity>
               </View>
             </View>
@@ -389,6 +435,19 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#111827',
   },
+  headerStreakBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F5F3FF',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  headerStreakBadgeText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#7C3AED',
+  },
   scrollContent: {
     paddingHorizontal: 16,
     paddingTop: 10,
@@ -396,7 +455,8 @@ const styles = StyleSheet.create({
 
   heroCard: {
     borderRadius: 24,
-    padding: 24,
+    paddingVertical: 22,
+    paddingHorizontal: 18,
     marginBottom: 20,
     shadowColor: '#7C3AED',
     shadowOffset: { width: 0, height: 8 },
@@ -413,19 +473,19 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   heroTitle: {
-    fontSize: 22,
+    fontSize: 21,
     fontWeight: '800',
     color: '#FFFFFF',
     marginBottom: 4,
   },
   heroSubText: {
-    fontSize: 11.5,
+    fontSize: 11,
     color: '#DDD6FE',
     marginBottom: 16,
   },
   statsRow: {
     flexDirection: 'row',
-    gap: 16,
+    gap: 12,
   },
   statItem: {
     alignItems: 'flex-start',
@@ -435,24 +495,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   statEmoji: {
-    fontSize: 14,
+    fontSize: 13,
     marginRight: 4,
   },
   statNumber: {
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: '800',
     color: '#FFFFFF',
   },
   statLabel: {
-    fontSize: 10,
+    fontSize: 9.5,
     color: '#DDD6FE',
-    fontWeight: '500',
+    fontWeight: '600',
     marginTop: 2,
   },
   candleContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingLeft: 8,
+    paddingLeft: 6,
   },
   heroFlameImage: {
     width: 85,
@@ -773,6 +833,14 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
     color: '#4C1D95',
+  },
+  useCardButtonDisabled: {
+    borderColor: '#CBD5E1',
+    backgroundColor: '#F8FAFC',
+    opacity: 0.7,
+  },
+  useCardButtonTextDisabled: {
+    color: '#94A3B8',
   },
 
   rocketCard: {

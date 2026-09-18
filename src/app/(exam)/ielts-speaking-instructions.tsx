@@ -12,11 +12,15 @@ import {
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
+import { examService } from '@/services/exam';
 
 export default function IELTSSpeakingInstructionsScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const params = useLocalSearchParams();
+
+  const activeAttemptId = examService.parseAttemptId(params.attempt_id) || examService.getActiveAttemptIdSync();
+  const attemptIdStr = activeAttemptId ? String(activeAttemptId) : '';
 
   const instructions = [
     {
@@ -125,7 +129,10 @@ export default function IELTSSpeakingInstructionsScreen() {
             style={styles.beginButton}
             onPress={() => router.push({
               pathname: '/(exam)/ielts-speaking-session',
-              params: params
+              params: {
+                ...params,
+                attempt_id: attemptIdStr,
+              }
             })}
             activeOpacity={0.85}
           >

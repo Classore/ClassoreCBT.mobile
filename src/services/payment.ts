@@ -42,12 +42,96 @@ export interface ServiceBundle {
   tag?: string;
 }
 
+export type BundleStatus = 'active' | 'exhausted' | 'expired' | 'inactive';
+
 export interface MyBundle {
   id: number;
   bundle: ServiceBundle;
   purchase_date: string;
   expiry_date?: string;
+  expires_at?: string;
+  end_date?: string;
   is_active: boolean;
+  is_expired?: boolean;
+  is_exhausted?: boolean;
+  status?: string;
+  remaining_usage?: number;
+  remaining_assessments?: number;
+  remaining_attempts?: number;
+  usage_left?: number;
+  usage_count?: number;
+  max_usage?: number;
+  user_services?: any[];
+  services?: any[];
+}
+
+export function getBundleStatus(bundle: MyBundle | any): BundleStatus {
+  if (!bundle) return 'inactive';
+
+  // 1. Explicit status string from backend
+  const rawStatus = (bundle.status || '').toLowerCase().trim();
+  if (rawStatus === 'exhausted' || rawStatus === 'depleted') return 'exhausted';
+  if (rawStatus === 'expired') return 'expired';
+  if (rawStatus === 'inactive') return 'inactive';
+
+  // 2. Explicit boolean flags from backend
+  if (bundle.is_exhausted === true) return 'exhausted';
+  if (bundle.is_expired === true) return 'expired';
+
+  // 3. Expiration date check against current time
+  const expiryStr = bundle.expiry_date || bundle.expires_at || bundle.end_date;
+  if (expiryStr) {
+    const expiryTime = new Date(expiryStr).getTime();
+    if (!isNaN(expiryTime) && expiryTime <= Date.now()) {
+      return 'expired';
+    }
+  }
+
+  // 4. Usage exhaustion checks
+  if (typeof bundle.remaining_usage === 'number' && bundle.remaining_usage <= 0) {
+    return 'exhausted';
+  }
+  if (typeof bundle.remaining_assessments === 'number' && bundle.remaining_assessments <= 0) {
+    return 'exhausted';
+  }
+  if (typeof bundle.remaining_attempts === 'number' && bundle.remaining_attempts <= 0) {
+    return 'exhausted';
+  }
+  if (typeof bundle.usage_left === 'number' && bundle.usage_left <= 0) {
+    return 'exhausted';
+  }
+  if (typeof bundle.max_usage === 'number' && typeof bundle.usage_count === 'number' && bundle.usage_count >= bundle.max_usage) {
+    return 'exhausted';
+  }
+
+  // 5. Per-service usage exhaustion check
+  const services = bundle.user_services || bundle.services || bundle.included_services;
+  if (Array.isArray(services) && services.length > 0) {
+    const limitedServices = services.filter(
+      (s: any) => s.is_unlimited === false || s.service?.is_unlimited === false || s.is_unlimited_override === false
+    );
+    const hasUnlimited = services.some(
+      (s: any) => s.is_unlimited === true || s.service?.is_unlimited === true || s.is_unlimited_override === true
+    );
+    if (limitedServices.length > 0 && !hasUnlimited) {
+      const allExhausted = limitedServices.every((s: any) => {
+        if (s.is_exhausted === true) return true;
+        if (typeof s.remaining_usage === 'number' && s.remaining_usage <= 0) return true;
+        if (typeof s.max_usage === 'number' && typeof s.usage_count === 'number' && s.usage_count >= s.max_usage) return true;
+        return false;
+      });
+      if (allExhausted) return 'exhausted';
+    }
+  }
+
+  // 6. Active flag
+  if (bundle.is_active === false) return 'inactive';
+
+  return 'active';
+}
+
+export function isBundleActive(bundle: MyBundle | any): boolean {
+  return getBundleStatus(bundle) === 'active';
 }
 
 export const paymentService = {

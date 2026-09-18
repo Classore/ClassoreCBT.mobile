@@ -198,7 +198,8 @@ export default function IELTSSpeakingSessionScreen() {
   // Timers
   const [totalTimeLeft, setTotalTimeLeft] = useState(900); // 15:00
   const [getReadyCountdown, setGetReadyCountdown] = useState(5); // 00:05
-  const [questionTimeLeft, setQuestionTimeLeft] = useState(45); // Standard 45s for Part 1
+  const [listenTimeLeft, setListenTimeLeft] = useState(10); // Prompt listening time
+  const [recordingTimeLeft, setRecordingTimeLeft] = useState(45); // Candidate speech recording time
 
   // Candidate Notes (useful for Part 2 Long Turn)
   const [prepNotes, setPrepNotes] = useState('');
@@ -211,6 +212,11 @@ export default function IELTSSpeakingSessionScreen() {
 
   // Audio Recording & Playback
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
+  const collatedRecordingRef = useRef<Audio.Recording | null>(null);
+  const collatedAudioUriRef = useRef<string | null>(null);
+  const isRecorderPausedRef = useRef<boolean>(false);
+  const questionTimestampsRef = useRef<{ questionId: number; start: number; end: number }[]>([]);
+  const currentQStartTimeRef = useRef<number>(0);
   const [audioPermission, setAudioPermission] = useState<boolean>(false);
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [isPlayingQuestionAudio, setIsPlayingQuestionAudio] = useState(false);
@@ -246,8 +252,8 @@ export default function IELTSSpeakingSessionScreen() {
     })();
 
     return () => {
-      if (recording) {
-        recording.stopAndUnloadAsync().catch(() => {});
+      if (collatedRecordingRef.current) {
+        collatedRecordingRef.current.stopAndUnloadAsync().catch(() => {});
       }
       if (sound) {
         sound.unloadAsync().catch(() => {});
@@ -259,8 +265,9 @@ export default function IELTSSpeakingSessionScreen() {
   useEffect(() => {
     const initIelts = async () => {
       try {
-        if (params.attempt_id) {
-          const res = await examService.resumeExam(Number(params.attempt_id));
+        const attemptId = examService.parseAttemptId(params.attempt_id) || (await examService.getActiveAttemptId());
+        if (attemptId) {
+          const res = await examService.resumeExam(attemptId);
           setAttempt(res);
           setTotalTimeLeft(res.timer_info?.remaining_seconds ?? 900);
           
@@ -272,14 +279,16 @@ export default function IELTSSpeakingSessionScreen() {
             setSpeakingSection(speakSec);
             const firstQ = speakSec.question_groups[0]?.responses[0]?.question;
             setGetReadyCountdown(getPrepDuration(firstQ, 0));
-            setQuestionTimeLeft(getRecordingDuration(firstQ, 0));
+            setListenTimeLeft(getListenDuration(firstQ, 0));
+            setRecordingTimeLeft(getRecordingDuration(firstQ, 0));
           } else {
-            console.warn('Attempt has no questions in speaking section, clearing stale attempt ID:', params.attempt_id);
+            console.warn('Attempt has no questions in speaking section, using fallback speaking structure');
             setAttempt(null);
             setSpeakingSection(FALLBACK_SPEAKING_STRUCTURE);
             const firstQ = FALLBACK_SPEAKING_STRUCTURE.question_groups[0]?.responses[0]?.question;
             setGetReadyCountdown(getPrepDuration(firstQ, 0));
-            setQuestionTimeLeft(getRecordingDuration(firstQ, 0));
+            setListenTimeLeft(getListenDuration(firstQ, 0));
+            setRecordingTimeLeft(getRecordingDuration(firstQ, 0));
           }
 
           const initialBookmarks: number[] = [];
@@ -294,41 +303,15 @@ export default function IELTSSpeakingSessionScreen() {
           });
           setBookmarkedQuestions(initialBookmarks);
         } else {
-          const examId = params.exam ? Number(params.exam) : (params.exam_type_id ? Number(params.exam_type_id) : 42);
-          const newAttempt = await examService.startExam({
-            exam_type_id: examId,
-            mode: 'Standard',
-          });
-          const res = await examService.resumeExam(newAttempt.id);
-          setAttempt(res);
-          setTotalTimeLeft(res.timer_info?.remaining_seconds ?? 900);
-          const speakSec = res.sections?.find(s => 
-            s.section_name.toLowerCase().includes('speaking')
-          ) || (res.sections && res.sections.length > 0 ? res.sections[0] : undefined);
-          if (speakSec && speakSec.question_groups && speakSec.question_groups.length > 0) {
-            setSpeakingSection(speakSec);
-            const firstQ = speakSec.question_groups[0]?.responses[0]?.question;
-            setGetReadyCountdown(getPrepDuration(firstQ, 0));
-            setQuestionTimeLeft(getRecordingDuration(firstQ, 0));
-          } else {
-            console.warn('New attempt has no questions in speaking section, clearing attempt ID');
-            setAttempt(null);
-            setSpeakingSection(FALLBACK_SPEAKING_STRUCTURE);
-            const firstQ = FALLBACK_SPEAKING_STRUCTURE.question_groups[0]?.responses[0]?.question;
-            setGetReadyCountdown(getPrepDuration(firstQ, 0));
-            setQuestionTimeLeft(getRecordingDuration(firstQ, 0));
-          }
+          console.warn('No active attempt ID found for speaking session, using fallback speaking structure');
+          setAttempt(null);
+          setSpeakingSection(FALLBACK_SPEAKING_STRUCTURE);
+          const firstQ = FALLBACK_SPEAKING_STRUCTURE.question_groups[0]?.responses[0]?.question;
+          setGetReadyCountdown(getPrepDuration(firstQ, 0));
+          setListenTimeLeft(getListenDuration(firstQ, 0));
+          setRecordingTimeLeft(getRecordingDuration(firstQ, 0));
         }
       } catch (e: any) {
-        if (isSubscriptionError(e)) {
-          const errorMsg = getSubscriptionErrorMessage(
-            e,
-            'You do not have an active subscription or bundle to access IELTS Speaking.'
-          );
-          setSubscriptionMessage(errorMsg);
-          setShowSubscriptionModal(true);
-          return;
-        }
         console.warn('Could not initialize speaking session, using fallback speaking structure:', e);
         setAttempt(null);
         setSpeakingSection(FALLBACK_SPEAKING_STRUCTURE);
@@ -460,6 +443,7 @@ export default function IELTSSpeakingSessionScreen() {
 
       if (sound) {
         try {
+          await sound.setOnPlaybackStatusUpdate(null);
           await sound.unloadAsync();
         } catch {}
         setSound(null);
@@ -490,10 +474,11 @@ export default function IELTSSpeakingSessionScreen() {
                   setQuestionAudioDuration(status.durationMillis || 0);
                   if (status.durationMillis && status.positionMillis !== undefined) {
                     const remainingSec = Math.max(1, Math.ceil((status.durationMillis - status.positionMillis) / 1000));
-                    setQuestionTimeLeft(remainingSec);
+                    setListenTimeLeft(remainingSec);
                   }
                   if (status.didJustFinish && !isCancelled) {
                     setIsPlayingQuestionAudio(false);
+                    newSound.setOnPlaybackStatusUpdate(null);
                     // Automatically transition to recording state when question audio finishes!
                     handleListenComplete();
                   }
@@ -501,6 +486,7 @@ export default function IELTSSpeakingSessionScreen() {
               }
             );
             if (isCancelled) {
+              newSound.setOnPlaybackStatusUpdate(null);
               newSound.unloadAsync().catch(() => {});
               return;
             }
@@ -516,7 +502,7 @@ export default function IELTSSpeakingSessionScreen() {
         }
       } else {
         // Fallback when no audio URL exists: set authentic listen timeout
-        setQuestionTimeLeft(getListenDuration(currentQ, activeGroupIndex));
+        setListenTimeLeft(getListenDuration(currentQ, activeGroupIndex));
       }
     };
 
@@ -524,6 +510,7 @@ export default function IELTSSpeakingSessionScreen() {
       playQuestionAudio();
     } else {
       if (sound) {
+        sound.setOnPlaybackStatusUpdate(null);
         sound.unloadAsync().catch(() => {});
         setSound(null);
         setIsPlayingQuestionAudio(false);
@@ -532,49 +519,83 @@ export default function IELTSSpeakingSessionScreen() {
 
     return () => {
       isCancelled = true;
+      if (sound) {
+        sound.setOnPlaybackStatusUpdate(null);
+      }
     };
   }, [subState, activeGroupIndex, currentResponseIndex, speakingSection]);
 
-  // Sub-State Timers & Auto-Transitions
+  // 1. Get-Ready Countdown Timer
   useEffect(() => {
-    let timer: ReturnType<typeof setInterval>;
+    if (subState !== 'get-ready') return;
 
-    if (subState === 'get-ready') {
-      timer = setInterval(() => {
-        setGetReadyCountdown(prev => {
-          if (prev <= 1) {
-            handleGetReadyComplete();
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    } else if (subState === 'listen') {
-      timer = setInterval(() => {
-        setQuestionTimeLeft(prev => {
-          if (prev <= 1) {
-            handleListenComplete();
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    } else if (subState === 'recording') {
-      timer = setInterval(() => {
-        setQuestionTimeLeft(prev => {
-          if (prev <= 1) {
-            handleNextAnswer();
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    }
+    const timer = setInterval(() => {
+      setGetReadyCountdown(prev => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
 
-    return () => {
-      if (timer) clearInterval(timer);
-    };
+    return () => clearInterval(timer);
   }, [subState]);
+
+  // When getReadyCountdown hits 0, trigger handleGetReadyComplete
+  useEffect(() => {
+    if (subState === 'get-ready' && getReadyCountdown === 0) {
+      handleGetReadyComplete();
+    }
+  }, [subState, getReadyCountdown]);
+
+  // 2. Listen Countdown Timer (fallback for reading prompt if audio is not uploaded or fails)
+  useEffect(() => {
+    if (subState !== 'listen') return;
+
+    const timer = setInterval(() => {
+      setListenTimeLeft(prev => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [subState]);
+
+  // When listenTimeLeft hits 0, trigger handleListenComplete
+  useEffect(() => {
+    if (subState === 'listen' && listenTimeLeft === 0) {
+      handleListenComplete();
+    }
+  }, [subState, listenTimeLeft]);
+
+  // 3. Candidate Speech Recording Timer (45s Part 1, 120s Part 2, 60s Part 3)
+  useEffect(() => {
+    if (subState !== 'recording') return;
+
+    const timer = setInterval(() => {
+      setRecordingTimeLeft(prev => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [subState]);
+
+  // When recordingTimeLeft hits 0, trigger handleNextAnswer (recording finishes!)
+  useEffect(() => {
+    if (subState === 'recording' && recordingTimeLeft === 0) {
+      handleNextAnswer();
+    }
+  }, [subState, recordingTimeLeft]);
 
   const formatTotalTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -588,7 +609,7 @@ export default function IELTSSpeakingSessionScreen() {
     return { mins, secs };
   };
 
-  // Audio Recording Methods
+  // Audio Recording Methods (Collated Session Architecture)
   const startRecording = async () => {
     try {
       if (!audioPermission) {
@@ -597,32 +618,110 @@ export default function IELTSSpeakingSessionScreen() {
         setAudioPermission(true);
       }
       await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+
+      // If a collated recorder is already active and paused, resume it smoothly
+      if (collatedRecordingRef.current && isRecorderPausedRef.current) {
+        try {
+          const status = await collatedRecordingRef.current.getStatusAsync();
+          currentQStartTimeRef.current = (status?.durationMillis || 0) / 1000.0;
+          await collatedRecordingRef.current.startAsync();
+          isRecorderPausedRef.current = false;
+          setRecording(collatedRecordingRef.current);
+          return;
+        } catch (resumeErr) {
+          console.warn('Failed to resume collated recording, recreating:', resumeErr);
+          try {
+            await collatedRecordingRef.current.stopAndUnloadAsync();
+            const uri = collatedRecordingRef.current.getURI();
+            if (uri) collatedAudioUriRef.current = uri;
+          } catch {}
+          collatedRecordingRef.current = null;
+          isRecorderPausedRef.current = false;
+        }
+      }
+
       const { recording: newRecording } = await Audio.Recording.createAsync(
         Audio.RecordingOptionsPresets.HIGH_QUALITY
       );
+      collatedRecordingRef.current = newRecording;
+      currentQStartTimeRef.current = 0.0;
+      isRecorderPausedRef.current = false;
       setRecording(newRecording);
     } catch (err) {
       console.warn('Failed to start audio recording:', err);
     }
   };
 
-  const stopRecording = async () => {
-    if (!recording) return null;
+  const pauseRecording = async () => {
+    if (!collatedRecordingRef.current || isRecorderPausedRef.current) return;
     try {
-      await recording.stopAndUnloadAsync();
-      const uri = recording.getURI();
+      let durationSec = 0;
+      try {
+        const status = await collatedRecordingRef.current.getStatusAsync();
+        durationSec = (status?.durationMillis || 0) / 1000.0;
+      } catch {}
+
+      await collatedRecordingRef.current.pauseAsync();
+      isRecorderPausedRef.current = true;
       setRecording(null);
-      return uri;
+
+      if (currentQ?.id) {
+        const start = Number(currentQStartTimeRef.current.toFixed(2));
+        const end = Number(Math.max(start + 0.5, durationSec).toFixed(2));
+        questionTimestampsRef.current = [
+          ...questionTimestampsRef.current.filter(t => t.questionId !== currentQ.id),
+          { questionId: currentQ.id, start, end }
+        ];
+      }
     } catch (err) {
-      console.warn('Failed to stop audio recording:', err);
-      return null;
+      console.warn('Failed to pause collated recording, stopping instead:', err);
+      try {
+        await collatedRecordingRef.current.stopAndUnloadAsync();
+        const uri = collatedRecordingRef.current.getURI();
+        if (uri) collatedAudioUriRef.current = uri;
+      } catch {}
+      collatedRecordingRef.current = null;
+      isRecorderPausedRef.current = false;
+      setRecording(null);
     }
+  };
+
+  const stopAndFinalizeCollatedAudio = async (): Promise<string | null> => {
+    if (collatedRecordingRef.current) {
+      try {
+        if (!isRecorderPausedRef.current && currentQ?.id) {
+          try {
+            const status = await collatedRecordingRef.current.getStatusAsync();
+            const durationSec = (status?.durationMillis || 0) / 1000.0;
+            const start = Number(currentQStartTimeRef.current.toFixed(2));
+            const end = Number(Math.max(start + 0.5, durationSec).toFixed(2));
+            questionTimestampsRef.current = [
+              ...questionTimestampsRef.current.filter(t => t.questionId !== currentQ.id),
+              { questionId: currentQ.id, start, end }
+            ];
+          } catch {}
+        }
+        await collatedRecordingRef.current.stopAndUnloadAsync();
+        const uri = collatedRecordingRef.current.getURI();
+        if (uri) collatedAudioUriRef.current = uri;
+      } catch (err) {
+        console.warn('Failed to stop/unload collated audio recording:', err);
+      }
+      collatedRecordingRef.current = null;
+      isRecorderPausedRef.current = false;
+      setRecording(null);
+    }
+    return collatedAudioUriRef.current;
+  };
+
+  const stopRecording = async () => {
+    return await stopAndFinalizeCollatedAudio();
   };
 
   // Transitions
   const handleGetReadyComplete = () => {
+    setListenTimeLeft(getListenDuration(currentQ, activeGroupIndex));
     setSubState('listen');
-    setQuestionTimeLeft(getListenDuration(currentQ, activeGroupIndex));
   };
 
   const handleStartNow = () => {
@@ -630,8 +729,10 @@ export default function IELTSSpeakingSessionScreen() {
   };
 
   const handleListenComplete = async () => {
+    if (subState === 'recording') return; // Guard against re-entry
+    const duration = getRecordingDuration(currentQ, activeGroupIndex);
+    setRecordingTimeLeft(duration);
     setSubState('recording');
-    setQuestionTimeLeft(getRecordingDuration(currentQ, activeGroupIndex));
     await startRecording();
   };
 
@@ -646,35 +747,30 @@ export default function IELTSSpeakingSessionScreen() {
       return;
     }
 
-    // In 'recording' state:
-    const uri = await stopRecording();
+    // In 'recording' state: candidate has finished speaking for this prompt.
+    // Pause recording instead of uploading per-question, accumulating candidate speech into 1 collated file.
+    await pauseRecording();
     const activeGroup = speakingSection?.question_groups[activeGroupIndex];
-    
-    if (uri && attempt && activeGroup) {
-      const q = activeGroup.responses[currentResponseIndex];
-      // Only upload to backend if question belongs to a real server attempt (not fallback mock structure)
-      if (q?.question?.id && speakingSection !== FALLBACK_SPEAKING_STRUCTURE) {
-        examService.uploadAudio(attempt.id, q.question.id, uri).catch(err => {
-          console.warn('Audio upload warning:', err);
-        });
-      }
-    }
 
     // Move to next question or next part
     if (activeGroup && currentResponseIndex < activeGroup.responses.length - 1) {
       const nextIdx = currentResponseIndex + 1;
       const nextQ = activeGroup.responses[nextIdx]?.question;
       setCurrentResponseIndex(nextIdx);
-      setSubState('get-ready');
       setGetReadyCountdown(getPrepDuration(nextQ, activeGroupIndex));
+      setListenTimeLeft(getListenDuration(nextQ, activeGroupIndex));
+      setRecordingTimeLeft(getRecordingDuration(nextQ, activeGroupIndex));
+      setSubState('get-ready');
     } else if (speakingSection && activeGroupIndex < speakingSection.question_groups.length - 1) {
       const nextGrpIdx = activeGroupIndex + 1;
       const nextGrp = speakingSection.question_groups[nextGrpIdx];
       const nextQ = nextGrp?.responses[0]?.question;
       setActiveGroupIndex(nextGrpIdx);
       setCurrentResponseIndex(0);
-      setSubState('get-ready');
       setGetReadyCountdown(getPrepDuration(nextQ, nextGrpIdx));
+      setListenTimeLeft(getListenDuration(nextQ, nextGrpIdx));
+      setRecordingTimeLeft(getRecordingDuration(nextQ, nextGrpIdx));
+      setSubState('get-ready');
       setPrepNotes('');
     } else {
       handleSubmit();
@@ -716,9 +812,7 @@ export default function IELTSSpeakingSessionScreen() {
   };
 
   const executeSubmit = async () => {
-    if (recording) {
-      await stopRecording();
-    }
+    const collatedUri = await stopAndFinalizeCollatedAudio();
     try {
       setIsSubmitting(true);
       const attemptId = attempt?.id || Number(params.attempt_id);
@@ -739,6 +833,31 @@ export default function IELTSSpeakingSessionScreen() {
       }
 
       const hasNextSection = currentSectionIdxInList < fullSectionNames.length - 1;
+
+      // Submit collated speaking audio with per-question timestamps
+      if (collatedUri && attemptId && speakingSection) {
+        const primaryQId = speakingSection.question_groups?.[0]?.responses?.[0]?.question?.id;
+        if (speakingSection !== FALLBACK_SPEAKING_STRUCTURE) {
+          try {
+            const metadata = questionTimestampsRef.current;
+            if (metadata.length > 0) {
+              await examService.submitBulkAudio(attemptId, collatedUri, metadata, 'audio/m4a');
+            } else if (primaryQId) {
+              await examService.uploadAudio(attemptId, primaryQId, collatedUri, 'audio/m4a');
+            }
+          } catch (uploadErr) {
+            console.warn('Speaking bulk audio upload warning:', uploadErr);
+            // Fallback to primary question upload if bulk endpoint encounters any issue
+            if (primaryQId) {
+              try {
+                await examService.uploadAudio(attemptId, primaryQId, collatedUri, 'audio/m4a');
+              } catch (fallbackErr) {
+                console.warn('Speaking fallback upload warning:', fallbackErr);
+              }
+            }
+          }
+        }
+      }
 
       if (hasNextSection) {
         const nextSectionIndex = currentSectionIdxInList + 1;
@@ -871,7 +990,8 @@ export default function IELTSSpeakingSessionScreen() {
   ];
 
   const { mins: countdownMins, secs: countdownSecs } = formatDigits(getReadyCountdown);
-  const { mins: timerMins, secs: timerSecs } = formatDigits(questionTimeLeft);
+  const { mins: listenMins, secs: listenSecs } = formatDigits(listenTimeLeft);
+  const { mins: recordingMins, secs: recordingSecs } = formatDigits(recordingTimeLeft);
 
   const renderCueCard = (question?: any) => {
     if (!question) return null;
@@ -972,8 +1092,10 @@ export default function IELTSSpeakingSessionScreen() {
                     setCurrentResponseIndex(0);
                     const grp = speakingSection?.question_groups[idx];
                     const q = grp?.responses[0]?.question;
-                    setSubState('get-ready');
                     setGetReadyCountdown(getPrepDuration(q, idx));
+                    setListenTimeLeft(getListenDuration(q, idx));
+                    setRecordingTimeLeft(getRecordingDuration(q, idx));
+                    setSubState('get-ready');
                   }
                 }}
                 activeOpacity={0.8}
@@ -1153,12 +1275,12 @@ export default function IELTSSpeakingSessionScreen() {
               {/* Digital Timer */}
               <View style={styles.countdownRow}>
                 <View style={styles.countdownCol}>
-                  <Text style={styles.countdownNumber}>{timerMins}</Text>
+                  <Text style={styles.countdownNumber}>{listenMins}</Text>
                   <Text style={styles.countdownUnit}>Minutes</Text>
                 </View>
                 <Text style={styles.countdownColon}>:</Text>
                 <View style={styles.countdownCol}>
-                  <Text style={styles.countdownNumber}>{timerSecs}</Text>
+                  <Text style={styles.countdownNumber}>{listenSecs}</Text>
                   <Text style={styles.countdownUnit}>Seconds</Text>
                 </View>
               </View>
@@ -1210,12 +1332,12 @@ export default function IELTSSpeakingSessionScreen() {
               {/* Digital Timer */}
               <View style={styles.countdownRow}>
                 <View style={styles.countdownCol}>
-                  <Text style={styles.countdownNumber}>{timerMins}</Text>
+                  <Text style={styles.countdownNumber}>{recordingMins}</Text>
                   <Text style={styles.countdownUnit}>Minutes</Text>
                 </View>
                 <Text style={styles.countdownColon}>:</Text>
                 <View style={styles.countdownCol}>
-                  <Text style={styles.countdownNumber}>{timerSecs}</Text>
+                  <Text style={styles.countdownNumber}>{recordingSecs}</Text>
                   <Text style={styles.countdownUnit}>Seconds</Text>
                 </View>
               </View>

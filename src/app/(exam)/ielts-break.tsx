@@ -11,6 +11,7 @@ import {
 import { Feather } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import { examService } from '@/services/exam';
 
 export default function IELTSBreakScreen() {
   const router = useRouter();
@@ -59,12 +60,14 @@ export default function IELTSBreakScreen() {
   const handleProceed = () => {
     const isSpeaking = nextSectionName.toLowerCase().includes('speaking');
     const isListening = nextSectionName.toLowerCase().includes('listening');
+    const activeAttemptId = examService.parseAttemptId(params.attempt_id) || examService.getActiveAttemptIdSync();
+    const attemptIdStr = activeAttemptId ? String(activeAttemptId) : '';
 
     if (isSpeaking) {
       router.replace({
         pathname: '/(exam)/ielts-speaking-instructions',
         params: {
-          attempt_id: params.attempt_id,
+          attempt_id: attemptIdStr,
           exam: params.exam_id || '42',
           exam_id: params.exam_id || '42',
           exam_name: params.exam_name || 'IELTS Academic',
@@ -79,7 +82,7 @@ export default function IELTSBreakScreen() {
       router.replace({
         pathname: '/(exam)/ielts-listening-instructions',
         params: {
-          attempt_id: params.attempt_id,
+          attempt_id: attemptIdStr,
           exam: params.exam_id || '42',
           exam_id: params.exam_id || '42',
           exam_name: params.exam_name || 'IELTS Academic',
@@ -94,7 +97,7 @@ export default function IELTSBreakScreen() {
       router.replace({
         pathname: '/(exam)/ielts-section-instructions',
         params: {
-          attempt_id: params.attempt_id,
+          attempt_id: attemptIdStr,
           exam: params.exam_id || '42',
           exam_id: params.exam_id || '42',
           section_index: nextSectionIndex,

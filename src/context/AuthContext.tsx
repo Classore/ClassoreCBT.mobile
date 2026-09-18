@@ -27,6 +27,7 @@ export interface UserProfile {
   xp?: number;
   streak?: number;
   best_streak?: number;
+  days_active?: number;
   protection_cards_count?: number;
   token_balance?: number;
   daily_freemium_attempts?: number;
@@ -46,7 +47,7 @@ type AuthContextType = {
   refreshUser: () => Promise<void>;
   updateUserProfile: (data: Partial<UserProfile> | FormData) => Promise<UserProfile>;
   changePassword: (oldPassword: string, newPassword: string) => Promise<void>;
-  useStreakProtection: () => Promise<{ remainingCards: number; streak: number }>;
+  useStreakProtection: () => Promise<{ success: boolean; message: string; remainingCards?: number; streak?: number }>;
   setGoal: (examName: string) => Promise<void>;
 };
 
@@ -259,12 +260,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const response = await api.post('/api/auth/use-streak-protection/');
       await refreshUser();
       return {
-        remainingCards: response.data?.remaining_protection_cards,
+        success: true,
+        message: response.data?.message || 'Streak protection card activated!',
+        remainingCards: response.data?.remaining_protection_cards ?? response.data?.protection_cards_count,
         streak: response.data?.streak,
       };
-    } catch (e) {
-      console.error('Failed to use streak protection:', e);
-      throw e;
+    } catch (e: any) {
+      const errorMsg =
+        e?.response?.data?.detail ||
+        e?.response?.data?.error ||
+        e?.response?.data?.message ||
+        'Unable to use streak protection card. Check if you have available cards.';
+      console.warn('Failed to use streak protection:', errorMsg);
+      return {
+        success: false,
+        message: errorMsg,
+      };
     }
   };
 

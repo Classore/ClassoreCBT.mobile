@@ -8,15 +8,174 @@ import {
   Platform,
   ActivityIndicator,
 } from 'react-native';
-import { Feather, Ionicons } from '@expo/vector-icons';
+import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import { Audio } from 'expo-av';
 import { AppText } from '@/components/AppText';
 import { useAuth } from '@/context/AuthContext';
 import { examService, ChoiceItem } from '@/services/exam';
+import { resolveMediaUrl } from '@/services/mediaCache';
 import { BLANK_REGEX, hasBlanks, normalizeBlankToken } from '@/utils/questionFormatter';
+import { parseSpeakingFeedback, AiFeedbackItem } from './test-result';
 
 interface ReviewChoice extends ChoiceItem {
   letter: string;
+}
+
+interface FlatQuestionItem {
+  qId: number;
+  qNum: number;
+  subjectName: string;
+  question: any;
+  response: any;
+  group: any;
+  attemptBulkAudio?: string | null;
+}
+
+interface AudioPlayerProps {
+  audioUrl: string;
+  label?: string;
+  accentColor?: string;
+  startTime?: number | null;
+  endTime?: number | null;
+}
+
+function AudioPlayer({ audioUrl, label, accentColor = '#7C3AED', startTime, endTime }: AudioPlayerProps) {
+  const [sound, setSound] = useState<Audio.Sound | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [position, setPosition] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const hasRange = typeof startTime === 'number' && typeof endTime === 'number' && endTime > startTime;
+  const startMillis = hasRange ? (startTime as number) * 1000 : 0;
+  const endMillis = hasRange ? (endTime as number) * 1000 : 0;
+  const segmentDurationMillis = hasRange ? (endMillis - startMillis) : duration;
+
+  useEffect(() => {
+    return () => {
+      if (sound) {
+        sound.unloadAsync().catch(() => {});
+      }
+    };
+  }, [sound]);
+
+  useEffect(() => {
+    if (sound) {
+      sound.unloadAsync().catch(() => {});
+      setSound(null);
+      setIsPlaying(false);
+      setPosition(0);
+      setDuration(0);
+    }
+  }, [audioUrl, startTime, endTime]);
+
+  const togglePlayback = async () => {
+    if (!audioUrl) return;
+    try {
+      if (sound) {
+        if (isPlaying) {
+          await sound.pauseAsync();
+          setIsPlaying(false);
+        } else {
+          if (hasRange && position >= segmentDurationMillis) {
+            await sound.setPositionAsync(startMillis);
+            setPosition(0);
+          }
+          await sound.playAsync();
+          setIsPlaying(true);
+        }
+      } else {
+        setIsLoading(true);
+        const resolved = resolveMediaUrl(audioUrl);
+        if (!resolved) {
+          setIsLoading(false);
+          return;
+        }
+
+        await Audio.setAudioModeAsync({ playsInSilentModeIOS: true, allowsRecordingIOS: false });
+        const { sound: newSound } = await Audio.Sound.createAsync(
+          { uri: resolved },
+          { shouldPlay: true, positionMillis: startMillis },
+          (status) => {
+            if (status.isLoaded) {
+              const currentPos = status.positionMillis || 0;
+              const totalDur = status.durationMillis || 0;
+              setDuration(totalDur);
+
+              if (hasRange) {
+                const relativePos = Math.max(0, currentPos - startMillis);
+                setPosition(Math.min(segmentDurationMillis, relativePos));
+                if (currentPos >= endMillis || status.didJustFinish) {
+                  newSound.pauseAsync().catch(() => {});
+                  newSound.setPositionAsync(startMillis).catch(() => {});
+                  setIsPlaying(false);
+                  setPosition(0);
+                }
+              } else {
+                setPosition(currentPos);
+                if (status.didJustFinish) {
+                  setIsPlaying(false);
+                  setPosition(0);
+                }
+              }
+            }
+          }
+        );
+        setSound(newSound);
+        setIsPlaying(true);
+        setIsLoading(false);
+      }
+    } catch (err) {
+      console.warn('Audio playback error in question-review:', err);
+      setIsPlaying(false);
+      setIsLoading(false);
+    }
+  };
+
+  const formatTime = (millis: number) => {
+    const totalSecs = Math.floor(millis / 1000);
+    const mins = Math.floor(totalSecs / 60);
+    const secs = totalSecs % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const effectiveDuration = hasRange ? segmentDurationMillis : duration;
+  const progressPct = effectiveDuration > 0 ? Math.min(100, Math.round((position / effectiveDuration) * 100)) : 0;
+
+  return (
+    <View style={styles.audioPlayerCard}>
+      {label ? (
+        <View style={styles.audioPlayerLabelRow}>
+          <Ionicons name="volume-medium-outline" size={16} color={accentColor} style={{ marginRight: 6 }} />
+          <AppText style={[styles.audioPlayerLabel, { color: accentColor }]}>{label}</AppText>
+        </View>
+      ) : null}
+      <View style={styles.audioPlayerRow}>
+        <TouchableOpacity
+          style={[styles.audioPlayButton, { backgroundColor: accentColor }]}
+          onPress={togglePlayback}
+          disabled={isLoading}
+          activeOpacity={0.8}
+        >
+          {isLoading ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : (
+            <Ionicons name={isPlaying ? 'pause' : 'play'} size={18} color="#FFFFFF" />
+          )}
+        </TouchableOpacity>
+        <View style={styles.audioProgressCol}>
+          <View style={styles.audioProgressBarBg}>
+            <View style={[styles.audioProgressBarFill, { width: `${progressPct}%`, backgroundColor: accentColor }]} />
+          </View>
+          <View style={styles.audioTimeRow}>
+            <AppText style={styles.audioTimeText}>{formatTime(position)}</AppText>
+            <AppText style={styles.audioTimeText}>{formatTime(duration)}</AppText>
+          </View>
+        </View>
+      </View>
+    </View>
+  );
 }
 
 export default function QuestionReviewScreen() {
@@ -32,11 +191,38 @@ export default function QuestionReviewScreen() {
   }>();
 
   const [loading, setLoading] = useState<boolean>(true);
+  const [flatQuestions, setFlatQuestions] = useState<FlatQuestionItem[]>([]);
+  const [currentIndex, setCurrentIndex] = useState<number>(0);
+
+  // Question details state
   const [questionText, setQuestionText] = useState<string>('');
   const [instructions, setInstructions] = useState<string>('');
   const [contextText, setContextText] = useState<string>('');
   const [contextTitle, setContextTitle] = useState<string>('');
   const [isContextExpanded, setIsContextExpanded] = useState<boolean>(true);
+  const [subjectName, setSubjectName] = useState<string>(params.subject_name || 'General');
+  const [status, setStatus] = useState<'correct' | 'incorrect' | 'unattempted'>(params.status || 'incorrect');
+  const [questionNumber, setQuestionNumber] = useState<number>(Number(params.question_number) || 1);
+  const [totalQuestions, setTotalQuestions] = useState<number>(Number(params.total_questions) || 1);
+
+  // Question type & Speaking specific
+  const [questionType, setQuestionType] = useState<string>('MULTIPLE_CHOICE');
+  const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
+  const [speakingPart, setSpeakingPart] = useState<string | null>(null);
+  const [cueCardPrompts, setCueCardPrompts] = useState<string[]>([]);
+  const [prepTime, setPrepTime] = useState<number | null>(null);
+  const [recordingTime, setRecordingTime] = useState<number | null>(null);
+
+  // Media & AI review
+  const [promptAudioUrl, setPromptAudioUrl] = useState<string | null>(null);
+  const [candidateAudioUrl, setCandidateAudioUrl] = useState<string | null>(null);
+  const [candidateAudioStartTime, setCandidateAudioStartTime] = useState<number | null>(null);
+  const [candidateAudioEndTime, setCandidateAudioEndTime] = useState<number | null>(null);
+  const [speechTranscript, setSpeechTranscript] = useState<string | null>(null);
+  const [aiFeedback, setAiFeedback] = useState<AiFeedbackItem | null>(null);
+  const [scoreAwarded, setScoreAwarded] = useState<number | null>(null);
+
+  // Blanks and choices
   const [blankViewMode, setBlankViewMode] = useState<'filled' | 'blank'>('filled');
   const [blankAnswers, setBlankAnswers] = useState<{
     correct: Record<string, string>;
@@ -51,19 +237,261 @@ export default function QuestionReviewScreen() {
       isCorrect: boolean;
     }>
   >([]);
-  const [subjectName, setSubjectName] = useState<string>(params.subject_name || 'General');
-  const [status, setStatus] = useState<'correct' | 'incorrect' | 'unattempted'>(params.status || 'incorrect');
   const [choices, setChoices] = useState<ReviewChoice[]>([]);
   const [userAnswerId, setUserAnswerId] = useState<number | null>(null);
   const [correctAnswerId, setCorrectAnswerId] = useState<number | null>(null);
   const [explanation, setExplanation] = useState<string>('');
   const [examples, setExamples] = useState<string[]>([]);
-  const [questionNumber, setQuestionNumber] = useState<number>(Number(params.question_number) || 1);
-  const [totalQuestions, setTotalQuestions] = useState<number>(Number(params.total_questions) || 100);
+
+  // Function to load and populate a single question item into state
+  const populateQuestion = (item: FlatQuestionItem, totalCount: number) => {
+    const q = item.question;
+    const resp = item.response;
+    const grp = item.group;
+
+    setQuestionNumber(item.qNum);
+    setTotalQuestions(totalCount);
+    setSubjectName(item.subjectName);
+
+    const isSpk = q.question_type === 'AUDIO' || 
+      item.subjectName.toLowerCase().includes('speaking') || 
+      Boolean(resp.audio_response);
+    setIsSpeaking(isSpk);
+    setQuestionType(q.question_type || (isSpk ? 'AUDIO' : 'MULTIPLE_CHOICE'));
+
+    setQuestionText(q.text || '');
+    setInstructions(q.instructions || '');
+    setContextText(grp.context_text || '');
+    setContextTitle(grp.group_title || '');
+
+    // Prompt Audio & Candidate Audio
+    const promptAudio = q.audio_file || grp.context_media || q.metadata?.audio_url || q.metadata?.audio_file || null;
+    setPromptAudioUrl(promptAudio);
+    setCandidateAudioUrl(resp.audio_response || resp.bulk_audio_file || item.attemptBulkAudio || null);
+    setCandidateAudioStartTime(typeof resp.audio_start_time === 'number' ? resp.audio_start_time : null);
+    setCandidateAudioEndTime(typeof resp.audio_end_time === 'number' ? resp.audio_end_time : null);
+    setSpeechTranscript(resp.written_response || null);
+
+    // Speaking Part detection
+    let detectedPart: string | null = null;
+    if (q.speaking_part) {
+      detectedPart = q.speaking_part;
+    } else if (q.metadata?.speaking_part) {
+      detectedPart = q.metadata.speaking_part;
+    } else if (grp.group_title && /part\s*[123]/i.test(grp.group_title)) {
+      const m = grp.group_title.match(/part\s*[123]/i);
+      if (m) detectedPart = m[0].toUpperCase();
+    } else if (q.instructions && /part\s*[123]/i.test(q.instructions)) {
+      const m = q.instructions.match(/part\s*[123]/i);
+      if (m) detectedPart = m[0].toUpperCase();
+    }
+
+    // Cue Card Prompts extraction
+    let extractedCuePoints: string[] = [];
+    if (Array.isArray(q.cue_card_prompts)) {
+      extractedCuePoints = q.cue_card_prompts;
+    } else if (typeof q.cue_card_prompts === 'string') {
+      extractedCuePoints = q.cue_card_prompts.split(/\n+/).map((s: string) => s.replace(/^[-•*]\s*/, '').trim()).filter(Boolean);
+    } else if (Array.isArray(q.metadata?.cue_card_prompts)) {
+      extractedCuePoints = q.metadata.cue_card_prompts;
+    } else if (Array.isArray(q.metadata?.bullet_points)) {
+      extractedCuePoints = q.metadata.bullet_points;
+    } else if (q.text && /you should say/i.test(q.text)) {
+      const parts = q.text.split(/you should say:?/i);
+      if (parts.length > 1) {
+        extractedCuePoints = parts[1].split(/\n+/).map((s: string) => s.replace(/^[-•*]\s*/, '').trim()).filter(Boolean);
+      }
+    }
+
+    if (extractedCuePoints.length > 0 && !detectedPart) {
+      detectedPart = 'Part 2';
+    }
+    setSpeakingPart(detectedPart);
+    setCueCardPrompts(extractedCuePoints);
+
+    setPrepTime(q.prep_time_seconds || q.metadata?.prep_time_seconds || (detectedPart === 'Part 2' ? 60 : null));
+    setRecordingTime(q.recording_time_seconds || q.metadata?.recording_time_seconds || (detectedPart === 'Part 2' ? 120 : null));
+
+    // Status & Score
+    let qStatus: 'correct' | 'incorrect' | 'unattempted' = 'unattempted';
+    if ((resp.score_awarded || 0) > 0) {
+      qStatus = 'correct';
+    } else if (resp.selected_choice || resp.written_response || resp.audio_response || (resp.metadata && Object.keys(resp.metadata).length > 0)) {
+      qStatus = 'incorrect';
+    }
+    setStatus(qStatus);
+    setScoreAwarded(resp.score_awarded !== undefined && resp.score_awarded !== null ? Number(resp.score_awarded) : null);
+
+    // AI Feedback
+    const rawAiFb = resp.ai_feedback || resp.metadata?.ai_feedback || null;
+    setAiFeedback(parseSpeakingFeedback(rawAiFb));
+
+    // Choices
+    let mappedChoices: ReviewChoice[] = [];
+    let correctC: ChoiceItem | undefined;
+    if (q.choices && Array.isArray(q.choices)) {
+      mappedChoices = q.choices.map((c: any, idx: number) => ({
+        ...c,
+        letter: String.fromCharCode(65 + idx),
+      }));
+      setChoices(mappedChoices);
+
+      correctC = q.choices.find((c: any) => c.is_correct);
+      if (correctC) {
+        setCorrectAnswerId(correctC.id);
+      } else {
+        setCorrectAnswerId(null);
+      }
+    } else {
+      setChoices([]);
+      setCorrectAnswerId(null);
+    }
+
+    if (resp.selected_choice) {
+      setUserAnswerId(resp.selected_choice);
+    } else {
+      setUserAnswerId(null);
+    }
+
+    // Explanation
+    const expl = q.explanation || (typeof resp.ai_feedback === 'string' && !resp.ai_feedback.startsWith('{') ? resp.ai_feedback : '') || q.hint_explanation || '';
+    setExplanation(expl);
+
+    if (q.metadata && Array.isArray(q.metadata.examples)) {
+      setExamples(q.metadata.examples);
+    } else if (expl && expl.toLowerCase().includes('example')) {
+      const parts = expl.split(/examples?:/i);
+      if (parts.length > 1) {
+        setExplanation(parts[0].trim());
+        const rawExamples = parts[1]
+          .split('\n')
+          .map((e: string) => e.trim())
+          .filter((e: string) => e.length > 0);
+        setExamples(rawExamples);
+      }
+    } else {
+      setExamples([]);
+    }
+
+    // Blanks & answers breakdown
+    const textToScan = `${q.text || ''} ${grp.context_text || ''}`;
+    const rawTokens = textToScan.match(new RegExp(BLANK_REGEX.source, 'gi')) || [];
+    const detectedList: Array<{ key: string; label: string }> = [];
+    const seenKeys = new Set<string>();
+    let autoIdx = 1;
+    rawTokens.forEach((token) => {
+      const norm = normalizeBlankToken(token, autoIdx);
+      if (!seenKeys.has(norm.key)) {
+        seenKeys.add(norm.key);
+        detectedList.push(norm);
+        autoIdx++;
+      }
+    });
+
+    const correctMap: Record<string, string> = {};
+    const userMap: Record<string, string> = {};
+
+    if (q.metadata) {
+      const metaBlanks = q.metadata.correct_blanks || q.metadata.correct_answers || q.metadata.answers;
+      if (metaBlanks && typeof metaBlanks === 'object') {
+        if (Array.isArray(metaBlanks)) {
+          metaBlanks.forEach((ans: any, i: number) => {
+            const strAns = typeof ans === 'string' ? ans : String(ans || '');
+            correctMap[`blank_${i + 1}`] = strAns;
+            correctMap[String(i + 1)] = strAns;
+          });
+        } else {
+          Object.entries(metaBlanks).forEach(([k, v]) => {
+            const norm = normalizeBlankToken(k);
+            const strAns = typeof v === 'string' ? v : (Array.isArray(v) ? v.join(' / ') : String(v || ''));
+            correctMap[norm.key] = strAns;
+            correctMap[norm.label] = strAns;
+          });
+        }
+      }
+
+      if (q.metadata.word_bank || q.metadata.options) {
+        const wb = (q.metadata.word_bank || q.metadata.options) as Array<{ id: string; text?: string; word?: string }>;
+        if (Array.isArray(wb)) {
+          Object.keys(correctMap).forEach((k) => {
+            const val = correctMap[k];
+            const match = wb.find((w) => String(w.id).toLowerCase() === val.toLowerCase());
+            if (match) {
+              correctMap[k] = match.text || match.word || val;
+            }
+          });
+        }
+      }
+    }
+
+    if (resp.metadata && resp.metadata.blanks && typeof resp.metadata.blanks === 'object') {
+      Object.entries(resp.metadata.blanks).forEach(([k, v]) => {
+        const norm = normalizeBlankToken(k);
+        const strAns = typeof v === 'string' ? v : String(v || '');
+        userMap[norm.key] = strAns;
+        userMap[norm.label] = strAns;
+      });
+    } else if (resp.written_response && !isSpk) {
+      try {
+        const parsed = JSON.parse(resp.written_response);
+        if (parsed && typeof parsed === 'object') {
+          Object.entries(parsed).forEach(([k, v]) => {
+            const norm = normalizeBlankToken(k);
+            const strAns = typeof v === 'string' ? v : String(v || '');
+            userMap[norm.key] = strAns;
+            userMap[norm.label] = strAns;
+          });
+        } else {
+          userMap['blank_1'] = resp.written_response;
+          userMap['1'] = resp.written_response;
+        }
+      } catch {
+        userMap['blank_1'] = resp.written_response;
+        userMap['1'] = resp.written_response;
+      }
+    }
+
+    if (correctC && Object.keys(correctMap).length === 0) {
+      const cParts = correctC.text.split(/\s*[\/,;]\s*/);
+      const uChoice = mappedChoices.find((c) => c.id === resp.selected_choice);
+      const uParts = uChoice ? uChoice.text.split(/\s*[\/,;]\s*/) : [];
+
+      if (detectedList.length > 0) {
+        detectedList.forEach((b, i) => {
+          const cAns = cParts.length === detectedList.length ? cParts[i] : correctC.text;
+          const uAns = uParts.length === detectedList.length ? uParts[i] : (uChoice?.text || '');
+          correctMap[b.key] = cAns;
+          correctMap[b.label] = cAns;
+          if (uAns) {
+            userMap[b.key] = uAns;
+            userMap[b.label] = uAns;
+          }
+        });
+      }
+    }
+
+    setBlankAnswers({ correct: correctMap, user: userMap });
+
+    const resolvedItems = detectedList.map((b, idx) => {
+      const cAns = correctMap[b.key] || correctMap[b.label] || correctMap[`blank_${idx + 1}`] || '';
+      const uAns = userMap[b.key] || userMap[b.label] || userMap[`blank_${idx + 1}`] || '';
+      const isMatch = Boolean(
+        cAns && uAns && (cAns.trim().toLowerCase() === uAns.trim().toLowerCase() || qStatus === 'correct')
+      );
+      return {
+        key: b.key,
+        label: b.label,
+        correctAnswer: cAns,
+        userAnswer: uAns,
+        isCorrect: isMatch,
+      };
+    });
+    setBlankItems(resolvedItems);
+  };
 
   useEffect(() => {
-    const loadQuestionData = async () => {
-      if (!params.attempt_id || !params.question_id) {
+    const loadReviewData = async () => {
+      if (!params.attempt_id) {
         setLoading(false);
         return;
       }
@@ -72,207 +500,37 @@ export default function QuestionReviewScreen() {
         setLoading(true);
         const attemptData = await examService.getAttemptReview(Number(params.attempt_id));
         if (attemptData && attemptData.sections) {
-          const targetQId = Number(params.question_id);
-          let calculatedTotal = 0;
-          let calculatedQNum = 0;
+          const items: FlatQuestionItem[] = [];
+          let overallIndex = 1;
 
-          attemptData.sections.forEach((sec) => {
-            sec.question_groups?.forEach((grp) => {
-              grp.responses?.forEach((resp) => {
-                calculatedTotal++;
-                const q = resp.question;
-                if (q.id === targetQId) {
-                  calculatedQNum = calculatedTotal;
-                  setQuestionText(q.text || '');
-                  setInstructions(q.instructions || '');
-                  setContextText(grp.context_text || '');
-                  setContextTitle(grp.group_title || '');
-                  setSubjectName(sec.section_name || params.subject_name || 'General');
-
-                  // Determine status
-                  let qStatus: 'correct' | 'incorrect' | 'unattempted' = 'unattempted';
-                  if ((resp.score_awarded || 0) > 0) {
-                    qStatus = 'correct';
-                  } else if (resp.selected_choice || resp.written_response || resp.audio_response || (resp.metadata && Object.keys(resp.metadata).length > 0)) {
-                    qStatus = 'incorrect';
-                  }
-                  setStatus(qStatus);
-
-                  // Setup choices
-                  let mappedChoices: ReviewChoice[] = [];
-                  let correctC: ChoiceItem | undefined;
-                  if (q.choices && Array.isArray(q.choices)) {
-                    mappedChoices = q.choices.map((c, idx) => ({
-                      ...c,
-                      letter: String.fromCharCode(65 + idx),
-                    }));
-                    setChoices(mappedChoices);
-
-                    correctC = q.choices.find((c) => c.is_correct);
-                    if (correctC) {
-                      setCorrectAnswerId(correctC.id);
-                    }
-                  }
-
-                  if (resp.selected_choice) {
-                    setUserAnswerId(resp.selected_choice);
-                  }
-
-                  // Explanation extraction
-                  const expl = q.explanation || resp.ai_feedback || q.hint_explanation || '';
-                  setExplanation(expl);
-
-                  // Extract example sentences if provided in metadata or split explanation
-                  if (q.metadata && Array.isArray(q.metadata.examples)) {
-                    setExamples(q.metadata.examples);
-                  } else if (expl.toLowerCase().includes('example')) {
-                    const parts = expl.split(/examples?:/i);
-                    if (parts.length > 1) {
-                      setExplanation(parts[0].trim());
-                      const rawExamples = parts[1]
-                        .split('\n')
-                        .map((e) => e.trim())
-                        .filter((e) => e.length > 0);
-                      setExamples(rawExamples);
-                    }
-                  }
-
-                  // Extract Blank Answers and Info
-                  const textToScan = `${q.text || ''} ${grp.context_text || ''}`;
-                  const rawTokens = textToScan.match(new RegExp(BLANK_REGEX.source, 'gi')) || [];
-                  const detectedList: Array<{ key: string; label: string }> = [];
-                  const seenKeys = new Set<string>();
-                  let autoIdx = 1;
-                  rawTokens.forEach((token) => {
-                    const norm = normalizeBlankToken(token, autoIdx);
-                    if (!seenKeys.has(norm.key)) {
-                      seenKeys.add(norm.key);
-                      detectedList.push(norm);
-                      autoIdx++;
-                    }
-                  });
-
-                  const correctMap: Record<string, string> = {};
-                  const userMap: Record<string, string> = {};
-
-                  // 1. Check metadata.correct_blanks or correct_answers
-                  if (q.metadata) {
-                    const metaBlanks = q.metadata.correct_blanks || q.metadata.correct_answers || q.metadata.answers;
-                    if (metaBlanks && typeof metaBlanks === 'object') {
-                      if (Array.isArray(metaBlanks)) {
-                        metaBlanks.forEach((ans, i) => {
-                          const strAns = typeof ans === 'string' ? ans : String(ans || '');
-                          correctMap[`blank_${i + 1}`] = strAns;
-                          correctMap[String(i + 1)] = strAns;
-                        });
-                      } else {
-                        Object.entries(metaBlanks).forEach(([k, v]) => {
-                          const norm = normalizeBlankToken(k);
-                          const strAns = typeof v === 'string' ? v : (Array.isArray(v) ? v.join(' / ') : String(v || ''));
-                          correctMap[norm.key] = strAns;
-                          correctMap[norm.label] = strAns;
-                        });
-                      }
-                    }
-
-                    // WordBank / Options lookup
-                    if (q.metadata.word_bank || q.metadata.options) {
-                      const wb = (q.metadata.word_bank || q.metadata.options) as Array<{ id: string; text?: string; word?: string }>;
-                      if (Array.isArray(wb)) {
-                        Object.keys(correctMap).forEach((k) => {
-                          const val = correctMap[k];
-                          const match = wb.find((w) => String(w.id).toLowerCase() === val.toLowerCase());
-                          if (match) {
-                            correctMap[k] = match.text || match.word || val;
-                          }
-                        });
-                      }
-                    }
-                  }
-
-                  // 2. Check user's responses in resp.metadata?.blanks or resp.written_response
-                  if (resp.metadata && resp.metadata.blanks && typeof resp.metadata.blanks === 'object') {
-                    Object.entries(resp.metadata.blanks).forEach(([k, v]) => {
-                      const norm = normalizeBlankToken(k);
-                      const strAns = typeof v === 'string' ? v : String(v || '');
-                      userMap[norm.key] = strAns;
-                      userMap[norm.label] = strAns;
-                    });
-                  } else if (resp.written_response) {
-                    try {
-                      const parsed = JSON.parse(resp.written_response);
-                      if (parsed && typeof parsed === 'object') {
-                        Object.entries(parsed).forEach(([k, v]) => {
-                          const norm = normalizeBlankToken(k);
-                          const strAns = typeof v === 'string' ? v : String(v || '');
-                          userMap[norm.key] = strAns;
-                          userMap[norm.label] = strAns;
-                        });
-                      } else {
-                        userMap['blank_1'] = resp.written_response;
-                        userMap['1'] = resp.written_response;
-                      }
-                    } catch {
-                      userMap['blank_1'] = resp.written_response;
-                      userMap['1'] = resp.written_response;
-                    }
-                  }
-
-                  // 3. If MCQ choices and correctMap has nothing, use choice texts
-                  if (correctC && Object.keys(correctMap).length === 0) {
-                    const cParts = correctC.text.split(/\s*[\/,;]\s*/);
-                    const uChoice = mappedChoices.find((c) => c.id === resp.selected_choice);
-                    const uParts = uChoice ? uChoice.text.split(/\s*[\/,;]\s*/) : [];
-
-                    if (detectedList.length > 0) {
-                      detectedList.forEach((b, i) => {
-                        const cAns = cParts.length === detectedList.length ? cParts[i] : correctC.text;
-                        const uAns = uParts.length === detectedList.length ? uParts[i] : (uChoice?.text || '');
-                        correctMap[b.key] = cAns;
-                        correctMap[b.label] = cAns;
-                        if (uAns) {
-                          userMap[b.key] = uAns;
-                          userMap[b.label] = uAns;
-                        }
-                      });
-                    } else {
-                      correctMap['blank_1'] = correctC.text;
-                      correctMap['1'] = correctC.text;
-                      if (uChoice) {
-                        userMap['blank_1'] = uChoice.text;
-                        userMap['1'] = uChoice.text;
-                      }
-                    }
-                  }
-
-                  setBlankAnswers({ correct: correctMap, user: userMap });
-
-                  // Build detailed blankItems array for breakdown card
-                  const resolvedItems = detectedList.map((b, idx) => {
-                    const cAns = correctMap[b.key] || correctMap[b.label] || correctMap[`blank_${idx + 1}`] || '';
-                    const uAns = userMap[b.key] || userMap[b.label] || userMap[`blank_${idx + 1}`] || '';
-                    const isMatch = Boolean(
-                      cAns && uAns && (cAns.trim().toLowerCase() === uAns.trim().toLowerCase() || qStatus === 'correct')
-                    );
-                    return {
-                      key: b.key,
-                      label: b.label,
-                      correctAnswer: cAns,
-                      userAnswer: uAns,
-                      isCorrect: isMatch,
-                    };
-                  });
-                  setBlankItems(resolvedItems);
-                }
+          attemptData.sections.forEach((sec: any) => {
+            sec.question_groups?.forEach((grp: any) => {
+              grp.responses?.forEach((resp: any) => {
+                items.push({
+                  qId: resp.question.id,
+                  qNum: overallIndex++,
+                  subjectName: sec.section_name || 'General',
+                  question: resp.question,
+                  response: resp,
+                  group: grp,
+                  attemptBulkAudio: attemptData.bulk_audio_file,
+                });
               });
             });
           });
 
-          if (calculatedTotal > 0 && !params.total_questions) {
-            setTotalQuestions(calculatedTotal);
+          setFlatQuestions(items);
+
+          // Find targeted question or default to first
+          const targetQId = Number(params.question_id);
+          let foundIdx = items.findIndex((it) => it.qId === targetQId);
+          if (foundIdx === -1) {
+            foundIdx = 0;
           }
-          if (calculatedQNum > 0 && !params.question_number) {
-            setQuestionNumber(calculatedQNum);
+
+          setCurrentIndex(foundIdx);
+          if (items.length > 0) {
+            populateQuestion(items[foundIdx], items.length);
           }
         }
       } catch (err) {
@@ -282,8 +540,14 @@ export default function QuestionReviewScreen() {
       }
     };
 
-    loadQuestionData();
+    loadReviewData();
   }, [params.attempt_id, params.question_id]);
+
+  const handleNavigate = (newIndex: number) => {
+    if (newIndex < 0 || newIndex >= flatQuestions.length) return;
+    setCurrentIndex(newIndex);
+    populateQuestion(flatQuestions[newIndex], flatQuestions.length);
+  };
 
   const streakCount = user?.streak ?? 120;
   const hasBlanksInContent = hasBlanks(questionText) || hasBlanks(contextText) || blankItems.length > 0;
@@ -375,21 +639,26 @@ export default function QuestionReviewScreen() {
             Question {questionNumber} of {totalQuestions}
           </AppText>
 
-          {/* Badges: Status + Subject */}
+          {/* Badges: Status + Subject + Speaking Part + Score */}
           <View style={styles.badgesRow}>
-            {status === 'incorrect' && (
+            {isSpeaking && scoreAwarded !== null ? (
+              <View style={[styles.statusBadge, styles.statusBadgeSpeaking]}>
+                <Ionicons name="mic" size={13} color="#059669" style={{ marginRight: 4 }} />
+                <AppText style={[styles.statusBadgeText, { color: '#059669' }]}>
+                  Band {scoreAwarded.toFixed(1)}
+                </AppText>
+              </View>
+            ) : status === 'incorrect' ? (
               <View style={[styles.statusBadge, styles.statusBadgeRed]}>
                 <View style={[styles.statusDot, { backgroundColor: '#EF4444' }]} />
                 <AppText style={[styles.statusBadgeText, { color: '#EF4444' }]}>Incorrect</AppText>
               </View>
-            )}
-            {status === 'correct' && (
+            ) : status === 'correct' ? (
               <View style={[styles.statusBadge, styles.statusBadgeGreen]}>
                 <View style={[styles.statusDot, { backgroundColor: '#10B981' }]} />
                 <AppText style={[styles.statusBadgeText, { color: '#10B981' }]}>Correct</AppText>
               </View>
-            )}
-            {status === 'unattempted' && (
+            ) : (
               <View style={[styles.statusBadge, styles.statusBadgeOrange]}>
                 <View style={[styles.statusDot, { backgroundColor: '#F97316' }]} />
                 <AppText style={[styles.statusBadgeText, { color: '#F97316' }]}>Unattempted</AppText>
@@ -399,6 +668,12 @@ export default function QuestionReviewScreen() {
             <View style={styles.subjectBadge}>
               <AppText style={styles.subjectBadgeText}>{subjectName}</AppText>
             </View>
+
+            {isSpeaking && speakingPart && (
+              <View style={styles.partBadge}>
+                <AppText style={styles.partBadgeText}>{speakingPart}</AppText>
+              </View>
+            )}
           </View>
 
           {/* Passage / Reading Context Card (if present) */}
@@ -430,62 +705,219 @@ export default function QuestionReviewScreen() {
             </View>
           ) : null}
 
-          {/* Question Prompt Card */}
-          <View style={styles.questionCard}>
-            <View style={styles.questionCardHeaderRow}>
-              {instructions ? (
-                <AppText style={styles.instructionText}>{instructions}</AppText>
-              ) : <View style={{ flex: 1 }} />}
+          {/* Examiner Question Audio Player (if present) */}
+          {promptAudioUrl && (
+            <View style={styles.mediaSectionWrap}>
+              <AudioPlayer
+                audioUrl={promptAudioUrl}
+                label="🎧 Examiner Prompt Audio"
+                accentColor="#4F46E5"
+              />
+            </View>
+          )}
 
-              {hasBlanksInContent && (
-                <View style={styles.blankToggleWrap}>
-                  <TouchableOpacity
-                    style={[styles.blankToggleBtn, blankViewMode === 'blank' && styles.blankToggleBtnActive]}
-                    onPress={() => setBlankViewMode('blank')}
-                    activeOpacity={0.7}
-                  >
-                    <Feather
-                      name="minus"
-                      size={12}
-                      color={blankViewMode === 'blank' ? '#6D28D9' : '#64748B'}
-                      style={{ marginRight: 4 }}
-                    />
-                    <AppText
-                      style={[
-                        styles.blankToggleText,
-                        blankViewMode === 'blank' && styles.blankToggleTextActive,
-                      ]}
-                    >
-                      Blank View
-                    </AppText>
-                  </TouchableOpacity>
+          {/* Candidate Task Card for Part 2 (Cue Card with bullet points) */}
+          {isSpeaking && (speakingPart === 'Part 2' || cueCardPrompts.length > 0) ? (
+            <View style={styles.cueCardBox}>
+              <View style={styles.cueCardHeader}>
+                <MaterialCommunityIcons name="card-text-outline" size={18} color="#92400E" style={{ marginRight: 6 }} />
+                <AppText style={styles.cueCardHeaderTitle}>Candidate Task Card</AppText>
+                <View style={styles.cueCardPartPill}>
+                  <AppText style={styles.cueCardPartPillText}>Part 2</AppText>
+                </View>
+              </View>
 
-                  <TouchableOpacity
-                    style={[styles.blankToggleBtn, blankViewMode === 'filled' && styles.blankToggleBtnActive]}
-                    onPress={() => setBlankViewMode('filled')}
-                    activeOpacity={0.7}
-                  >
-                    <Feather
-                      name="check-circle"
-                      size={12}
-                      color={blankViewMode === 'filled' ? '#16A34A' : '#64748B'}
-                      style={{ marginRight: 4 }}
-                    />
-                    <AppText
-                      style={[
-                        styles.blankToggleText,
-                        blankViewMode === 'filled' && styles.blankToggleTextActive,
-                      ]}
+              <AppText style={styles.cueCardPromptText}>
+                {questionText.split(/you should say:?/i)[0].trim() || 'Describe a topic or experience.'}
+              </AppText>
+
+              <AppText style={styles.cueCardSayTitle}>You should say:</AppText>
+              <View style={styles.cueCardBulletList}>
+                {cueCardPrompts.map((pt, idx) => (
+                  <View key={idx} style={styles.cueCardBulletRow}>
+                    <View style={styles.cueCardBulletDot} />
+                    <AppText style={styles.cueCardBulletText}>{pt}</AppText>
+                  </View>
+                ))}
+              </View>
+
+              <View style={styles.cueCardFooterRow}>
+                <Ionicons name="time-outline" size={14} color="#92400E" style={{ marginRight: 5 }} />
+                <AppText style={styles.cueCardFooterText}>
+                  Prep: {prepTime ? `${prepTime}s` : '1 min'}  •  Speaking: {recordingTime ? `${recordingTime}s` : '1-2 mins'}
+                </AppText>
+              </View>
+            </View>
+          ) : (
+            /* Standard Question Card (Part 1, Part 3, or other test questions) */
+            <View style={styles.questionCard}>
+              <View style={styles.questionCardHeaderRow}>
+                {instructions ? (
+                  <AppText style={styles.instructionText}>{instructions}</AppText>
+                ) : <View style={{ flex: 1 }} />}
+
+                {hasBlanksInContent && (
+                  <View style={styles.blankToggleWrap}>
+                    <TouchableOpacity
+                      style={[styles.blankToggleBtn, blankViewMode === 'blank' && styles.blankToggleBtnActive]}
+                      onPress={() => setBlankViewMode('blank')}
+                      activeOpacity={0.7}
                     >
-                      Filled View
-                    </AppText>
-                  </TouchableOpacity>
+                      <Feather
+                        name="minus"
+                        size={12}
+                        color={blankViewMode === 'blank' ? '#6D28D9' : '#64748B'}
+                        style={{ marginRight: 4 }}
+                      />
+                      <AppText
+                        style={[
+                          styles.blankToggleText,
+                          blankViewMode === 'blank' && styles.blankToggleTextActive,
+                        ]}
+                      >
+                        Blank View
+                      </AppText>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.blankToggleBtn, blankViewMode === 'filled' && styles.blankToggleBtnActive]}
+                      onPress={() => setBlankViewMode('filled')}
+                      activeOpacity={0.7}
+                    >
+                      <Feather
+                        name="check-circle"
+                        size={12}
+                        color={blankViewMode === 'filled' ? '#16A34A' : '#64748B'}
+                        style={{ marginRight: 4 }}
+                      />
+                      <AppText
+                        style={[
+                          styles.blankToggleText,
+                          blankViewMode === 'filled' && styles.blankToggleTextActive,
+                        ]}
+                      >
+                        Filled View
+                      </AppText>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+
+              {renderTextWithBlanks(questionText, blankViewMode === 'filled', false)}
+            </View>
+          )}
+
+          {/* Candidate Audio Response Player */}
+          {candidateAudioUrl && (
+            <View style={styles.mediaSectionWrap}>
+              <AudioPlayer
+                audioUrl={candidateAudioUrl}
+                startTime={candidateAudioStartTime}
+                endTime={candidateAudioEndTime}
+                label="🎙️ Your Recorded Speech"
+                accentColor="#059669"
+              />
+            </View>
+          )}
+
+          {/* Deepgram Speech-to-Text Transcript */}
+          {isSpeaking && speechTranscript && (
+            <View style={styles.transcriptCard}>
+              <View style={styles.transcriptHeader}>
+                <Ionicons name="document-text-outline" size={16} color="#059669" style={{ marginRight: 6 }} />
+                <AppText style={styles.transcriptHeaderTitle}>Speech Transcript</AppText>
+                <View style={styles.deepgramPill}>
+                  <AppText style={styles.deepgramPillText}>Deepgram STT</AppText>
+                </View>
+              </View>
+              <AppText style={styles.transcriptBody}>"{speechTranscript}"</AppText>
+            </View>
+          )}
+
+          {/* Speaking AI Rubric Evaluation */}
+          {isSpeaking && aiFeedback && (
+            <View style={styles.rubricContainer}>
+              <View style={styles.rubricHeaderRow}>
+                <Ionicons name="sparkles" size={16} color="#059669" style={{ marginRight: 6 }} />
+                <AppText style={styles.rubricHeaderTitle}>AI Examiner Rubric Evaluation</AppText>
+                {scoreAwarded !== null && (
+                  <View style={styles.rubricOverallBandPill}>
+                    <AppText style={styles.rubricOverallBandText}>Band {scoreAwarded.toFixed(1)} / 9.0</AppText>
+                  </View>
+                )}
+              </View>
+
+              {/* Fluency & Coherence */}
+              {(aiFeedback.fluency_coherence || aiFeedback.fluency_coherence_score !== undefined) && (
+                <View style={styles.rubricCriteriaCard}>
+                  <View style={styles.rubricCriteriaTitleRow}>
+                    <AppText style={styles.rubricCriteriaName}>Fluency & Coherence</AppText>
+                    {aiFeedback.fluency_coherence_score !== undefined && (
+                      <View style={styles.rubricScorePill}>
+                        <AppText style={styles.rubricScorePillText}>
+                          {Number(aiFeedback.fluency_coherence_score).toFixed(1)} / 9.0
+                        </AppText>
+                      </View>
+                    )}
+                  </View>
+                  {aiFeedback.fluency_coherence ? (
+                    <AppText style={styles.rubricCriteriaDesc}>{aiFeedback.fluency_coherence}</AppText>
+                  ) : null}
+                </View>
+              )}
+
+              {/* Lexical Resource */}
+              {(aiFeedback.vocabulary || aiFeedback.vocabulary_score !== undefined || aiFeedback.lexical_resource) && (
+                <View style={styles.rubricCriteriaCard}>
+                  <View style={styles.rubricCriteriaTitleRow}>
+                    <AppText style={styles.rubricCriteriaName}>Lexical Resource (Vocabulary)</AppText>
+                    {aiFeedback.vocabulary_score !== undefined && (
+                      <View style={styles.rubricScorePill}>
+                        <AppText style={styles.rubricScorePillText}>
+                          {Number(aiFeedback.vocabulary_score).toFixed(1)} / 9.0
+                        </AppText>
+                      </View>
+                    )}
+                  </View>
+                  <AppText style={styles.rubricCriteriaDesc}>
+                    {aiFeedback.vocabulary || aiFeedback.lexical_resource}
+                  </AppText>
+                </View>
+              )}
+
+              {/* Grammatical Range & Accuracy */}
+              {(aiFeedback.grammar || aiFeedback.grammar_score !== undefined || aiFeedback.grammatical_range) && (
+                <View style={styles.rubricCriteriaCard}>
+                  <View style={styles.rubricCriteriaTitleRow}>
+                    <AppText style={styles.rubricCriteriaName}>Grammar & Accuracy</AppText>
+                    {aiFeedback.grammar_score !== undefined && (
+                      <View style={styles.rubricScorePill}>
+                        <AppText style={styles.rubricScorePillText}>
+                          {Number(aiFeedback.grammar_score).toFixed(1)} / 9.0
+                        </AppText>
+                      </View>
+                    )}
+                  </View>
+                  <AppText style={styles.rubricCriteriaDesc}>
+                    {aiFeedback.grammar || aiFeedback.grammatical_range}
+                  </AppText>
+                </View>
+              )}
+
+              {/* Overall Examiner Summary */}
+              {(aiFeedback.ai_feedback || aiFeedback.detailed_feedback) && (
+                <View style={styles.examinerSummaryCard}>
+                  <View style={styles.examinerSummaryHeader}>
+                    <Ionicons name="chatbox-ellipses-outline" size={14} color="#065F46" style={{ marginRight: 5 }} />
+                    <AppText style={styles.examinerSummaryTitle}>Examiner Summary</AppText>
+                  </View>
+                  <AppText style={styles.examinerSummaryText}>
+                    {aiFeedback.ai_feedback || aiFeedback.detailed_feedback}
+                  </AppText>
                 </View>
               )}
             </View>
-
-            {renderTextWithBlanks(questionText, blankViewMode === 'filled', false)}
-          </View>
+          )}
 
           {/* Blanks & Answers Breakdown Card */}
           {blankItems.length > 0 && (
@@ -534,7 +966,7 @@ export default function QuestionReviewScreen() {
             </View>
           )}
 
-          {/* Choices List (if available) */}
+          {/* Multiple Choice Options List (if present) */}
           {choices.length > 0 && (
             <View style={styles.choicesList}>
               {choices.map((choice) => {
@@ -546,12 +978,10 @@ export default function QuestionReviewScreen() {
                 let circleTextStyle = styles.choiceCircleTextDefault;
 
                 if (isUserAnswer && !isCorrectAnswer) {
-                  // Incorrect user answer: Red outline and background tint
                   cardStyle = styles.choiceCardUserWrong;
                   circleStyle = styles.choiceCircleWrong;
                   circleTextStyle = styles.choiceCircleTextWrong;
                 } else if (isCorrectAnswer) {
-                  // Correct answer: Green outline and background tint
                   cardStyle = styles.choiceCardCorrect;
                   circleStyle = styles.choiceCircleCorrect;
                   circleTextStyle = styles.choiceCircleTextCorrect;
@@ -569,7 +999,6 @@ export default function QuestionReviewScreen() {
                       {choice.text}
                     </AppText>
 
-                    {/* Pills on the right */}
                     {isUserAnswer && !isCorrectAnswer && (
                       <View style={styles.userAnswerPill}>
                         <AppText style={styles.userAnswerPillText}>Your Answer</AppText>
@@ -586,74 +1015,66 @@ export default function QuestionReviewScreen() {
             </View>
           )}
 
-          {/* Explanation Box */}
-          <View style={styles.explanationBox}>
-            <AppText style={styles.explanationHeader}>Explanation</AppText>
-            <AppText style={styles.explanationBody}>
-              {explanation || 'No explanation provided for this question.'}
-            </AppText>
+          {/* Standard Explanation Box (for non-speaking or general questions) */}
+          {!isSpeaking && explanation ? (
+            <View style={styles.explanationBox}>
+              <AppText style={styles.explanationHeader}>Explanation</AppText>
+              <AppText style={styles.explanationBody}>
+                {explanation}
+              </AppText>
 
-            {examples.length > 0 && (
-              <View style={styles.examplesContainer}>
-                <AppText style={styles.examplesHeader}>Examples:</AppText>
-                {examples.map((ex, idx) => (
-                  <AppText key={idx} style={styles.exampleItem}>
-                    {ex}
-                  </AppText>
-                ))}
-              </View>
-            )}
-          </View>
+              {examples.length > 0 && (
+                <View style={styles.examplesContainer}>
+                  <AppText style={styles.examplesHeader}>Examples:</AppText>
+                  {examples.map((ex, idx) => (
+                    <AppText key={idx} style={styles.exampleItem}>
+                      {ex}
+                    </AppText>
+                  ))}
+                </View>
+              )}
+            </View>
+          ) : null}
 
-          <View style={{ height: 100 }} />
+          <View style={{ height: 90 }} />
         </ScrollView>
       )}
 
-      {/* Bottom Floating Bar */}
-      <View style={styles.bottomBar}>
+      {/* Sticky Bottom Navigation Footer */}
+      <View style={styles.navFooter}>
         <TouchableOpacity
-          style={styles.bottomBarItem}
-          onPress={() => router.replace('/(tabs)')}
+          style={[styles.navFooterBtn, currentIndex <= 0 && styles.navFooterBtnDisabled]}
+          disabled={currentIndex <= 0}
+          onPress={() => handleNavigate(currentIndex - 1)}
           activeOpacity={0.7}
         >
-          <Ionicons name="home" size={22} color="#6D28D9" />
-          <AppText style={[styles.bottomBarLabel, { color: '#6D28D9' }]}>Home</AppText>
+          <Feather name="chevron-left" size={20} color={currentIndex <= 0 ? '#CBD5E1' : '#1E293B'} />
+          <AppText style={[styles.navFooterBtnText, currentIndex <= 0 && styles.navFooterBtnTextDisabled]}>
+            Previous
+          </AppText>
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={styles.bottomBarItem}
-          onPress={() => router.replace('/(tabs)/practice')}
+          style={styles.navFooterCenter}
+          onPress={() => (router.canGoBack() ? router.back() : router.replace('/(exam)/review-answers' as any))}
           activeOpacity={0.7}
         >
-          <Ionicons name="book-outline" size={22} color="#9CA3AF" />
-          <AppText style={styles.bottomBarLabel}>Practice</AppText>
-        </TouchableOpacity>
-
-        {/* Center Plus Button */}
-        <TouchableOpacity
-          style={styles.centerFabButton}
-          onPress={() => router.replace('/(tabs)/explore')}
-          activeOpacity={0.8}
-        >
-          <Feather name="plus" size={26} color="#FFFFFF" />
+          <AppText style={styles.navFooterCenterTitle}>
+            Question {questionNumber} of {totalQuestions}
+          </AppText>
+          <AppText style={styles.navFooterCenterSub}>All Answers</AppText>
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={styles.bottomBarItem}
-          onPress={() => router.replace('/(tabs)/reports')}
+          style={[styles.navFooterBtn, currentIndex >= flatQuestions.length - 1 && styles.navFooterBtnDisabled]}
+          disabled={currentIndex >= flatQuestions.length - 1}
+          onPress={() => handleNavigate(currentIndex + 1)}
           activeOpacity={0.7}
         >
-          <Ionicons name="stats-chart-outline" size={21} color="#9CA3AF" />
-          <AppText style={styles.bottomBarLabel}>Reports</AppText>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.bottomBarItem}
-          onPress={() => router.replace('/(tabs)/profile')}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="person-outline" size={22} color="#9CA3AF" />
-          <AppText style={styles.bottomBarLabel}>Profile</AppText>
+          <AppText style={[styles.navFooterBtnText, currentIndex >= flatQuestions.length - 1 && styles.navFooterBtnTextDisabled]}>
+            Next
+          </AppText>
+          <Feather name="chevron-right" size={20} color={currentIndex >= flatQuestions.length - 1 ? '#CBD5E1' : '#1E293B'} />
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -747,6 +1168,9 @@ const styles = StyleSheet.create({
   statusBadgeOrange: {
     backgroundColor: '#FFEDD5',
   },
+  statusBadgeSpeaking: {
+    backgroundColor: '#D1FAE5',
+  },
   statusDot: {
     width: 6,
     height: 6,
@@ -767,6 +1191,17 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     color: '#4F46E5',
+  },
+  partBadge: {
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  partBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#92400E',
   },
   // Context / Passage styles
   contextCard: {
@@ -1088,49 +1523,330 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#0F172A',
   },
-  bottomBar: {
+  // Audio Player Styles
+  audioPlayerCard: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  audioPlayerLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  audioPlayerLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  audioPlayerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  audioPlayButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  audioProgressCol: {
+    flex: 1,
+  },
+  audioProgressBarBg: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#E2E8F0',
+    overflow: 'hidden',
+    marginBottom: 6,
+  },
+  audioProgressBarFill: {
+    height: '100%',
+    borderRadius: 3,
+  },
+  audioTimeRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  audioTimeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  mediaSectionWrap: {
+    marginBottom: 16,
+  },
+
+  // Candidate Task Card (Part 2 Cue Card)
+  cueCardBox: {
+    backgroundColor: '#FFFBEB',
+    borderRadius: 16,
+    padding: 18,
+    borderWidth: 1.5,
+    borderColor: '#FDE68A',
+    marginBottom: 16,
+  },
+  cueCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  cueCardHeaderTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#92400E',
+    flex: 1,
+  },
+  cueCardPartPill: {
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  cueCardPartPillText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#B45309',
+  },
+  cueCardPromptText: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#78350F',
+    lineHeight: 23,
+    marginBottom: 12,
+  },
+  cueCardSayTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#92400E',
+    marginBottom: 8,
+  },
+  cueCardBulletList: {
+    gap: 8,
+    marginBottom: 14,
+    paddingLeft: 4,
+  },
+  cueCardBulletRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  cueCardBulletDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#D97706',
+    marginTop: 6,
+  },
+  cueCardBulletText: {
+    fontSize: 14,
+    color: '#78350F',
+    fontWeight: '500',
+    lineHeight: 20,
+    flex: 1,
+  },
+  cueCardFooterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#FDE68A',
+  },
+  cueCardFooterText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#92400E',
+  },
+
+  // Deepgram Transcript Card
+  transcriptCard: {
+    backgroundColor: '#F0FDF4',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    marginBottom: 16,
+  },
+  transcriptHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  transcriptHeaderTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#166534',
+    flex: 1,
+  },
+  deepgramPill: {
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  deepgramPillText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#15803D',
+  },
+  transcriptBody: {
+    fontSize: 14,
+    fontStyle: 'italic',
+    color: '#14532D',
+    lineHeight: 22,
+  },
+
+  // AI Rubric Evaluation Cards
+  rubricContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    marginBottom: 16,
+    gap: 12,
+  },
+  rubricHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  rubricHeaderTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#065F46',
+    flex: 1,
+  },
+  rubricOverallBandPill: {
+    backgroundColor: '#D1FAE5',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  rubricOverallBandText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#059669',
+  },
+  rubricCriteriaCard: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  rubricCriteriaTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  rubricCriteriaName: {
+    fontSize: 13.5,
+    fontWeight: '700',
+    color: '#1E293B',
+  },
+  rubricScorePill: {
+    backgroundColor: '#D1FAE5',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  rubricScorePillText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#059669',
+  },
+  rubricCriteriaDesc: {
+    fontSize: 13,
+    color: '#475569',
+    lineHeight: 19,
+  },
+  examinerSummaryCard: {
+    backgroundColor: '#ECFDF5',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+  },
+  examinerSummaryHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  examinerSummaryTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#065F46',
+  },
+  examinerSummaryText: {
+    fontSize: 13,
+    color: '#064E3B',
+    lineHeight: 19,
+  },
+
+  // Sticky Bottom Navigation Footer
+  navFooter: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    height: Platform.OS === 'ios' ? 84 : 64,
-    paddingBottom: Platform.OS === 'ios' ? 22 : 6,
-    paddingTop: 6,
+    height: Platform.OS === 'ios' ? 84 : 68,
+    paddingBottom: Platform.OS === 'ios' ? 24 : 10,
+    paddingTop: 10,
+    paddingHorizontal: 20,
     backgroundColor: '#FFFFFF',
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-around',
+    justifyContent: 'space-between',
     borderTopWidth: 1,
     borderTopColor: '#F1F5F9',
-    elevation: 6,
+    elevation: 8,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.05,
+    shadowOpacity: 0.06,
     shadowRadius: 4,
   },
-  bottomBarItem: {
-    flex: 1,
+  navFooterBtn: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    gap: 4,
   },
-  bottomBarLabel: {
-    fontSize: 10,
+  navFooterBtnDisabled: {
+    backgroundColor: '#F1F5F9',
+    borderColor: '#E2E8F0',
+    opacity: 0.6,
+  },
+  navFooterBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1E293B',
+  },
+  navFooterBtnTextDisabled: {
+    color: '#94A3B8',
+  },
+  navFooterCenter: {
+    alignItems: 'center',
+  },
+  navFooterCenterTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#1E293B',
+  },
+  navFooterCenterSub: {
+    fontSize: 11,
     fontWeight: '600',
-    color: '#9CA3AF',
-    marginTop: 2,
-  },
-  centerFabButton: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: '#4C1D95',
-    justifyContent: 'center',
-    alignItems: 'center',
-    top: -14,
-    shadowColor: '#4C1D95',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.35,
-    shadowRadius: 8,
-    elevation: 6,
+    color: '#6D28D9',
+    marginTop: 1,
   },
 });

@@ -128,7 +128,8 @@ export default function IELTSSectionInstructionsScreen() {
     const isSpeaking = (currentSection || '').toLowerCase().includes('speaking') || (params.section_name || '').toLowerCase().includes('speaking');
 
     // If this section is part of an ongoing attempt (resuming / after break)
-    if (params.attempt_id) {
+    const activeAttemptId = examService.parseAttemptId(params.attempt_id) || (await examService.getActiveAttemptId());
+    if (activeAttemptId) {
       router.replace({
         pathname: isListening 
           ? '/(exam)/ielts-listening-session' 
@@ -137,7 +138,7 @@ export default function IELTSSectionInstructionsScreen() {
           : '/(exam)/ielts-session',
         params: {
           ...params,
-          attempt_id: params.attempt_id,
+          attempt_id: String(activeAttemptId),
           section_index: params.section_index || '0',
         },
       });

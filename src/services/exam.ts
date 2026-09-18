@@ -109,6 +109,10 @@ export interface UserResponseItem {
   selected_choice?: number | null;
   written_response?: string | null;
   audio_response?: string | null;
+  audio_start_time?: number | null;
+  audio_end_time?: number | null;
+  bulk_audio_file?: string | null;
+  ielts_speaking_criteria?: any;
   score_awarded?: number;
   ai_feedback?: string | null;
   time_spent_seconds?: number;
@@ -143,6 +147,7 @@ export interface UserAttempt {
   end_time?: string | null;
   total_score?: number | null;
   status: string;
+  bulk_audio_file?: string | null;
   sections: AttemptSection[];
 }
 
@@ -199,6 +204,9 @@ const memoryCachedSections: Record<number, ExamSection[]> = {};
 const TIER_CONFIGS_CACHE_KEY = '@classore_cached_tier_configs';
 let memoryCachedTierConfigs: ExamTierConfig[] | null = null;
 const memoryCachedAggregateReports: Record<string, any> = {};
+
+const ACTIVE_ATTEMPT_ID_KEY = '@classore_active_attempt_id';
+let memoryActiveAttemptId: number | null = null;
 
 export const examService = {
   getCachedExamsSync: (): ExamType[] | null => {
@@ -341,9 +349,46 @@ export const examService = {
       throw error;
     }
   },
+  setActiveAttemptId(id: number): void {
+    if (id && !isNaN(id) && id > 0) {
+      memoryActiveAttemptId = id;
+      storage.set(ACTIVE_ATTEMPT_ID_KEY, id).catch(() => {});
+    }
+  },
+
+  getActiveAttemptIdSync(): number | null {
+    return memoryActiveAttemptId;
+  },
+
+  async getActiveAttemptId(): Promise<number | null> {
+    if (memoryActiveAttemptId && !isNaN(memoryActiveAttemptId) && memoryActiveAttemptId > 0) {
+      return memoryActiveAttemptId;
+    }
+    const stored = await storage.get<number>(ACTIVE_ATTEMPT_ID_KEY);
+    if (stored && !isNaN(stored) && stored > 0) {
+      memoryActiveAttemptId = stored;
+      return stored;
+    }
+    return null;
+  },
+
+  clearActiveAttemptId(): void {
+    memoryActiveAttemptId = null;
+    storage.remove(ACTIVE_ATTEMPT_ID_KEY).catch(() => {});
+  },
+
+  parseAttemptId(raw?: string | number | string[]): number | null {
+    if (!raw) return null;
+    const str = Array.isArray(raw) ? raw[0] : String(raw);
+    const parsed = parseInt(str, 10);
+    return !isNaN(parsed) && parsed > 0 ? parsed : null;
+  },
 
   startExam: async (payload: ExamStartRequest): Promise<UserAttempt> => {
     const response = await api.post('/api/user/exam/start/', payload);
+    if (response.data && response.data.id) {
+      examService.setActiveAttemptId(response.data.id);
+    }
     return response.data;
   },
 
@@ -356,14 +401,17 @@ export const examService = {
     const formData = new FormData();
     formData.append('question_id', String(questionId));
 
+    const ext = mimeType.includes('m4a') ? 'm4a' : (mimeType.includes('mp3') ? 'mp3' : 'wav');
+    const fileName = `collated_speaking_${attemptId}.${ext}`;
+
     if (Platform.OS === 'web') {
       const audioBlob = await (await fetch(audioUri)).blob();
-      formData.append('audio_file', audioBlob, 'response.wav');
+      formData.append('audio_file', audioBlob, fileName);
     } else {
       formData.append('audio_file', {
         uri: audioUri,
         type: mimeType,
-        name: 'response.wav',
+        name: fileName,
       } as any);
     }
 
@@ -382,14 +430,17 @@ export const examService = {
     const formData = new FormData();
     formData.append('metadata', JSON.stringify(metadata));
 
+    const ext = mimeType.includes('m4a') ? 'm4a' : (mimeType.includes('mp3') ? 'mp3' : 'wav');
+    const fileName = `bulk_speaking_${attemptId}.${ext}`;
+
     if (Platform.OS === 'web') {
       const audioBlob = await (await fetch(audioUri)).blob();
-      formData.append('audio_file', audioBlob, 'bulk_speaking.wav');
+      formData.append('audio_file', audioBlob, fileName);
     } else {
       formData.append('audio_file', {
         uri: audioUri,
         type: mimeType,
-        name: 'bulk_speaking.wav',
+        name: fileName,
       } as any);
     }
 
@@ -401,6 +452,7 @@ export const examService = {
 
   submitExam: async (attemptId: number, payload: SubmitExamPayload): Promise<{ message: string; total_score: number; streak?: number; ai_feedbacks?: any[]; ai_assessment_status?: string; ai_skip_reason?: string; [key: string]: any }> => {
     const response = await api.post(`/api/user/exam/${attemptId}/submit/`, payload);
+    examService.clearActiveAttemptId();
     return response.data;
   },
 
@@ -465,6 +517,9 @@ export const examService = {
   },
 
   resumeExam: async (attemptId: number): Promise<UserAttempt & { timer_info: { total_seconds: number; elapsed_seconds: number; remaining_seconds: number; is_expired: boolean } }> => {
+    if (attemptId && !isNaN(attemptId) && attemptId > 0) {
+      examService.setActiveAttemptId(attemptId);
+    }
     const response = await api.get(`/api/user/exam/${attemptId}/resume/`);
     return response.data;
   },
