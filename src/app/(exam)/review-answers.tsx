@@ -1,19 +1,19 @@
 import { useAuth } from '@/context/AuthContext';
+import { examService } from '@/services/exam';
+import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useState } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  SafeAreaView, 
-  ScrollView, 
-  TouchableOpacity, 
-  Platform,
+import {
+  ActivityIndicator,
   Alert,
-  ActivityIndicator
+  Platform,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
 } from 'react-native';
-import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useRouter, useLocalSearchParams } from 'expo-router';
-import { examService, UserAttempt } from '@/services/exam';
 
 interface ReviewQuestion {
   id: number;
@@ -120,7 +120,7 @@ export default function ReviewAnswersScreen() {
                   }
 
                   if (resp.score_awarded !== undefined && resp.score_awarded !== null) {
-                    correctAnsText = `Band ${parseFloat(String(resp.score_awarded)).toFixed(1)} / 9.0`;
+                    correctAnsText = `Band ${Math.min(9.0, Math.max(0.0, parseFloat(String(resp.score_awarded)))).toFixed(1)} / 9.0`;
                   } else {
                     correctAnsText = 'AI Evaluated';
                   }
@@ -131,7 +131,7 @@ export default function ReviewAnswersScreen() {
                   }
 
                   if (resp.score_awarded !== undefined && resp.score_awarded !== null) {
-                    correctAnsText = `Band ${parseFloat(String(resp.score_awarded)).toFixed(1)} / 9.0`;
+                    correctAnsText = `Band ${Math.min(9.0, Math.max(0.0, parseFloat(String(resp.score_awarded)))).toFixed(1)} / 9.0`;
                   } else {
                     correctAnsText = 'AI Evaluated';
                   }
@@ -259,13 +259,13 @@ export default function ReviewAnswersScreen() {
             <MaterialCommunityIcons name="file-document-outline" size={48} color="#94A3B8" />
             <Text style={styles.errorTitle}>No Review Available</Text>
             <Text style={styles.errorSubtitle}>{error || 'No review data found for this session.'}</Text>
-            <TouchableOpacity 
+            {/* <TouchableOpacity 
               style={styles.retryButton} 
               onPress={() => router.replace('/(tabs)')}
               activeOpacity={0.85}
             >
               <Text style={styles.retryButtonText}>Go to Home</Text>
-            </TouchableOpacity>
+            </TouchableOpacity> */}
           </View>
         ) : (
           <ScrollView 

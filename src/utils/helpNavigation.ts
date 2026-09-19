@@ -51,12 +51,6 @@ export const handleHelpBack = (
   defaultFallback: string = '/(tabs)/profile',
   fromParamsJson?: string
 ) => {
-  // If we pushed the screen onto the navigation stack, pop back to keep the exact live state
-  if (router.canGoBack()) {
-    router.back();
-    return;
-  }
-
   let parsedFromParams: Record<string, any> | undefined;
   if (fromParamsJson) {
     try {
@@ -66,7 +60,12 @@ export const handleHelpBack = (
     }
   }
 
+  // 1. If explicit caller route is provided, try popping stack to avoid reloading previous screen
   if (fromParam) {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
     router.replace({
       pathname: fromParam as any,
       params: parsedFromParams,
@@ -74,6 +73,7 @@ export const handleHelpBack = (
     return;
   }
 
+  // 2. Check tracked internal help history
   if (helpNavHistory.canGoBack()) {
     const prev = helpNavHistory.pop();
     if (prev) {
@@ -85,5 +85,12 @@ export const handleHelpBack = (
     }
   }
 
+  // 3. Pop native stack if available
+  if (router.canGoBack()) {
+    router.back();
+    return;
+  }
+
+  // 4. Default fallback
   router.replace(defaultFallback as any);
 };

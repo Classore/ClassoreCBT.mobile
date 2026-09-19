@@ -1,21 +1,21 @@
-import React, { useState, useEffect, useRef } from 'react';
-import {
-  View,
-  StyleSheet,
-  SafeAreaView,
-  ScrollView,
-  TouchableOpacity,
-  Modal,
-  Platform,
-  Animated,
-} from 'react-native';
-import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { Image } from 'expo-image';
-import { useRouter, useLocalSearchParams } from 'expo-router';
 import { AppText } from '@/components/AppText';
-import { contestService, Contest } from '@/services/contest';
 import { useAuth } from '@/context/AuthContext';
 import { useNotifications } from '@/context/NotificationContext';
+import { Contest, contestService } from '@/services/contest';
+import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useEffect, useRef, useState } from 'react';
+import {
+  Animated,
+  Modal,
+  Platform,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 
 export default function ContestLeaderboardScreen() {
   const router = useRouter();
@@ -249,8 +249,13 @@ export default function ContestLeaderboardScreen() {
             ) : (
               <>
                 {leaderboardUsers.map((item) => (
-                  <View
+                  <TouchableOpacity
                     key={item.rank}
+                    activeOpacity={0.8}
+                    onPress={() => router.push({
+                      pathname: '/leaderboard-profile',
+                      params: item.user_id ? { user_id: String(item.user_id), from: '/(tabs)/contest/leaderboard' } : { from: '/(tabs)/contest/leaderboard' }
+                    } as any)}
                     style={[
                       styles.userRow,
                       item.rowBg ? { backgroundColor: item.rowBg, borderRadius: 14 } : null,
@@ -283,7 +288,7 @@ export default function ContestLeaderboardScreen() {
                     </View>
 
                     <AppText style={styles.scoreText}>{item.score}</AppText>
-                  </View>
+                  </TouchableOpacity>
                 ))}
 
                 {/* "You" row */}
@@ -291,7 +296,14 @@ export default function ContestLeaderboardScreen() {
                   <>
                     <AppText style={styles.dotsText}>•••</AppText>
 
-                    <View style={styles.youRow}>
+                    <TouchableOpacity 
+                      style={styles.youRow}
+                      activeOpacity={0.8}
+                      onPress={() => router.push({
+                        pathname: '/leaderboard-profile',
+                        params: { from: '/(tabs)/contest/leaderboard' }
+                      } as any)}
+                    >
                       <View style={styles.rankCol}>
                         <AppText style={[styles.rankText, { color: '#6D28D9' }]}>
                           {contest.user_rank}
@@ -306,7 +318,7 @@ export default function ContestLeaderboardScreen() {
                         </AppText>
                       </View>
                       <AppText style={styles.youScore}>{contest.user_score ?? '--'}</AppText>
-                    </View>
+                    </TouchableOpacity>
                   </>
                 ) : null}
               </>
@@ -329,7 +341,7 @@ export default function ContestLeaderboardScreen() {
               onPress={() => setModalVisible(true)}
               activeOpacity={0.8}
             >
-              <AppText style={styles.viewResultText}>View Test Result</AppText>
+              <AppText style={styles.viewResultText}>View Reports</AppText>
             </TouchableOpacity>
           </View>
 

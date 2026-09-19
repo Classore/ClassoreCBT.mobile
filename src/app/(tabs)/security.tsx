@@ -1,28 +1,30 @@
-import React, { useState, useEffect } from 'react';
+import { AppText } from '@/components/AppText';
+import { useAuth } from '@/context/AuthContext';
+import { api, registerCurrentDeviceSession } from '@/services/api';
+import { getCurrentDevicePayload } from '@/utils/deviceInfo';
+import { handleHelpBack, navigateWithFrom } from '@/utils/helpNavigation';
+import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
-  View,
-  StyleSheet,
+  Alert,
+  Platform,
   SafeAreaView,
   ScrollView,
+  StyleSheet,
   TouchableOpacity,
-  Switch,
-  Platform,
-  Alert,
+  View,
+  ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
-import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useRouter, useLocalSearchParams } from 'expo-router';
-import { AppText } from '@/components/AppText';
-import { api } from '@/services/api';
-import { useAuth } from '@/context/AuthContext';
-import { handleHelpBack, navigateWithFrom } from '@/utils/helpNavigation';
 
 interface DeviceItem {
-  id: string;
+  id: string | number;
   name: string;
   location: string;
   lastActive: string;
   isCurrent: boolean;
-  type: 'phone' | 'laptop' | 'tablet';
+  type: 'phone' | 'laptop' | 'tablet' | 'desktop';
 }
 
 export default function SecurityScreen() {
@@ -31,32 +33,47 @@ export default function SecurityScreen() {
   const { logout } = useAuth();
 
   const [biometricEnabled, setBiometricEnabled] = useState(true);
-  const [devices, setDevices] = useState<DeviceItem[]>([
-    {
-      id: 'dev-1',
-      name: 'iPhone 14 Pro',
-      location: 'Lagos, Nigeria',
-      lastActive: 'This device',
-      isCurrent: true,
-      type: 'phone',
-    },
-    {
-      id: 'dev-2',
-      name: 'Chrome / Windows',
-      location: 'Lagos, Nigeria',
-      lastActive: '2 months ago',
-      isCurrent: false,
-      type: 'laptop',
-    },
-    {
-      id: 'dev-3',
-      name: 'iPad (5th Gen)',
-      location: 'Ibadan, Nigeria',
-      lastActive: '3 months ago',
-      isCurrent: false,
-      type: 'tablet',
-    },
-  ]);
+  const [devices, setDevices] = useState<DeviceItem[]>([]);
+  const [loadingDevices, setLoadingDevices] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const fetchDevices = useCallback(async () => {
+    try {
+      // First register/heartbeat current device
+      await registerCurrentDeviceSession().catch(() => {});
+      const res = await api.get('/api/user/sessions/');
+      if (res.data && Array.isArray(res.data)) {
+        const mapped: DeviceItem[] = res.data.map((item: any) => ({
+          id: item.id,
+          name: item.device_name || 'Device',
+          location: item.location || 'Nigeria',
+          lastActive: item.last_active_formatted || (item.is_current ? 'This device' : 'Active recently'),
+          isCurrent: Boolean(item.is_current),
+          type: item.device_type || 'phone',
+        }));
+        setDevices(mapped);
+      }
+    } catch (err) {
+      console.warn('[security] Error fetching device sessions:', err);
+      // Fallback: detect current device metadata locally
+      const currentPayload = await getCurrentDevicePayload().catch(() => null);
+      if (currentPayload) {
+        setDevices([
+          {
+            id: 'current-local',
+            name: currentPayload.device_name,
+            location: 'Nigeria',
+            lastActive: 'This device',
+            isCurrent: true,
+            type: currentPayload.device_type,
+          },
+        ]);
+      }
+    } finally {
+      setLoadingDevices(false);
+      setRefreshing(false);
+    }
+  }, []);
 
   useEffect(() => {
     api.get('/api/user/preferences/me/')
@@ -67,7 +84,9 @@ export default function SecurityScreen() {
         }
       })
       .catch(() => {});
-  }, []);
+
+    fetchDevices();
+  }, [fetchDevices]);
 
   const handleToggleBiometric = async (val: boolean) => {
     setBiometricEnabled(val);
@@ -87,9 +106,17 @@ export default function SecurityScreen() {
               {
                 text: 'Revoke Access',
                 style: 'destructive' as const,
-                onPress: () => {
-                  setDevices(prev => prev.filter(d => d.id !== device.id));
-                  Alert.alert('Access Revoked', `${device.name} has been signed out.`);
+                onPress: async () => {
+                  try {
+                    await api.delete(`/api/user/sessions/${device.id}/`);
+                    setDevices(prev => prev.filter(d => d.id !== device.id));
+                    Alert.alert('Access Revoked', `${device.name} has been signed out.`);
+                  } catch (err: any) {
+                    Alert.alert(
+                      'Revocation Failed',
+                      err?.response?.data?.error || 'Unable to revoke access. Please try again.'
+                    );
+                  }
                 },
               },
             ]),
@@ -98,19 +125,24 @@ export default function SecurityScreen() {
     );
   };
 
-  const handleLogoutThisDevice = () => {
+  const handleLogoutAllDevices = () => {
     Alert.alert(
-      'Log Out',
-      'Are you sure you want to log out of this device?',
+      'Log Out from All Devices',
+      'Are you sure you want to log out from all devices? You will be returned to the sign in screen.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Log Out',
+          text: 'Log Out All',
           style: 'destructive',
           onPress: async () => {
             try {
+              await api.post('/api/user/sessions/revoke-all/');
+            } catch (e) {
+              console.warn('revoke-all call failed:', e);
+            }
+            try {
               await logout();
-              router.replace('/auth/login');
+              router.replace('/(auth)/login' as any);
             } catch (e) {
               console.error(e);
             }
@@ -125,6 +157,7 @@ export default function SecurityScreen() {
       case 'phone':
         return <Feather name="smartphone" size={20} color="#6D28D9" />;
       case 'laptop':
+      case 'desktop':
         return <MaterialCommunityIcons name="google-chrome" size={20} color="#6B7280" />;
       case 'tablet':
         return <Feather name="tablet" size={20} color="#6D28D9" />;
@@ -150,21 +183,32 @@ export default function SecurityScreen() {
         </View>
 
         <ScrollView
-          contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.scrollContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => {
+                setRefreshing(true);
+                fetchDevices();
+              }}
+              tintColor="#6D28D9"
+              colors={['#6D28D9']}
+            />
+          }
         >
-          {/* Section: Account Security */}
+          {/* Section: Access Security */}
           <View style={styles.section}>
-            <AppText style={styles.sectionTitle}>Account Security</AppText>
+            <AppText style={styles.sectionTitle}>Access Security</AppText>
 
-            {/* Card 1: Biometrics */}
-            <View style={styles.securityCard}>
+            {/* Card 1: Biometric (commented out in original design) */}
+            {/* <View style={styles.securityCard}>
               <View style={styles.iconBox}>
-                <MaterialCommunityIcons name="face-recognition" size={22} color="#6D28D9" />
+                <Feather name="fingerprint" size={22} color="#6D28D9" />
               </View>
               <View style={styles.infoContainer}>
-                <AppText style={styles.cardTitle}>Face ID / Biometric Login</AppText>
-                <AppText style={styles.cardSubtitle}>Use biometrics to log in</AppText>
+                <AppText style={styles.cardTitle}>Biometric Login</AppText>
+                <AppText style={styles.cardSubtitle}>Face ID or Fingerprint</AppText>
               </View>
               <Switch
                 value={biometricEnabled}
@@ -173,7 +217,7 @@ export default function SecurityScreen() {
                 thumbColor="#FFFFFF"
                 ios_backgroundColor="#E5E7EB"
               />
-            </View>
+            </View> */}
 
             {/* Card 2: Change Password */}
             <TouchableOpacity
@@ -196,48 +240,58 @@ export default function SecurityScreen() {
           <View style={styles.section}>
             <AppText style={styles.sectionTitle}>List of device used</AppText>
             <View style={styles.devicesCardGroup}>
-              {devices.map((device, index) => (
-                <React.Fragment key={device.id}>
-                  <View style={styles.deviceRow}>
-                    <View style={styles.deviceIconBox}>
-                      {renderDeviceIcon(device.type)}
-                    </View>
-                    <View style={styles.deviceInfo}>
-                      <AppText style={styles.deviceName}>{device.name}</AppText>
-                      <View style={styles.deviceLocationRow}>
-                        <AppText style={styles.deviceLocation}>{device.location} • </AppText>
-                        <AppText
-                          style={[
-                            styles.deviceStatus,
-                            device.isCurrent && styles.deviceStatusCurrent,
-                          ]}
-                        >
-                          {device.lastActive}
-                        </AppText>
+              {loadingDevices && devices.length === 0 ? (
+                <View style={{ paddingVertical: 24, alignItems: 'center', justifyContent: 'center' }}>
+                  <ActivityIndicator size="small" color="#6D28D9" />
+                </View>
+              ) : devices.length === 0 ? (
+                <View style={{ paddingVertical: 20, alignItems: 'center' }}>
+                  <AppText style={{ color: '#9CA3AF', fontSize: 13.5 }}>No active devices found</AppText>
+                </View>
+              ) : (
+                devices.map((device, index) => (
+                  <React.Fragment key={device.id}>
+                    <View style={styles.deviceRow}>
+                      <View style={styles.deviceIconBox}>
+                        {renderDeviceIcon(device.type)}
                       </View>
+                      <View style={styles.deviceInfo}>
+                        <AppText style={styles.deviceName}>{device.name}</AppText>
+                        <View style={styles.deviceLocationRow}>
+                          <AppText style={styles.deviceLocation}>{device.location} • </AppText>
+                          <AppText
+                            style={[
+                              styles.deviceStatus,
+                              device.isCurrent && styles.deviceStatusCurrent,
+                            ]}
+                          >
+                            {device.lastActive}
+                          </AppText>
+                        </View>
+                      </View>
+                      <TouchableOpacity
+                        style={styles.moreButton}
+                        onPress={() => handleDeviceMenu(device)}
+                        hitSlop={{ top: 10, right: 10, bottom: 10, left: 10 }}
+                      >
+                        <Feather name="more-vertical" size={18} color="#9CA3AF" />
+                      </TouchableOpacity>
                     </View>
-                    <TouchableOpacity
-                      style={styles.moreButton}
-                      onPress={() => handleDeviceMenu(device)}
-                      hitSlop={{ top: 10, right: 10, bottom: 10, left: 10 }}
-                    >
-                      <Feather name="more-vertical" size={18} color="#9CA3AF" />
-                    </TouchableOpacity>
-                  </View>
-                  {index < devices.length - 1 && <View style={styles.divider} />}
-                </React.Fragment>
-              ))}
+                    {index < devices.length - 1 && <View style={styles.divider} />}
+                  </React.Fragment>
+                ))
+              )}
             </View>
           </View>
 
-          {/* Bottom Action: Log out of this device */}
+          {/* Bottom Action: Log out from all devices */}
           <TouchableOpacity
             style={styles.logoutCard}
-            onPress={handleLogoutThisDevice}
+            onPress={handleLogoutAllDevices}
             activeOpacity={0.8}
           >
             <Feather name="log-out" size={20} color="#DC2626" style={{ marginRight: 10 }} />
-            <AppText style={styles.logoutText}>Log out of this device</AppText>
+            <AppText style={styles.logoutText}>Log out from all devices</AppText>
           </TouchableOpacity>
 
           <View style={{ height: 100 }} />

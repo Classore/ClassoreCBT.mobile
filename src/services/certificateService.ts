@@ -7,6 +7,7 @@ export interface CertificateData {
   id?: number | string;
   recipientName: string;
   examName: string;
+  grade?: string;
   score?: string | number;
   totalScore?: string | number;
   percentage?: string | number;
@@ -20,6 +21,14 @@ export function generateCertificateHtml(data: CertificateData): string {
   const serialNo =
     data.certificateNo ||
     `CLS-CERT-${new Date().getFullYear()}-${String(data.id || Math.floor(1000 + Math.random() * 9000)).padStart(5, '0')}`;
+
+  const gradeVal =
+    data.grade ||
+    (Number(data.percentage) >= 90
+      ? 'Distinction'
+      : Number(data.percentage) >= 80
+      ? 'Merit'
+      : 'Pass');
 
   const scoreDisplay =
     data.score && data.totalScore
@@ -193,6 +202,21 @@ export function generateCertificateHtml(data: CertificateData): string {
       color: #334155;
       border: 1px solid #E2E8F0;
     }
+    .grade-badge-distinction {
+      background: #FEF3C7;
+      color: #92400E;
+      border: 1.5px solid #F59E0B;
+    }
+    .grade-badge-merit {
+      background: #F3E8FF;
+      color: #6B21A8;
+      border: 1.5px solid #A855F7;
+    }
+    .grade-badge-pass {
+      background: #ECFDF5;
+      color: #065F46;
+      border: 1.5px solid #10B981;
+    }
     .footer-row {
       width: 100%;
       display: flex;
@@ -292,6 +316,7 @@ export function generateCertificateHtml(data: CertificateData): string {
       </div>
 
       <div class="metrics-row">
+        <div class="metric-badge grade-badge-${gradeVal.toLowerCase()}">Grade: ${gradeVal}</div>
         <div class="metric-badge">Score: ${scoreDisplay} ${percentageDisplay}</div>
         <div class="metric-badge">Date: ${data.earnedDate}</div>
       </div>

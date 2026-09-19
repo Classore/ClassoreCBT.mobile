@@ -1,5 +1,5 @@
 import { useLocalSearchParams } from 'expo-router';
-import { examService } from '@/services/exam';
+import { examService, resolveNumericExamId } from '@/services/exam';
 import { useAuth } from '@/context/AuthContext';
 import React, { useState, useEffect } from 'react';
 import { 
@@ -48,8 +48,7 @@ export default function IELTSSetupScreen() {
     exam_desc?: string;
   }>();
 
-  const examIdStr = Array.isArray(params.exam) ? params.exam[0] : params.exam;
-  const examId = examIdStr ? parseInt(examIdStr, 10) : 42; // Default to 42
+  const examId = resolveNumericExamId(params.exam, 42);
 
   const mapSections = (fetchedSections: any[]) => {
     const mapped: SectionItem[] = fetchedSections.map(s => {
@@ -123,8 +122,7 @@ export default function IELTSSetupScreen() {
 
   useEffect(() => {
     let isMounted = true;
-    const currentExamIdStr = Array.isArray(params.exam) ? params.exam[0] : params.exam;
-    const currentExamId = currentExamIdStr ? parseInt(currentExamIdStr, 10) : 42;
+    const currentExamId = resolveNumericExamId(params.exam, 42);
 
     const loadData = async () => {
       // 1. Check stored cache if memory was empty
@@ -346,8 +344,7 @@ export default function IELTSSetupScreen() {
               if (isStarting) return;
               setIsStarting(true);
 
-              const examIdStr = Array.isArray(params.exam) ? params.exam[0] : params.exam;
-              const examId = examIdStr ? parseInt(examIdStr, 10) : 42;
+              const examId = resolveNumericExamId(params.exam, 42);
               const sectionOrder = sections.map(s => s.id).join(',');
               const sectionNames = sections.map(s => s.name).join(',');
               const orderIds = sections.map(s => Number(s.id)).filter(n => !isNaN(n));

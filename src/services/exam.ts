@@ -63,6 +63,7 @@ export interface ExamSection {
   default_time_minutes: number;
   is_published: boolean;
   sub_sections?: number[];
+  topics?: string[];
 }
 
 export interface ExamTierConfig {
@@ -208,6 +209,62 @@ const memoryCachedAggregateReports: Record<string, any> = {};
 const ACTIVE_ATTEMPT_ID_KEY = '@classore_active_attempt_id';
 let memoryActiveAttemptId: number | null = null;
 
+export const resolveNumericExamId = (
+  rawExam: any,
+  fallbackId: number = 1
+): number => {
+  if (rawExam === undefined || rawExam === null) {
+    return fallbackId;
+  }
+  const examStr = Array.isArray(rawExam) ? String(rawExam[0]) : String(rawExam);
+  const trimmed = examStr.trim();
+  if (!trimmed || trimmed === 'NaN' || trimmed === 'undefined' || trimmed === 'null') {
+    return fallbackId;
+  }
+
+  // 1. Direct positive integer string or number
+  const parsed = parseInt(trimmed, 10);
+  if (!isNaN(parsed) && parsed > 0 && String(parsed) === trimmed) {
+    return parsed;
+  }
+
+  // 2. Try looking up in memory-cached exams
+  const lower = trimmed.toLowerCase();
+  const cachedList = memoryCachedExams;
+  if (cachedList && cachedList.length > 0) {
+    const matched = cachedList.find(
+      e =>
+        String(e.id) === trimmed ||
+        e.name.toLowerCase() === lower ||
+        e.name.toLowerCase().includes(lower)
+    );
+    if (matched) {
+      return matched.id;
+    }
+  }
+
+  // 3. Known fallback aliases
+  if (lower.includes('jamb') || lower.includes('utme')) {
+    return 1;
+  }
+  if (lower.includes('waec') || lower.includes('ssce') || lower.includes('wassce')) {
+    return 2;
+  }
+  if (lower.includes('neco')) {
+    return 3;
+  }
+  if (lower.includes('ielts')) {
+    return 42;
+  }
+
+  // 4. If parsed was a valid positive number
+  if (!isNaN(parsed) && parsed > 0) {
+    return parsed;
+  }
+
+  return fallbackId;
+};
+
 export const examService = {
   getCachedExamsSync: (): ExamType[] | null => {
     return memoryCachedExams;
@@ -254,8 +311,10 @@ export const examService = {
       const targetExams = exams || (await examService.getCachedExams()) || [];
       if (!targetExams || targetExams.length === 0) return;
 
-      // Prefetch tier configs in background
-      examService.getExamTierConfigs().catch(() => {});
+      // Prefetch tier configs if not already in memory
+      if (!memoryCachedTierConfigs) {
+        await examService.getExamTierConfigs().catch(() => {});
+      }
 
       // Prefetch sections for all exams in parallel without blocking UI
       await Promise.allSettled(
@@ -267,46 +326,78 @@ export const examService = {
   },
 
   getCachedSectionsSync: (examTypeId: number): ExamSection[] | null => {
-    return memoryCachedSections[examTypeId] || null;
+    const numericId = Number(examTypeId);
+    if (!numericId || isNaN(numericId) || numericId <= 0) return null;
+    return memoryCachedSections[numericId] || null;
   },
 
   getCachedSections: async (examTypeId: number): Promise<ExamSection[] | null> => {
-    if (memoryCachedSections[examTypeId] && memoryCachedSections[examTypeId].length > 0) {
-      return memoryCachedSections[examTypeId];
+    const numericId = Number(examTypeId);
+    if (!numericId || isNaN(numericId) || numericId <= 0) return null;
+    if (memoryCachedSections[numericId] && memoryCachedSections[numericId].length > 0) {
+      return memoryCachedSections[numericId];
     }
-    const stored = await storage.get<ExamSection[]>(`${SECTIONS_CACHE_KEY_PREFIX}${examTypeId}`);
+    const stored = await storage.get<ExamSection[]>(`${SECTIONS_CACHE_KEY_PREFIX}${numericId}`);
     if (stored && stored.length > 0) {
-      memoryCachedSections[examTypeId] = stored;
+      memoryCachedSections[numericId] = stored;
       return stored;
     }
     return null;
   },
 
   getSections: async (examTypeId: number, options?: { forceRefresh?: boolean }): Promise<ExamSection[]> => {
+    const numericId = Number(examTypeId);
+    if (!numericId || isNaN(numericId) || numericId <= 0) {
+      console.warn(`[examService.getSections] Invalid examTypeId passed: ${examTypeId}`);
+      return [];
+    }
     try {
-      const response = await api.get(`/api/admin/sections/?exam_type_id=${examTypeId}&is_published=true`);
+      const response = await api.get(`/api/admin/sections/?exam_type_id=${numericId}&is_published=true`);
       const freshSections: ExamSection[] = response.data.results ? response.data.results : response.data;
       if (Array.isArray(freshSections) && freshSections.length > 0) {
-        memoryCachedSections[examTypeId] = freshSections;
-        await storage.set(`${SECTIONS_CACHE_KEY_PREFIX}${examTypeId}`, freshSections);
+        memoryCachedSections[numericId] = freshSections;
+        await storage.set(`${SECTIONS_CACHE_KEY_PREFIX}${numericId}`, freshSections);
+        return freshSections;
       }
-      return freshSections;
-    } catch (error) {
-      const cached = await examService.getCachedSections(examTypeId);
+    } catch (adminError) {
+      // /api/admin/sections/ may fail for unauthenticated guests
+    }
+
+    // Public / guest fallback endpoint: /api/user/sections/
+    try {
+      const userRes = await api.get(`/api/user/sections/?exam_type_id=${numericId}`);
+      const freshSections: ExamSection[] = userRes.data.results ? userRes.data.results : userRes.data;
+      if (Array.isArray(freshSections) && freshSections.length > 0) {
+        memoryCachedSections[numericId] = freshSections;
+        await storage.set(`${SECTIONS_CACHE_KEY_PREFIX}${numericId}`, freshSections);
+        return freshSections;
+      }
+    } catch (userError) {
+      console.warn(`[examService] /api/user/sections/ fallback failed for exam ${numericId}:`, userError);
+    }
+
+    try {
+      const cached = await examService.getCachedSections(numericId);
       if (cached && cached.length > 0) {
-        console.warn(`[examService] Network failed, falling back to cached sections for exam ${examTypeId}`);
+        console.warn(`[examService] Network failed, falling back to cached sections for exam ${numericId}`);
         return cached;
       }
-      throw error;
-    }
+    } catch {}
+
+    return [];
   },
 
   getSectionTopics: async (sectionId: number): Promise<string[]> => {
     try {
-      const response = await api.get(`/api/exams/sections/${sectionId}/topics/`);
-      const topics = response.data?.topics || response.data?.results || response.data || [];
-      if (Array.isArray(topics) && topics.length > 0) {
-        return topics.map((t: any) => (typeof t === 'string' ? t : t.name || String(t)));
+      const response = await api.get(`/api/user/sections/${sectionId}/topics/`);
+      const raw = response.data?.topics || response.data?.results || response.data || [];
+      if (Array.isArray(raw) && raw.length > 0) {
+        return raw
+          .map((t: any) => {
+            if (typeof t === 'string') return t;
+            return t.topic_tag || t.name || t.title || '';
+          })
+          .filter((t: string) => Boolean(t) && t !== '[object Object]');
       }
       return [];
     } catch (error) {
@@ -387,7 +478,19 @@ export const examService = {
   startExam: async (payload: ExamStartRequest): Promise<UserAttempt> => {
     const response = await api.post('/api/user/exam/start/', payload);
     if (response.data && response.data.id) {
-      examService.setActiveAttemptId(response.data.id);
+      const attempt = response.data;
+      examService.setActiveAttemptId(attempt.id);
+      const isIelts = attempt.exam_type === 42 || payload.exam_type_id === 42;
+      const activeRecord: RecentAttemptRecord = {
+        id: attempt.id,
+        exam_type: attempt.exam_type || payload.exam_type_id || (isIelts ? 42 : 41),
+        title: attempt.exam_name || (attempt as any).exam_title || (isIelts ? 'IELTS Academic Test' : 'Standard Exam'),
+        status: 'in_progress',
+        is_section_based: isIelts || Boolean(attempt.sections && attempt.sections.length > 0),
+        timestamp: Date.now(),
+      };
+      storage.set('@classore_active_attempt', activeRecord).catch(() => {});
+      examService.saveRecentAttempt(activeRecord).catch(() => {});
     }
     return response.data;
   },
@@ -453,11 +556,19 @@ export const examService = {
   submitExam: async (attemptId: number, payload: SubmitExamPayload): Promise<{ message: string; total_score: number; streak?: number; ai_feedbacks?: any[]; ai_assessment_status?: string; ai_skip_reason?: string; [key: string]: any }> => {
     const response = await api.post(`/api/user/exam/${attemptId}/submit/`, payload);
     examService.clearActiveAttemptId();
+    storage.remove('@classore_active_attempt').catch(() => {});
+    try {
+      const existing = (await storage.get<RecentAttemptRecord[]>('@classore_recent_attempts')) || [];
+      const updated = existing.map(item => item.id === attemptId ? { ...item, status: 'completed' as const } : item);
+      await storage.set('@classore_recent_attempts', updated);
+    } catch (e) {}
     return response.data;
   },
 
   getLastAttemptDetails: async (examTypeId: number): Promise<any> => {
-    const response = await api.get(`/api/user/exam/last-attempt-details/?exam_type_id=${examTypeId}`);
+    const numericId = Number(examTypeId);
+    if (!numericId || isNaN(numericId) || numericId <= 0) return null;
+    const response = await api.get(`/api/user/exam/last-attempt-details/?exam_type_id=${numericId}`);
     return response.data;
   },
 
@@ -521,6 +632,50 @@ export const examService = {
       examService.setActiveAttemptId(attemptId);
     }
     const response = await api.get(`/api/user/exam/${attemptId}/resume/`);
+    if (response.data && response.data.id) {
+      const attempt = response.data;
+      const isIelts = attempt.exam_type === 42;
+      let totalQ = attempt.total_questions;
+      let answeredQ = attempt.answered_questions;
+      if ((!totalQ || totalQ <= 0) && Array.isArray(attempt.sections)) {
+        let secTotal = 0;
+        let secAns = 0;
+        attempt.sections.forEach((sec: any) => {
+          sec.question_groups?.forEach((grp: any) => {
+            secTotal += grp.responses?.length || 0;
+            grp.responses?.forEach((r: any) => {
+              if (
+                (r.selected_choice !== null && r.selected_choice !== undefined) ||
+                (typeof r.written_response === 'string' && r.written_response.trim().length > 0) ||
+                (r.metadata && Object.keys(r.metadata).length > 0) ||
+                r.audio_response
+              ) {
+                secAns++;
+              }
+            });
+          });
+        });
+        if (secTotal > 0) {
+          totalQ = secTotal;
+          if (answeredQ === undefined || answeredQ === null) {
+            answeredQ = secAns;
+          }
+        }
+      }
+
+      const activeRecord: RecentAttemptRecord = {
+        id: attempt.id,
+        exam_type: attempt.exam_type || (isIelts ? 42 : 41),
+        title: attempt.exam_name || (attempt as any).exam_title || (isIelts ? 'IELTS Academic Test' : 'Standard Exam'),
+        status: 'in_progress',
+        is_section_based: isIelts || Boolean(attempt.sections && attempt.sections.length > 0),
+        total_questions: totalQ || (isIelts ? 40 : 60),
+        answered_questions: answeredQ ?? 0,
+        timestamp: Date.now(),
+      };
+      storage.set('@classore_active_attempt', activeRecord).catch(() => {});
+      examService.saveRecentAttempt(activeRecord).catch(() => {});
+    }
     return response.data;
   },
 
@@ -543,8 +698,12 @@ export const examService = {
   getSavedQuestions: async (params?: { exam_type_id?: number; section_id?: number }): Promise<any[]> => {
     try {
       const query = new URLSearchParams();
-      if (params?.exam_type_id) query.append('exam_type_id', String(params.exam_type_id));
-      if (params?.section_id) query.append('section_id', String(params.section_id));
+      if (params?.exam_type_id && !isNaN(Number(params.exam_type_id))) {
+        query.append('exam_type_id', String(Number(params.exam_type_id)));
+      }
+      if (params?.section_id && !isNaN(Number(params.section_id))) {
+        query.append('section_id', String(Number(params.section_id)));
+      }
       const response = await api.get(`/api/user/saved-questions/?${query.toString()}`);
       const freshQuestions = response.data.results ? response.data.results : response.data;
       if (Array.isArray(freshQuestions)) {
@@ -575,7 +734,9 @@ export const examService = {
 
   getLeaderboard: async (params?: { exam_type_id?: number; period?: string }): Promise<{ leaderboard: any[]; current_user_stats: any }> => {
     const query = new URLSearchParams();
-    if (params?.exam_type_id) query.append('exam_type_id', String(params.exam_type_id));
+    if (params?.exam_type_id && !isNaN(Number(params.exam_type_id))) {
+      query.append('exam_type_id', String(Number(params.exam_type_id)));
+    }
     if (params?.period) query.append('period', params.period);
     const response = await api.get(`/api/user/exam/leaderboard/?${query.toString()}`);
     return response.data;
@@ -608,7 +769,9 @@ export const examService = {
 
   getExamHistory: async (params?: { exam_type_id?: number; status?: string; mode?: string }): Promise<any> => {
     const query = new URLSearchParams();
-    if (params?.exam_type_id) query.append('exam_type_id', String(params.exam_type_id));
+    if (params?.exam_type_id && !isNaN(Number(params.exam_type_id))) {
+      query.append('exam_type_id', String(Number(params.exam_type_id)));
+    }
     if (params?.status) query.append('status', params.status);
     if (params?.mode) query.append('mode', params.mode);
     const response = await api.get(`/api/user/exam/?${query.toString()}`);
@@ -622,76 +785,11 @@ export const examService = {
       if (response.data) {
         return response.data;
       }
-    } catch {
-      // Fallback structured data when API endpoint is offline
+    } catch (error) {
+      console.warn('[examService] Failed to fetch leadership profile:', error);
+      return null;
     }
-
-    return {
-      full_name: 'Daniel Adekunle',
-      email: 'daniel.adekunle@example.com',
-      phone_number: '+234 801 234 5678',
-      is_verified: true,
-      percentile_badge: 'Top 15%',
-      global_rank: 1248,
-      total_students: 12540,
-      average_score: 245,
-      score_percentile: 'Top 15%',
-      tokens: 2450,
-      token_percentile: 'Top 15%',
-      overview: {
-        tests_taken: 128,
-        average_score_pct: 72,
-        accuracy_pct: 68,
-        study_time_formatted: '34h 20m',
-      },
-      subject_rankings: [
-        {
-          id: 'math',
-          name: 'Mathematics',
-          avatar_letter: 'M',
-          avatar_bg: '#F3E8FF',
-          avatar_text_color: '#7C3AED',
-          rank_formatted: '#892',
-          score_formatted: 'Score: 78%',
-        },
-        {
-          id: 'physics',
-          name: 'Physics',
-          avatar_letter: 'P',
-          avatar_bg: '#FEF3C7',
-          avatar_text_color: '#D97706',
-          rank_formatted: '#1,120',
-          score_formatted: 'Score: 72%',
-        },
-        {
-          id: 'chemistry',
-          name: 'Chemistry',
-          avatar_letter: 'C',
-          avatar_bg: '#D1FAE5',
-          avatar_text_color: '#059669',
-          rank_formatted: '#1,305',
-          score_formatted: 'Score: 68%',
-        },
-        {
-          id: 'english',
-          name: 'English Language',
-          avatar_letter: 'E',
-          avatar_bg: '#DBEAFE',
-          avatar_text_color: '#2563EB',
-          rank_formatted: '#945',
-          score_formatted: 'Score: 75%',
-        },
-        {
-          id: 'use_english',
-          name: 'Use of English',
-          avatar_letter: 'U',
-          avatar_bg: '#F3E8FF',
-          avatar_text_color: '#7C3AED',
-          rank_formatted: '#1,050',
-          score_formatted: 'Score: 70%',
-        },
-      ],
-    };
+    return null;
   },
 
   saveRecentAttempt: async (record: RecentAttemptRecord): Promise<void> => {

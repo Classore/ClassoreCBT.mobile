@@ -23,6 +23,7 @@ export default function CertificateDetailScreen() {
     from?: string;
     certId?: string;
     examName?: string;
+    grade?: string;
     score?: string;
     totalScore?: string;
     percentage?: string;
@@ -42,6 +43,13 @@ export default function CertificateDetailScreen() {
   const totalScore = params.totalScore || '400';
   const percentage = params.percentage || '96.5';
   const earnedDate = params.earnedDate || 'May 10, 2026';
+  const grade =
+    params.grade ||
+    (Number(percentage) >= 90
+      ? 'Distinction'
+      : Number(percentage) >= 80
+      ? 'Merit'
+      : 'Pass');
   const [isDownloading, setIsDownloading] = React.useState(false);
 
   const serialNo =
@@ -57,6 +65,7 @@ export default function CertificateDetailScreen() {
       id: params.certId || '1',
       recipientName,
       examName,
+      grade,
       score,
       totalScore,
       percentage,
@@ -72,6 +81,7 @@ export default function CertificateDetailScreen() {
       ref: serialNo,
       recipientName,
       examName,
+      grade,
       score,
       totalScore,
       percentage,
@@ -133,6 +143,25 @@ export default function CertificateDetailScreen() {
             {/* Certificate Titles */}
             <AppText style={styles.certMainTitle}>Certificate</AppText>
             <AppText style={styles.certMainSubtitle}>of Achievement</AppText>
+
+            {/* Grade Tier Ribbon */}
+            <View style={[
+              styles.gradeSeal,
+              grade.toLowerCase().includes('distinction') ? styles.gradeSealDistinction :
+              grade.toLowerCase().includes('merit') ? styles.gradeSealMerit : styles.gradeSealPass
+            ]}>
+              <Ionicons
+                name={grade.toLowerCase().includes('distinction') ? "sparkles" : (grade.toLowerCase().includes('merit') ? "star" : "checkmark-circle")}
+                size={13}
+                color={grade.toLowerCase().includes('distinction') ? "#B45309" : (grade.toLowerCase().includes('merit') ? "#7C3AED" : "#059669")}
+              />
+              <AppText style={[
+                styles.gradeSealText,
+                { color: grade.toLowerCase().includes('distinction') ? "#B45309" : (grade.toLowerCase().includes('merit') ? "#7C3AED" : "#059669") }
+              ]}>
+                GRADE: {grade.toUpperCase()}
+              </AppText>
+            </View>
 
             <AppText style={styles.certCertifyText}>This is to certify that</AppText>
             <AppText style={styles.certRecipientName}>{recipientName}</AppText>
@@ -261,6 +290,21 @@ export default function CertificateDetailScreen() {
               <View style={styles.detailTextContainer}>
                 <AppText style={styles.detailLabel}>Percentage</AppText>
                 <AppText style={styles.detailValue}>{percentage}%</AppText>
+              </View>
+            </View>
+
+            <View style={styles.detailDivider} />
+
+            {/* Row 3b: Grade Tier */}
+            <View style={styles.detailRow}>
+              <View style={styles.detailIconBox}>
+                <Ionicons name="ribbon-outline" size={18} color="#7C3AED" />
+              </View>
+              <View style={styles.detailTextContainer}>
+                <AppText style={styles.detailLabel}>Grade Tier</AppText>
+                <AppText style={styles.detailValue}>
+                  {grade} ({Number(percentage) >= 90 ? '90% - 100%' : Number(percentage) >= 80 ? '80% - 89%' : '70% - 79%'})
+                </AppText>
               </View>
             </View>
 
@@ -676,5 +720,33 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '700',
+  },
+  gradeSeal: {
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 4,
+    borderRadius: 20,
+    borderWidth: 1,
+    marginBottom: 10,
+  },
+  gradeSealDistinction: {
+    backgroundColor: '#FEF3C7',
+    borderColor: '#FDE68A',
+  },
+  gradeSealMerit: {
+    backgroundColor: '#F3E8FF',
+    borderColor: '#E9D5FF',
+  },
+  gradeSealPass: {
+    backgroundColor: '#ECFDF5',
+    borderColor: '#A7F3D0',
+  },
+  gradeSealText: {
+    fontSize: 11.5,
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
 });

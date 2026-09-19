@@ -110,7 +110,16 @@ export default function AchievementsScreen() {
   };
 
   const allItems = data?.achievements || [];
-  const filteredAchievements = allItems.filter((item) => {
+  // Deduplicate achievements in case backend returns items with duplicate IDs
+  const seenAchievementKeys = new Set<string | number>();
+  const uniqueAchievements = allItems.filter((item, index) => {
+    const uniqueKey = item.code ? `code_${item.code}` : (item.id ? `id_${item.id}` : `idx_${index}`);
+    if (seenAchievementKeys.has(uniqueKey)) return false;
+    seenAchievementKeys.add(uniqueKey);
+    return true;
+  });
+
+  const filteredAchievements = uniqueAchievements.filter((item) => {
     if (activeTab === 'unlocked') return item.unlocked;
     if (activeTab === 'in_progress') return !item.unlocked;
     return true;
@@ -292,12 +301,12 @@ export default function AchievementsScreen() {
                   </Text>
                 </View>
               ) : (
-                filteredAchievements.map((item) => {
+                filteredAchievements.map((item, index) => {
                   const isUnlocked = item.unlocked;
 
                   return (
                     <View
-                      key={item.id}
+                      key={`achievement_${item.id}_${item.code || index}_${index}`}
                       style={[styles.card, !isUnlocked && styles.cardLocked]}
                     >
                       {renderIcon(item)}

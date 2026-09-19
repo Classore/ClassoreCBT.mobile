@@ -1,25 +1,26 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  SafeAreaView, 
-  ScrollView, 
-  TouchableOpacity, 
-  Platform,
-  Animated
-} from 'react-native';
-import { Feather, MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
-import { Image } from 'expo-image';
-import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter, useLocalSearchParams } from 'expo-router';
-import { examService } from '@/services/exam';
 import { useAuth } from '@/context/AuthContext';
 import { useNotifications } from '@/context/NotificationContext';
+import { examService } from '@/services/exam';
+import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useEffect, useRef, useState } from 'react';
+import {
+  Animated,
+  Platform,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
+} from 'react-native';
 
 interface LeaderboardUser {
   rank: number;
   name: string;
+  userId?: number;
   avatarText?: string;
   avatarBg?: string;
   avatarUrl?: string;
@@ -31,7 +32,7 @@ interface LeaderboardUser {
 export default function LeaderboardScreen() {
   const router = useRouter();
   const { hasUnread } = useNotifications();
-  const params = useLocalSearchParams<{ exam_type_id?: string }>();
+  const params = useLocalSearchParams<{ exam_type_id?: string; from?: string }>();
   const { user } = useAuth();
 
   const [loading, setLoading] = useState(true);
@@ -91,6 +92,7 @@ export default function LeaderboardScreen() {
           const mapped: LeaderboardUser[] = data.leaderboard.map((item: any) => ({
             rank: item.rank,
             name: item.name,
+            userId: item.user_id,
             avatarText: item.avatar_text || (item.name ? item.name[0].toUpperCase() : 'U'),
             avatarBg: item.avatar_bg || '#7C3AED',
             avatarUrl: item.avatar_url,
@@ -131,6 +133,30 @@ export default function LeaderboardScreen() {
     };
   }, [activeTab, params.exam_type_id]);
 
+  const handleViewProfile = (userItem?: LeaderboardUser) => {
+    if (userItem?.userId) {
+      router.push({
+        pathname: '/leaderboard-profile',
+        params: { user_id: String(userItem.userId), from: '/(exam)/leaderboard' }
+      } as any);
+    } else {
+      router.push({
+        pathname: '/leaderboard-profile',
+        params: { from: '/(exam)/leaderboard' }
+      } as any);
+    }
+  };
+
+  const handleBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+    } else if (params.from) {
+      router.replace(params.from as any);
+    } else {
+      router.replace('/(tabs)/practice');
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
@@ -139,7 +165,7 @@ export default function LeaderboardScreen() {
         <View style={styles.header}>
           <TouchableOpacity 
             style={styles.headerButton} 
-            onPress={() => router.replace('/(tabs)/practice')}
+            onPress={handleBack}
             activeOpacity={0.7}
           >
             <Feather name="chevron-left" size={24} color="#111827" />
@@ -292,7 +318,7 @@ export default function LeaderboardScreen() {
                         key={item.rank} 
                         style={styles.topCard1}
                         activeOpacity={0.8}
-                        onPress={() => router.push('/leaderboard-profile' as any)}
+                        onPress={() => handleViewProfile(item)}
                       >
                         <View style={styles.rank1Badge}>
                           <Text style={styles.rankBadgeText}>1</Text>
@@ -317,7 +343,7 @@ export default function LeaderboardScreen() {
                         key={item.rank} 
                         style={styles.topCard2}
                         activeOpacity={0.8}
-                        onPress={() => router.push('/leaderboard-profile' as any)}
+                        onPress={() => handleViewProfile(item)}
                       >
                         <View style={styles.rank2Badge}>
                           <Text style={styles.rankBadgeText}>2</Text>
@@ -342,7 +368,7 @@ export default function LeaderboardScreen() {
                         key={item.rank} 
                         style={styles.topCard3}
                         activeOpacity={0.8}
-                        onPress={() => router.push('/leaderboard-profile' as any)}
+                        onPress={() => handleViewProfile(item)}
                       >
                         <View style={styles.rank3Badge}>
                           <Text style={styles.rankBadgeText}>3</Text>
@@ -366,7 +392,7 @@ export default function LeaderboardScreen() {
                       key={item.rank} 
                       style={styles.regularRow}
                       activeOpacity={0.8}
-                      onPress={() => router.push('/leaderboard-profile' as any)}
+                      onPress={() => handleViewProfile(item)}
                     >
                       <Text style={styles.regularRankText}>{item.rank}</Text>
                       <View style={[styles.avatarCircle, { backgroundColor: item.avatarBg }]}>
@@ -387,7 +413,11 @@ export default function LeaderboardScreen() {
                       <Text style={styles.ellipsisText}>•••</Text>
                     </View>
 
-                    <View style={styles.currentUserCard}>
+                    <TouchableOpacity 
+                      style={styles.currentUserCard}
+                      activeOpacity={0.8}
+                      onPress={() => handleViewProfile()}
+                    >
                       <Text style={styles.currentUserRank}>{currentUserStats.rank}</Text>
                       <View style={[styles.avatarCircle, { backgroundColor: '#4C1D95' }]}>
                         <Text style={styles.avatarText}>{userInitial}</Text>
@@ -398,7 +428,7 @@ export default function LeaderboardScreen() {
                         </Text>
                       </View>
                       <Text style={styles.currentUserScore}>{currentUserStats.score ?? '--'}</Text>
-                    </View>
+                    </TouchableOpacity>
                   </>
                 ) : null}
               </>
@@ -423,7 +453,7 @@ export default function LeaderboardScreen() {
               onPress={() => router.replace('/(tabs)/reports')}
               activeOpacity={0.8}
             >
-              <Text style={styles.viewResultText}>View Test Result</Text>
+              <Text style={styles.viewResultText}>View Reports</Text>
             </TouchableOpacity>
           </View>
 

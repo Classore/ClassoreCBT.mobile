@@ -1,28 +1,27 @@
-import React, { useState, useEffect } from 'react';
+import { AppText } from '@/components/AppText';
+import { useAuth } from '@/context/AuthContext';
+import { api } from '@/services/api';
+import { downloadCertificate } from '@/services/certificateService';
+import { handleHelpBack, navigateWithFrom } from '@/utils/helpNavigation';
+import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useEffect, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
+  ActivityIndicator,
+  Platform,
+  RefreshControl,
   SafeAreaView,
   ScrollView,
+  StyleSheet,
   TouchableOpacity,
-  Platform,
-  ActivityIndicator,
-  Alert,
-  RefreshControl,
+  View
 } from 'react-native';
-import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useRouter, useLocalSearchParams } from 'expo-router';
-import { handleHelpBack, navigateWithFrom } from '@/utils/helpNavigation';
-import { api } from '@/services/api';
-import { useAuth } from '@/context/AuthContext';
-import { downloadCertificate } from '@/services/certificateService';
-import { AppText } from '@/components/AppText';
 
 interface CertificateItem {
   id: number;
   exam: string;
   title: string;
+  grade?: 'Pass' | 'Merit' | 'Distinction' | string;
   score_text: string;
   score?: number;
   total_score?: number;
@@ -85,19 +84,21 @@ export default function CertificatesScreen() {
   const { user } = useAuth();
   const params = useLocalSearchParams<{ from?: string }>();
 
-  const [certificates, setCertificates] = useState<CertificateItem[]>(FALLBACK_CERTIFICATES);
-  const [loading, setLoading] = useState<boolean>(false);
+  const [certificates, setCertificates] = useState<CertificateItem[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
 
   const fetchCertificates = async () => {
     try {
       const res = await api.get('/api/user/gamification/certificates/');
-      if (Array.isArray(res.data) && res.data.length > 0) {
+      if (Array.isArray(res.data)) {
         setCertificates(res.data);
       }
     } catch {
-      // Use fallback data seamlessly
+      // Keep empty if network fails
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -123,9 +124,10 @@ export default function CertificatesScreen() {
       id: cert.id,
       recipientName,
       examName: cert.exam || cert.title,
-      score: cert.score || 382,
-      totalScore: cert.total_score || 400,
-      percentage: cert.percentage || 96.5,
+      grade: cert.grade || 'Pass',
+      score: cert.score || 0,
+      totalScore: cert.total_score || 0,
+      percentage: cert.percentage || 0,
       earnedDate: cert.earned_date || cert.date_text || 'May 10, 2026',
       issuer: cert.issuer,
       certificateNo: cert.certificate_no,
@@ -137,9 +139,10 @@ export default function CertificatesScreen() {
     navigateWithFrom('/(tabs)/certificate-detail', '/(tabs)/certificates', {
       certId: cert.id,
       examName: cert.exam || cert.title,
-      score: cert.score || 382,
-      totalScore: cert.total_score || 400,
-      percentage: cert.percentage || 96.5,
+      grade: cert.grade || 'Pass',
+      score: cert.score || 0,
+      totalScore: cert.total_score || 0,
+      percentage: cert.percentage || 0,
       earnedDate: cert.earned_date || 'May 10, 2026',
       certificateNo: cert.certificate_no,
     });
@@ -165,6 +168,32 @@ export default function CertificatesScreen() {
     return (
       <View style={[styles.logoBadge, { backgroundColor: '#F0FDF4' }]}>
         <Ionicons name="ribbon" size={26} color="#16A34A" />
+      </View>
+    );
+  };
+
+  const renderGradeBadge = (grade?: string) => {
+    const g = (grade || 'Pass').toLowerCase();
+    if (g.includes('distinction')) {
+      return (
+        <View style={[styles.gradePill, { backgroundColor: '#FEF3C7', borderColor: '#FDE68A' }]}>
+          <Ionicons name="sparkles" size={11} color="#D97706" />
+          <AppText style={[styles.gradePillText, { color: '#B45309' }]}>Distinction</AppText>
+        </View>
+      );
+    }
+    if (g.includes('merit')) {
+      return (
+        <View style={[styles.gradePill, { backgroundColor: '#F3E8FF', borderColor: '#E9D5FF' }]}>
+          <Ionicons name="star" size={11} color="#7C3AED" />
+          <AppText style={[styles.gradePillText, { color: '#7C3AED' }]}>Merit</AppText>
+        </View>
+      );
+    }
+    return (
+      <View style={[styles.gradePill, { backgroundColor: '#ECFDF5', borderColor: '#A7F3D0' }]}>
+        <Ionicons name="checkmark-circle" size={11} color="#059669" />
+        <AppText style={[styles.gradePillText, { color: '#059669' }]}>Pass</AppText>
       </View>
     );
   };
@@ -200,6 +229,48 @@ export default function CertificatesScreen() {
         >
           {loading ? (
             <ActivityIndicator size="large" color="#6D28D9" style={{ marginTop: 40 }} />
+          ) : certificates.length === 0 ? (
+            <View style={styles.emptyContainer}>
+              <View style={styles.emptyIconCircle}>
+                <Ionicons name="ribbon-outline" size={48} color="#7C3AED" />
+              </View>
+              <AppText style={styles.emptyTitle}>No Certificates Yet</AppText>
+              <AppText style={styles.emptyText}>
+                Complete any standard CBT exam and score 70% or higher to earn your official Certificate of Achievement.
+              </AppText>
+
+              {/* Tier Requirements Card */}
+              <View style={styles.tierInfoCard}>
+                <AppText style={styles.tierInfoTitle}>Certificate Grade Criteria</AppText>
+                <View style={styles.tierRow}>
+                  <View style={[styles.tierDot, { backgroundColor: '#059669' }]} />
+                  <AppText style={styles.tierLabel}>70% - 79%:</AppText>
+                  <AppText style={styles.tierGrade}>Pass</AppText>
+                </View>
+                <View style={styles.tierRow}>
+                  <View style={[styles.tierDot, { backgroundColor: '#7C3AED' }]} />
+                  <AppText style={styles.tierLabel}>80% - 89%:</AppText>
+                  <AppText style={styles.tierGrade}>Merit</AppText>
+                </View>
+                <View style={styles.tierRow}>
+                  <View style={[styles.tierDot, { backgroundColor: '#D97706' }]} />
+                  <AppText style={styles.tierLabel}>90% - 100%:</AppText>
+                  <AppText style={styles.tierGrade}>Distinction</AppText>
+                </View>
+                <AppText style={styles.tierFootnote}>
+                  💡 Take the exam again anytime—scoring higher automatically upgrades your certificate!
+                </AppText>
+              </View>
+
+              <TouchableOpacity
+                style={styles.exploreBtn}
+                onPress={() => router.push('/(tabs)/practice')}
+                activeOpacity={0.85}
+              >
+                <AppText style={styles.exploreBtnText}>Take an Exam</AppText>
+                <Feather name="arrow-right" size={16} color="#FFFFFF" />
+              </TouchableOpacity>
+            </View>
           ) : (
             certificates.map((item) => (
               <View key={item.id} style={styles.certCard}>
@@ -211,7 +282,12 @@ export default function CertificatesScreen() {
                   <AppText style={styles.certTitle} numberOfLines={1}>
                     {item.exam || item.title}
                   </AppText>
-                  <AppText style={styles.certSubtitle}>{item.score_text || 'Completed'}</AppText>
+                  <View style={styles.gradeScoreRow}>
+                    {renderGradeBadge(item.grade)}
+                    {item.percentage !== undefined && (
+                      <AppText style={styles.percentageText}>{item.percentage}%</AppText>
+                    )}
+                  </View>
                   <AppText style={styles.certDate}>{item.date_text || `Earned on ${item.earned_date}`}</AppText>
                 </View>
 
@@ -358,5 +434,123 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
+  },
+  gradeScoreRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 4,
+  },
+  gradePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  gradePillText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  percentageText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#374151',
+  },
+  emptyContainer: {
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingTop: 36,
+  },
+  emptyIconCircle: {
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+    backgroundColor: '#F5F3FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 18,
+  },
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#111827',
+    marginBottom: 8,
+  },
+  emptyText: {
+    fontSize: 14,
+    color: '#6B7280',
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 24,
+    paddingHorizontal: 10,
+  },
+  tierInfoCard: {
+    width: '100%',
+    backgroundColor: '#F9FAFB',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    padding: 16,
+    marginBottom: 24,
+  },
+  tierInfoTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#374151',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 12,
+  },
+  tierRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  tierDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 8,
+  },
+  tierLabel: {
+    fontSize: 13.5,
+    fontWeight: '700',
+    color: '#1F2937',
+    width: 90,
+  },
+  tierGrade: {
+    fontSize: 13.5,
+    fontWeight: '700',
+    color: '#4B5563',
+  },
+  tierFootnote: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 8,
+    lineHeight: 17,
+  },
+  exploreBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#6D28D9',
+    paddingHorizontal: 28,
+    paddingVertical: 14,
+    borderRadius: 14,
+    width: '100%',
+    shadowColor: '#6D28D9',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  exploreBtnText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
   },
 });

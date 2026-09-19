@@ -95,9 +95,9 @@ export default function PracticeHubScreen() {
     {
       id: 'default-ongoing',
       title: 'JAMB Practice Test',
-      totalQuestions: 400,
-      answeredQuestions: 250,
-      lastPracticed: 'Last practiced 2 hrs ago',
+      totalQuestions: 60,
+      answeredQuestions: 0,
+      lastPracticed: 'Start practicing',
       status: 'in_progress',
       examTypeId: 41,
       isSectionBased: false,
@@ -106,9 +106,9 @@ export default function PracticeHubScreen() {
       id: 'default-completed',
       title: 'IELTS Academic Test',
       totalQuestions: 40,
-      answeredQuestions: 40,
-      lastPracticed: 'Last practiced 1 day ago',
-      status: 'completed',
+      answeredQuestions: 0,
+      lastPracticed: 'Start practicing',
+      status: 'in_progress',
       examTypeId: 42,
       isSectionBased: true,
     },
@@ -153,36 +153,67 @@ export default function PracticeHubScreen() {
           title = isIelts ? 'IELTS Academic Test' : 'JAMB Practice Test';
         }
 
-        let total = raw.total_questions || raw.totalQuestions;
-        let answered = raw.answered_questions || raw.answeredQuestions;
+        let total = raw.total_questions !== undefined && raw.total_questions !== null
+          ? Number(raw.total_questions)
+          : (raw.totalQuestions !== undefined && raw.totalQuestions !== null ? Number(raw.totalQuestions) : 0);
 
-        if (!total && Array.isArray(raw.sections)) {
+        let answered = raw.answered_questions !== undefined && raw.answered_questions !== null
+          ? Number(raw.answered_questions)
+          : (raw.answeredQuestions !== undefined && raw.answeredQuestions !== null
+              ? Number(raw.answeredQuestions)
+              : (raw.answered_count !== undefined && raw.answered_count !== null ? Number(raw.answered_count) : null));
+
+        if ((!total || total <= 0) && Array.isArray(raw.sections)) {
           let secTotal = 0;
           let secAns = 0;
           raw.sections.forEach((sec: any) => {
             sec.question_groups?.forEach((grp: any) => {
               secTotal += grp.responses?.length || 0;
               grp.responses?.forEach((r: any) => {
-                if (r.selected_choice || r.written_response) secAns++;
+                if (r.selected_choice || r.written_response || (r.metadata && Object.keys(r.metadata).length > 0) || r.audio_response) {
+                  secAns++;
+                }
               });
             });
           });
           if (secTotal > 0) {
             total = secTotal;
-            answered = secAns;
+            if (answered === null) {
+              answered = secAns;
+            }
           }
         }
 
         if (!total || total <= 0) {
-          total = isIelts ? 40 : 400;
+          total = isIelts ? 40 : 60;
         }
 
-        const status = raw.status || defaultStatus || 'completed';
-        if (status === 'completed' && (!answered || answered === 0)) {
-          answered = total;
-        } else if (!answered) {
-          answered = isIelts ? 30 : 250;
+        const rawStatus = String(raw.status || defaultStatus || '').toLowerCase();
+        let status = (rawStatus.includes('progress') || rawStatus === 'started' || rawStatus === 'active') ? 'in_progress' : 'completed';
+
+        // Check time expiration: if elapsed time >= duration, treat as completed
+        const startTimeStr = raw.start_time || raw.timestamp;
+        if (status === 'in_progress' && startTimeStr) {
+          const startTimeMs = new Date(startTimeStr).getTime();
+          if (!isNaN(startTimeMs) && startTimeMs > 0) {
+            const durationMinutes = Number(raw.time_limit_override || raw.duration_minutes || (isIelts ? 60 : 120));
+            const durationMs = durationMinutes * 60 * 1000;
+            if (Date.now() - startTimeMs >= durationMs) {
+              status = 'completed';
+            }
+          }
         }
+
+        // Clean up active local attempt storage if this attempt is now completed
+        if (status === 'completed' && activeLocal?.id && Number(activeLocal.id) === id) {
+          storage.remove('@classore_active_attempt').catch(() => {});
+        }
+
+        if (answered === null || answered === undefined || isNaN(answered)) {
+          answered = 0;
+        }
+
+        answered = Math.max(0, Math.min(total, answered));
 
         gatheredAttempts.push({
           id: id || `item-${Date.now()}-${Math.random()}`,
@@ -198,33 +229,33 @@ export default function PracticeHubScreen() {
         });
       };
 
-      // In-progress local active attempt
-      if (activeLocal?.id) {
-        addAttemptIfNew({ ...activeLocal, status: 'in_progress' }, 'in_progress');
+      // 1. Authoritative backend history list first
+      if (Array.isArray(backendHistory)) {
+        backendHistory.forEach(item => addAttemptIfNew(item));
       }
 
-      // Local recent records
-      if (Array.isArray(localRecent)) {
-        localRecent.forEach(rec => addAttemptIfNew(rec));
-      }
-
-      // Backend IELTS last attempt
+      // 2. Backend IELTS last attempt
       if (ieltsLastAttempt?.attempt) {
         addAttemptIfNew({ ...ieltsLastAttempt.attempt, exam_type: 42, title: 'IELTS Academic Test' });
       } else if (ieltsLastAttempt?.id) {
         addAttemptIfNew({ ...ieltsLastAttempt, exam_type: 42, title: 'IELTS Academic Test' });
       }
 
-      // Backend JAMB last attempt
+      // 3. Backend JAMB last attempt
       if (jambLastAttempt?.attempt) {
         addAttemptIfNew({ ...jambLastAttempt.attempt, exam_type: 41 });
       } else if (jambLastAttempt?.id) {
         addAttemptIfNew({ ...jambLastAttempt, exam_type: 41 });
       }
 
-      // Backend history list
-      if (Array.isArray(backendHistory)) {
-        backendHistory.forEach(item => addAttemptIfNew(item));
+      // 4. Local recent records
+      if (Array.isArray(localRecent)) {
+        localRecent.forEach(rec => addAttemptIfNew(rec));
+      }
+
+      // 5. In-progress local active attempt (only if not already finalized or seen)
+      if (activeLocal?.id) {
+        addAttemptIfNew(activeLocal, 'in_progress');
       }
 
       if (gatheredAttempts.length > 0) {
@@ -253,6 +284,11 @@ export default function PracticeHubScreen() {
   );
 
   const handleContinue = (item: PracticeItem) => {
+    // If the attempt is completed, redirect directly to review
+    if (item.status !== 'in_progress') {
+      handleReview(item);
+      return;
+    }
     if (item.attemptId) {
       if (item.isSectionBased) {
         router.push({
@@ -368,10 +404,10 @@ export default function PracticeHubScreen() {
 
         {practiceItems.map((item) => {
           const isOngoing = item.status === 'in_progress';
-          const progressPct = Math.min(
-            100,
-            Math.max(0, (item.answeredQuestions / item.totalQuestions) * 100)
-          );
+          const totalQ = item.totalQuestions > 0 ? item.totalQuestions : 1;
+          const progressPct = item.totalQuestions > 0
+            ? Math.min(100, Math.max(0, Math.round((item.answeredQuestions / totalQ) * 100)))
+            : 0;
 
           const isIelts = Boolean(item.isSectionBased || isIeltsAttempt(item));
           const iconSource = isIelts

@@ -19,16 +19,23 @@ import { api } from '@/services/api';
 
 export default function StreakScreen() {
   const router = useRouter();
-  const { user, useStreakProtection } = useAuth();
+  const { user, useStreakProtection, toggleAutoStreakProtection } = useAuth();
   
   const [historyData, setHistoryData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [autoProtect, setAutoProtect] = useState<boolean>(true);
+  const [togglingAutoProtect, setTogglingAutoProtect] = useState(false);
 
   useEffect(() => {
     const fetchStreakHistory = async () => {
       try {
         const response = await api.get('/api/user/streak/history/');
         setHistoryData(response.data);
+        if (response.data?.auto_protect_streak !== undefined) {
+          setAutoProtect(Boolean(response.data.auto_protect_streak));
+        } else if (user?.auto_protect_streak !== undefined) {
+          setAutoProtect(Boolean(user.auto_protect_streak));
+        }
       } catch (error) {
         console.warn('Failed to fetch streak history:', error);
       } finally {
@@ -49,6 +56,26 @@ export default function StreakScreen() {
     user?.days_active ??
     (historyData?.completed_dates?.length ? Math.max(historyData.completed_dates.length, currentStreak) : currentStreak);
   const protectionCards = localProtectionCards ?? historyData?.protection_cards_count ?? user?.protection_cards_count ?? 0;
+
+  const handleToggleAutoProtect = async () => {
+    if (togglingAutoProtect) return;
+    setTogglingAutoProtect(true);
+    const nextState = !autoProtect;
+    setAutoProtect(nextState);
+    try {
+      const res = await toggleAutoStreakProtection(nextState);
+      if (res && res.success) {
+        setAutoProtect(res.auto_protect_streak);
+      } else {
+        setAutoProtect(!nextState);
+        Alert.alert("Notice", res?.message || "Could not update auto-protect setting.");
+      }
+    } catch {
+      setAutoProtect(!nextState);
+    } finally {
+      setTogglingAutoProtect(false);
+    }
+  };
 
   const handleUseProtectionCard = async () => {
     if (usingCard) return;
@@ -351,12 +378,43 @@ export default function StreakScreen() {
 
                 <View style={styles.protectionStatsRow}>
                   <Text style={styles.protectionCardsLabel}>Cards Left:</Text>
-                  <Text style={styles.protectionCardsValue}>{protectionCards}</Text>
+                  <View style={styles.cardsBadgeRow}>
+                    <Text style={styles.protectionCardsValue}>{protectionCards}</Text>
+                    <Text style={styles.protectionCardsMax}> / 2</Text>
+                  </View>
                 </View>
 
                 <Text style={styles.protectionDesc}>
-                  Use a card to freeze your streak if you miss a day.
+                  1 card earned every 7-day streak (max 2). Freezes your streak if you miss a day.
                 </Text>
+
+                <TouchableOpacity 
+                  style={[
+                    styles.autoProtectButton,
+                    autoProtect ? styles.autoProtectButtonActive : styles.autoProtectButtonInactive
+                  ]}
+                  onPress={handleToggleAutoProtect}
+                  disabled={togglingAutoProtect}
+                  activeOpacity={0.8}
+                >
+                  {togglingAutoProtect ? (
+                    <ActivityIndicator size="small" color={autoProtect ? '#4C1D95' : '#6B7280'} />
+                  ) : (
+                    <>
+                      <Feather 
+                        name={autoProtect ? "shield" : "shield-off"} 
+                        size={12} 
+                        color={autoProtect ? "#4C1D95" : "#6B7280"} 
+                      />
+                      <Text style={[
+                        styles.autoProtectBtnText,
+                        autoProtect ? styles.autoProtectBtnTextActive : styles.autoProtectBtnTextInactive
+                      ]}>
+                        Auto-Use: {autoProtect ? 'ON' : 'OFF'}
+                      </Text>
+                    </>
+                  )}
+                </TouchableOpacity>
 
                 <TouchableOpacity 
                   style={[
@@ -373,7 +431,7 @@ export default function StreakScreen() {
                     <Text style={[
                       styles.useCardButtonText,
                       protectionCards <= 0 && styles.useCardButtonTextDisabled
-                    ]}>Use Card</Text>
+                    ]}>Use Card Manually</Text>
                   )}
                 </TouchableOpacity>
               </View>
@@ -805,6 +863,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 4,
   },
+  cardsBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+  },
   protectionCardsLabel: {
     fontSize: 12,
     fontWeight: '700',
@@ -815,11 +877,45 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#7C3AED',
   },
+  protectionCardsMax: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#9CA3AF',
+  },
   protectionDesc: {
     fontSize: 10,
     color: '#6B7280',
     lineHeight: 14,
-    marginBottom: 10,
+    marginBottom: 8,
+  },
+  autoProtectButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    paddingVertical: 5,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginBottom: 8,
+  },
+  autoProtectButtonActive: {
+    backgroundColor: '#F5F3FF',
+    borderColor: '#DDD6FE',
+  },
+  autoProtectButtonInactive: {
+    backgroundColor: '#F3F4F6',
+    borderColor: '#E5E7EB',
+  },
+  autoProtectBtnText: {
+    fontSize: 10.5,
+    fontWeight: '700',
+  },
+  autoProtectBtnTextActive: {
+    color: '#6D28D9',
+  },
+  autoProtectBtnTextInactive: {
+    color: '#6B7280',
   },
   useCardButton: {
     borderWidth: 1.5,

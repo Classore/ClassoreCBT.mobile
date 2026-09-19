@@ -18,7 +18,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useNotifications } from '@/context/NotificationContext';
 import { useRouter } from 'expo-router';
 import { paymentService, MyBundle, getBundleStatus, isBundleActive, BundleStatus } from '@/services/payment';
-
+import { walletService } from '@/services/wallet';
 import { guestService, WalletPreviewData } from '@/services/guest';
 
 export default function WalletScreen() {
@@ -33,6 +33,8 @@ export default function WalletScreen() {
   const [bundleFilter, setBundleFilter] = useState<'active' | 'past'>('active');
   const [loadingBundles, setLoadingBundles] = useState(true);
   const [walletPreview, setWalletPreview] = useState<WalletPreviewData | null>(null);
+  const [recentTransactions, setRecentTransactions] = useState<any[]>([]);
+  const [loadingTransactions, setLoadingTransactions] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const formatBundleDate = (dateStr?: string) => {
@@ -106,12 +108,36 @@ export default function WalletScreen() {
     }
   };
 
+  const fetchRecentTransactions = async () => {
+    if (isGuest) {
+      setLoadingTransactions(false);
+      setRecentTransactions([]);
+      return;
+    }
+    try {
+      setLoadingTransactions(true);
+      const data = await walletService.getTransactions({ type: 'All' });
+      if (Array.isArray(data)) {
+        setRecentTransactions(data.slice(0, 5));
+      } else {
+        setRecentTransactions([]);
+      }
+    } catch (err) {
+      console.warn('Failed to fetch recent transactions in wallet:', err);
+      setRecentTransactions([]);
+    } finally {
+      setLoadingTransactions(false);
+    }
+  };
+
   useEffect(() => {
     if (isGuest) {
       fetchWalletPreview();
       setLoadingBundles(false);
+      setLoadingTransactions(false);
     } else {
       fetchBundles();
+      fetchRecentTransactions();
       refreshUser().catch(err => console.warn('Wallet refreshUser error:', err));
     }
   }, [isGuest]);
@@ -132,7 +158,7 @@ export default function WalletScreen() {
     if (isGuest) {
       await fetchWalletPreview();
     } else {
-      await Promise.allSettled([refreshUser(), fetchBundles()]);
+      await Promise.allSettled([refreshUser(), fetchBundles(), fetchRecentTransactions()]);
     }
     setRefreshing(false);
   }, [isGuest, refreshUser]);
@@ -271,14 +297,17 @@ export default function WalletScreen() {
 
             {/* Withdraw */}
             <TouchableOpacity 
-              style={styles.actionItem} 
-              activeOpacity={0.75} 
-              onPress={() => isGuest ? promptGuestSignUp('request withdrawals') : router.push('/wallet/withdraw')}
+              style={[styles.actionItem, { opacity: 0.85 }]} 
+              activeOpacity={0.8} 
+              onPress={() => Alert.alert('Coming Soon 🚀', 'The withdrawal feature will be available in an upcoming update. Stay tuned!')}
             >
-              <View style={[styles.actionIconWrapper, { backgroundColor: '#FFEDD5' }]}>
-                <Feather name="upload" size={22} color="#EA580C" />
+              <View style={[styles.actionIconWrapper, { backgroundColor: '#F1F5F9' }]}>
+                <View style={styles.comingSoonBadge}>
+                  <Text style={styles.comingSoonBadgeText}>Soon</Text>
+                </View>
+                <Feather name="upload" size={22} color="#94A3B8" />
               </View>
-              <Text style={styles.actionItemText}>Withdraw</Text>
+              <Text style={[styles.actionItemText, { color: '#94A3B8' }]}>Withdraw</Text>
             </TouchableOpacity>
           </View>
 
@@ -420,24 +449,49 @@ export default function WalletScreen() {
           {/* Recent Transactions Section */}
           <View style={styles.transactionsHeader}>
             <Text style={styles.sectionTitle}>Recent Transactions</Text>
-            <TouchableOpacity onPress={() => router.push('/transaction-history')} activeOpacity={0.7}>
+            <TouchableOpacity onPress={() => isGuest ? promptGuestSignUp('view transaction history') : router.push('/transaction-history')} activeOpacity={0.7}>
               <Text style={styles.viewAllText}>View all</Text>
             </TouchableOpacity>
           </View>
 
-          <View style={styles.transactionCard}>
-            <View style={styles.transactionIconBg}>
-              <Feather name="file-text" size={18} color="#7C3AED" />
+          {loadingTransactions ? (
+            <View style={styles.transactionLoaderContainer}>
+              <ActivityIndicator size="small" color="#7C3AED" />
+              <Text style={styles.transactionLoaderText}>Loading transactions...</Text>
             </View>
-            <View style={styles.transactionInfo}>
-              <Text style={styles.transactionTitle}>Practice Test - JAMB UTME</Text>
-              <Text style={styles.transactionDate}>AUG 12, 2026 • 10:30 AM</Text>
+          ) : recentTransactions.length === 0 ? (
+            <View style={styles.emptyTransactionCard}>
+              <Feather name="inbox" size={22} color="#9CA3AF" style={{ marginBottom: 6 }} />
+              <Text style={styles.emptyTransactionText}>
+                {isGuest ? 'Sign up to view your recent wallet transactions.' : 'No recent transactions found.'}
+              </Text>
             </View>
-            <View style={styles.transactionAmountContainer}>
-              <Text style={styles.transactionSpent}>-300</Text>
-              <Text style={styles.transactionBalance}>Balance: 2,450</Text>
-            </View>
-          </View>
+          ) : (
+            recentTransactions.map((tx, idx) => {
+              const isPos = tx.transaction_type === 'CREDIT' || Number(tx.amount) > 0;
+              const d = new Date(tx.created_at || Date.now());
+              const dateStr = `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).toUpperCase()} • ${d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`;
+              const title = tx.description || (isPos ? 'Deposit / Token Credit' : 'Token Purchase / Usage');
+              const amountStr = isPos ? `+${Number(tx.amount).toLocaleString()}` : `-${Math.abs(Number(tx.amount)).toLocaleString()}`;
+              const balanceStr = tx.balance_after !== undefined && tx.balance_after !== null ? `Balance: ${Number(tx.balance_after).toLocaleString()}` : '';
+
+              return (
+                <View key={tx.id || idx} style={[styles.transactionCard, idx > 0 && { marginTop: 10 }]}>
+                  <View style={[styles.transactionIconBg, { backgroundColor: isPos ? '#EDE9FE' : '#FFE4E6' }]}>
+                    <Feather name={isPos ? 'gift' : 'file-text'} size={18} color={isPos ? '#7C3AED' : '#E11D48'} />
+                  </View>
+                  <View style={styles.transactionInfo}>
+                    <Text style={styles.transactionTitle} numberOfLines={1}>{title}</Text>
+                    <Text style={styles.transactionDate}>{dateStr}</Text>
+                  </View>
+                  <View style={styles.transactionAmountContainer}>
+                    <Text style={[styles.transactionSpent, { color: isPos ? '#2563EB' : '#EF4444' }]}>{amountStr}</Text>
+                    {!!balanceStr && <Text style={styles.transactionBalance}>{balanceStr}</Text>}
+                  </View>
+                </View>
+              );
+            })
+          )}
 
           <View style={{ height: 40 }} />
         </ScrollView>
@@ -599,6 +653,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 8,
+    position: 'relative',
   },
   actionItemText: {
     fontSize: 11.5,
@@ -832,5 +887,44 @@ const styles = StyleSheet.create({
   transactionBalance: {
     fontSize: 11,
     color: '#9CA3AF',
+  },
+  comingSoonBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    backgroundColor: '#F59E0B',
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    zIndex: 10,
+  },
+  comingSoonBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontWeight: '800',
+  },
+  transactionLoaderContainer: {
+    paddingVertical: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  transactionLoaderText: {
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  emptyTransactionCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
+  },
+  emptyTransactionText: {
+    fontSize: 12.5,
+    color: '#6B7280',
+    textAlign: 'center',
   },
 });

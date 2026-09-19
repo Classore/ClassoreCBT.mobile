@@ -17,11 +17,24 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'expo-router';
 import { navigateWithFrom } from '@/utils/helpNavigation';
+import { GuestAuthModal } from '@/components/GuestAuthModal';
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const { user, refreshUser } = useAuth();
+  const { user, refreshUser, token } = useAuth();
+  const isGuest = !token;
   const [refreshing, setRefreshing] = useState(false);
+
+  if (isGuest) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <GuestAuthModal
+          visible={true}
+          onClose={() => router.replace('/(tabs)')}
+        />
+      </SafeAreaView>
+    );
+  }
 
   // Pulse animation for skeleton loading while user data is fetching
   const shimmerAnim = useRef(new Animated.Value(0.35)).current;

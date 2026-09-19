@@ -16,7 +16,8 @@ import {
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import axios from 'axios';
-import { examService, UserAttempt, UserResponseItem, isSectionBasedExam } from '@/services/exam';
+import { examService, UserAttempt, UserResponseItem, isSectionBasedExam, resolveNumericExamId } from '@/services/exam';
+import { guestService } from '@/services/guest';
 import { storage } from '@/services/storage';
 import { BASE_URL } from '@/services/api';
 import { useAuth } from '@/context/AuthContext';
@@ -26,6 +27,7 @@ import {
   isSubscriptionError,
   getSubscriptionErrorMessage,
 } from '@/components/SubscriptionRequiredModal';
+import { ExamSupportModal } from '@/components/ExamSupportModal';
 import { navigateWithFrom } from '@/utils/helpNavigation';
 
 export default function ExamSessionScreen() {
@@ -37,6 +39,7 @@ export default function ExamSessionScreen() {
     sections?: string;
     time_limit?: string;
     exam_name?: string;
+    is_guest?: string;
   }>();
 
   const { user, login } = useAuth();
@@ -45,6 +48,7 @@ export default function ExamSessionScreen() {
   const [attempt, setAttempt] = useState<UserAttempt | null>(null);
   const [examName, setExamName] = useState<string>(params.exam_name || '');
   const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
+  const [showSupportModal, setShowSupportModal] = useState(false);
   const [subscriptionMessage, setSubscriptionMessage] = useState<string | undefined>();
 
   // In-place re-authentication for 401 recovery (Zero-Data-Loss)
@@ -84,21 +88,37 @@ export default function ExamSessionScreen() {
         if (params.attempt_id) {
           try {
             const res = await examService.resumeExam(Number(params.attempt_id));
+            if (res.status === 'Completed' || res.timer_info?.is_expired) {
+              await storage.remove('@classore_active_attempt').catch(() => {});
+              examService.clearActiveAttemptId();
+              router.replace({
+                pathname: '/(exam)/test-result',
+                params: { attempt_id: String(params.attempt_id) }
+              });
+              return;
+            }
             currentAttempt = res;
             if (res.timer_info?.remaining_seconds !== undefined) {
               setSecondsRemaining(res.timer_info.remaining_seconds);
             }
-          } catch (e) {
+          } catch (e: any) {
             console.warn('Failed to resume attempt:', e);
+            if (e?.response?.data?.is_completed || e?.response?.data?.status === 'Completed' || e?.response?.status === 400) {
+              await storage.remove('@classore_active_attempt').catch(() => {});
+              examService.clearActiveAttemptId();
+              router.replace({
+                pathname: '/(exam)/test-result',
+                params: { attempt_id: String(params.attempt_id) }
+              });
+              return;
+            }
           }
         }
 
         // Check if this exam is a section/language proficiency exam (IELTS, TOEFL, etc.)
         const allExams = await examService.getExams();
-        let targetExamId = currentAttempt?.exam_type || (params.exam_type_id ? Number(params.exam_type_id) : null);
-        if (!targetExamId && allExams && allExams.length > 0) {
-          targetExamId = allExams[0].id;
-        }
+        const fallbackDefaultExamId = (allExams && allExams.length > 0) ? allExams[0].id : 1;
+        let targetExamId = currentAttempt?.exam_type || resolveNumericExamId(params.exam_type_id || (params as any).exam, fallbackDefaultExamId);
         const targetExamObj = allExams.find(e => e.id === targetExamId);
         const isSectionExam = isSectionBasedExam(targetExamObj?.name, currentAttempt?.sections);
 
@@ -242,6 +262,86 @@ export default function ExamSessionScreen() {
     });
     return list;
   }, [currentSection]);
+
+  // Overall & Per-Subject Exam Statistics
+  const examStats = useMemo(() => {
+    let total = 0;
+    let answered = 0;
+    let bookmarked = 0;
+
+    const subjectsBreakdown: {
+      name: string;
+      total: number;
+      answered: number;
+      unanswered: number;
+      index: number;
+    }[] = [];
+
+    if (attempt?.sections && attempt.sections.length > 0) {
+      attempt.sections.forEach((sec, idx) => {
+        let secTotal = 0;
+        let secAnswered = 0;
+
+        sec.question_groups?.forEach(grp => {
+          grp.responses?.forEach(resp => {
+            secTotal += 1;
+            total += 1;
+            const qId = resp.question?.id;
+            if (qId) {
+              if (userAnswers[qId] !== undefined && userAnswers[qId] !== null) {
+                secAnswered += 1;
+                answered += 1;
+              }
+              if (bookmarkedQuestions.includes(qId)) {
+                bookmarked += 1;
+              }
+            }
+          });
+        });
+
+        subjectsBreakdown.push({
+          name: sec.section_name || `Subject ${idx + 1}`,
+          total: secTotal,
+          answered: secAnswered,
+          unanswered: Math.max(0, secTotal - secAnswered),
+          index: idx,
+        });
+      });
+    } else {
+      total = sectionQuestions.length > 0 ? sectionQuestions.length : 40;
+      answered = Object.keys(userAnswers).length;
+      bookmarked = bookmarkedQuestions.length;
+    }
+
+    const unanswered = Math.max(0, total - answered);
+
+    return {
+      total,
+      answered,
+      unanswered,
+      bookmarked,
+      subjectsBreakdown,
+      hasMultipleSubjects: subjectsBreakdown.length > 1,
+    };
+  }, [attempt?.sections, userAnswers, bookmarkedQuestions, sectionQuestions.length]);
+
+  // Keep @classore_active_attempt and recent attempts synchronized with real-time dynamic answered count
+  useEffect(() => {
+    if (!attempt?.id) return;
+    const resolvedTitle = examName || attempt.exam_name || (attempt as any).exam_title || 'Standard Exam';
+    const activeData = {
+      id: attempt.id,
+      exam_type: attempt.exam_type || 41,
+      title: resolvedTitle,
+      is_section_based: false,
+      total_questions: examStats.total,
+      answered_questions: examStats.answered,
+      status: 'in_progress',
+      timestamp: Date.now(),
+    };
+    storage.set('@classore_active_attempt', activeData).catch(() => {});
+    examService.saveRecentAttempt(activeData).catch(() => {});
+  }, [attempt?.id, attempt?.exam_type, attempt?.exam_name, examName, examStats.total, examStats.answered]);
 
   const currentItem = sectionQuestions[activeQuestionIndex];
   const currentQuestion = currentItem?.response?.question;
@@ -387,8 +487,28 @@ export default function ExamSessionScreen() {
         });
 
         const submitRes = await examService.submitExam(attempt.id, { responses: responsesPayload });
+        await storage.set('@classore_last_attempt_id', attempt.id);
         await storage.remove(pendingKey);
         await storage.remove('@classore_active_attempt');
+        examService.saveRecentAttempt({
+          id: attempt.id,
+          exam_type: attempt.exam_type || 41,
+          title: (attempt as any)?.exam_name || params.exam_name || examName || 'Practice Test',
+          total_questions: examStats.total,
+          answered_questions: examStats.answered,
+          status: 'completed',
+          is_section_based: false,
+          timestamp: Date.now(),
+        }).catch(() => {});
+        const isGuest = params.is_guest === 'true' || !user;
+        if (isGuest) {
+          try {
+            await guestService.incrementGuestAttemptsCount();
+          } catch (e) {
+            console.warn('Could not increment guest attempts count:', e);
+          }
+        }
+
         setShowSubmitModal(false);
         setShowReauthModal(false);
         router.replace({
@@ -398,6 +518,7 @@ export default function ExamSessionScreen() {
             exam_name: (attempt as any)?.exam_name || params.exam_name || examName || 'Practice Test',
             is_ielts: 'false',
             total_score: submitRes?.total_score !== undefined ? String(submitRes.total_score) : '',
+            is_guest: isGuest ? 'true' : undefined,
           }
         });
       }
@@ -630,7 +751,7 @@ export default function ExamSessionScreen() {
           
           <TouchableOpacity
             style={styles.bottomBarItem}
-            onPress={() => navigateWithFrom('/(tabs)/contact-support', '/(exam)/session', undefined, params)}
+            onPress={() => setShowSupportModal(true)}
           >
             <Feather name="headphones" size={24} color="#6B7280" />
             <AppText style={styles.bottomBarText}>Support</AppText>
@@ -798,22 +919,73 @@ export default function ExamSessionScreen() {
             {/* Quick Stats Summary */}
             <View style={styles.submitStatsBox}>
               <View style={styles.submitStatItem}>
-                <AppText style={styles.submitStatValue}>{Object.keys(userAnswers).length}</AppText>
+                <AppText style={styles.submitStatValue}>{examStats.answered}</AppText>
                 <AppText style={styles.submitStatLabel}>Answered</AppText>
               </View>
               <View style={styles.submitStatDivider} />
               <View style={styles.submitStatItem}>
-                <AppText style={styles.submitStatValue}>
-                  {Math.max(0, (sectionQuestions.length || 40) - Object.keys(userAnswers).length)}
+                <AppText style={[styles.submitStatValue, examStats.unanswered > 0 && { color: '#D97706' }]}>
+                  {examStats.unanswered}
                 </AppText>
                 <AppText style={styles.submitStatLabel}>Unanswered</AppText>
               </View>
               <View style={styles.submitStatDivider} />
               <View style={styles.submitStatItem}>
-                <AppText style={styles.submitStatValue}>{bookmarkedQuestions.length}</AppText>
-                <AppText style={styles.submitStatLabel}>Bookmarked</AppText>
+                <AppText style={styles.submitStatValue}>{examStats.total}</AppText>
+                <AppText style={styles.submitStatLabel}>Total Qs</AppText>
               </View>
+              {examStats.bookmarked > 0 && (
+                <>
+                  <View style={styles.submitStatDivider} />
+                  <View style={styles.submitStatItem}>
+                    <AppText style={styles.submitStatValue}>{examStats.bookmarked}</AppText>
+                    <AppText style={styles.submitStatLabel}>Marked</AppText>
+                  </View>
+                </>
+              )}
             </View>
+
+            {/* Subject-by-Subject Breakdown (for multi-subject exams like JAMB) */}
+            {examStats.hasMultipleSubjects && (
+              <View style={styles.submitSubjectsBox}>
+                <AppText style={styles.submitSubjectsTitle}>Subject Progress (Tap to switch)</AppText>
+                <ScrollView style={styles.submitSubjectsScroll} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+                  {examStats.subjectsBreakdown.map((subj) => (
+                    <TouchableOpacity
+                      key={subj.name}
+                      style={styles.submitSubjectRow}
+                      activeOpacity={0.7}
+                      onPress={() => {
+                        setActiveSubjectIndex(subj.index);
+                        setActiveQuestionIndex(0);
+                        setShowSubmitModal(false);
+                      }}
+                    >
+                      <View style={styles.submitSubjectInfo}>
+                        <AppText style={styles.submitSubjectName} numberOfLines={1}>
+                          {subj.name}
+                        </AppText>
+                        <AppText style={styles.submitSubjectCount}>
+                          {subj.answered} of {subj.total} answered
+                        </AppText>
+                      </View>
+                      <View style={[
+                        styles.submitSubjectBadge,
+                        subj.unanswered === 0 ? styles.submitSubjectBadgeComplete : styles.submitSubjectBadgePending
+                      ]}>
+                        <AppText style={[
+                          styles.submitSubjectBadgeText,
+                          subj.unanswered === 0 ? styles.submitSubjectBadgeTextComplete : styles.submitSubjectBadgeTextPending
+                        ]}>
+                          {subj.unanswered === 0 ? 'Done' : `${subj.unanswered} left`}
+                        </AppText>
+                      </View>
+                      <Feather name="chevron-right" size={14} color="#9CA3AF" style={{ marginLeft: 4 }} />
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
 
             <AppText style={styles.submitModalDesc}>
               Once submitted, your responses will be evaluated and graded immediately.
@@ -926,6 +1098,14 @@ export default function ExamSessionScreen() {
           setShowSubscriptionModal(false);
           router.replace('/(tabs)/bundles' as any);
         }}
+      />
+
+      <ExamSupportModal
+        visible={showSupportModal}
+        onClose={() => setShowSupportModal(false)}
+        examTitle={examName || 'Exam Session'}
+        currentQuestionNumber={activeQuestionIndex + 1}
+        attemptId={attempt?.id}
       />
     </SafeAreaView>
   );
@@ -1430,6 +1610,70 @@ const styles = StyleSheet.create({
     width: 1,
     height: 24,
     backgroundColor: '#E5E7EB',
+  },
+  submitSubjectsBox: {
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    maxHeight: 155,
+  },
+  submitSubjectsTitle: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#6B7280',
+    marginBottom: 6,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  submitSubjectsScroll: {
+    maxHeight: 120,
+  },
+  submitSubjectRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  submitSubjectInfo: {
+    flex: 1,
+    marginRight: 8,
+  },
+  submitSubjectName: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#1F2937',
+  },
+  submitSubjectCount: {
+    fontSize: 11,
+    color: '#6B7280',
+    marginTop: 1,
+  },
+  submitSubjectBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  submitSubjectBadgeComplete: {
+    backgroundColor: '#DEF7EC',
+  },
+  submitSubjectBadgePending: {
+    backgroundColor: '#FEF3C7',
+  },
+  submitSubjectBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  submitSubjectBadgeTextComplete: {
+    color: '#03543F',
+  },
+  submitSubjectBadgeTextPending: {
+    color: '#92400E',
   },
   submitModalDesc: {
     fontSize: 12,

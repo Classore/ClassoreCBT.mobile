@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { examService } from '@/services/exam';
+import { examService, resolveNumericExamId } from '@/services/exam';
 import {
   SubscriptionRequiredModal,
   isSubscriptionError,
@@ -61,7 +61,7 @@ export default function IELTSListeningInstructionsScreen() {
     // Otherwise, start a brand new attempt
     setIsStarting(true);
     try {
-      const examId = params.exam ? Number(params.exam) : (params.exam_type_id ? Number(params.exam_type_id) : 42);
+      const examId = resolveNumericExamId(params.exam || params.exam_type_id, 42);
       const order = params.section_order
         ? params.section_order.split(',').map(Number)
         : params.sections

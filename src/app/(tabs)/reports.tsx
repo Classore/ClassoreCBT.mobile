@@ -11,8 +11,11 @@ import {
 } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter } from 'expo-router';
 import Svg, { Path, Circle, Polyline } from 'react-native-svg';
 import { examService } from '@/services/exam';
+import { useAuth } from '@/context/AuthContext';
+import { GuestAuthModal } from '@/components/GuestAuthModal';
 
 // Component for Circular Progress Ring using SVG
 function CircularProgress({ 
@@ -129,12 +132,46 @@ function ReportsSkeleton({ shimmerAnim }: { shimmerAnim: Animated.Value }) {
 }
 
 export default function ReportsScreen() {
+  const { token } = useAuth();
+  const router = useRouter();
+  const isGuest = !token;
+
   const [activeTab, setActiveTab] = useState<'Overview' | 'JAMB' | 'IELTS' | 'Mock Tests' | 'Subjects'>('Overview');
   const [timeframe, setTimeframe] = useState('This Week');
   
   // Per-tab & timeframe isolated cache map to prevent showing previous tab data
   const [reportsCache, setReportsCache] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(false);
+
+  if (isGuest) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <GuestAuthModal
+          visible={true}
+          onClose={() => router.replace('/(tabs)')}
+        />
+      </SafeAreaView>
+    );
+  }
+
+  const handleTestPress = (test: any) => {
+    const attemptId = test.id || test.attempt_id;
+    const isIelts =
+      test.is_ielts !== undefined
+        ? test.is_ielts
+        : Boolean(test.title && test.title.toLowerCase().includes('ielts'));
+    const examName =
+      test.exam_name || (test.title ? test.title.split(' - ')[0].trim() : 'Practice Test');
+
+    router.push({
+      pathname: '/(exam)/test-result',
+      params: {
+        attempt_id: attemptId ? String(attemptId) : undefined,
+        exam_name: examName,
+        is_ielts: isIelts ? 'true' : 'false',
+      },
+    });
+  };
 
   const shimmerAnim = useRef(new Animated.Value(0.35)).current;
 
@@ -473,7 +510,12 @@ export default function ReportsScreen() {
 
               <View style={styles.mockList}>
                 {recent_mocks.map((test: any, index: number) => (
-                  <View key={index} style={[styles.mockRow, index > 0 && { borderTopWidth: 1, borderTopColor: '#F9FAFB' }]}>
+                  <TouchableOpacity
+                    key={test.id || index}
+                    style={[styles.mockRow, index > 0 && { borderTopWidth: 1, borderTopColor: '#F9FAFB' }]}
+                    activeOpacity={0.7}
+                    onPress={() => handleTestPress(test)}
+                  >
                     <View style={styles.mockIconBg}>
                       <Feather name="file-text" size={15} color="#6D28D9" />
                     </View>
@@ -485,7 +527,8 @@ export default function ReportsScreen() {
                       <Text style={[styles.mockScoreValue, { color: test.scoreColor }]}>{test.score}</Text>
                       <Text style={styles.mockScoreLabel}>{test.scoreLabel}</Text>
                     </View>
-                  </View>
+                    <Feather name="chevron-right" size={16} color="#9CA3AF" style={{ marginLeft: 6 }} />
+                  </TouchableOpacity>
                 ))}
               </View>
             </View>

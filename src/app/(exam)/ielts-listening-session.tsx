@@ -19,7 +19,7 @@ import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { examService, UserAttempt, AttemptSection, QuestionGroupItem, UserResponseItem } from '@/services/exam';
 import { storage } from '@/services/storage';
-import { Audio } from 'expo-av';
+import { createAudioPlayer, AudioPlayer, setAudioModeAsync } from 'expo-audio';
 import {
   SubscriptionRequiredModal,
   isSubscriptionError,
@@ -72,7 +72,7 @@ export default function IELTSListeningSessionScreen() {
   const [showSubmitModal, setShowSubmitModal] = useState(false);
 
   // Audio Playback State (Authentic play-once continuous playback)
-  const [sound, setSound] = useState<Audio.Sound | null>(null);
+  const [sound, setSound] = useState<AudioPlayer | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [audioPosition, setAudioPosition] = useState(0);
   const [audioDuration, setAudioDuration] = useState(1);
@@ -94,9 +94,9 @@ export default function IELTSListeningSessionScreen() {
   useEffect(() => {
     (async () => {
       try {
-        await Audio.setAudioModeAsync({
-          playsInSilentModeIOS: true,
-          allowsRecordingIOS: false,
+        await setAudioModeAsync({
+          playsInSilentMode: true,
+          allowsRecording: false,
         });
       } catch (e) {
         console.warn('Audio mode setup error:', e);
@@ -105,10 +105,12 @@ export default function IELTSListeningSessionScreen() {
 
     return () => {
       if (sound) {
-        sound.unloadAsync().catch(() => {});
+        try {
+          sound.remove();
+        } catch {}
       }
     };
-  }, []);
+  }, [sound]);
 
   // Initialize Exam Attempt & Data
   useEffect(() => {
@@ -269,7 +271,7 @@ export default function IELTSListeningSessionScreen() {
     return () => clearInterval(timer);
   }, [loading]);
 
-  // Continuous Real Audio Playback (expo-av & mediaCache)
+  // Continuous Real Audio Playback (expo-audio & mediaCache)
   // Audio plays once continuously per part; scrubber, rewind, and pause are strictly disabled
   // on both Standard Exam and Practice modes per official IELTS CBT standards.
   const playSectionAudio = async (groupIndex: number) => {
@@ -282,7 +284,7 @@ export default function IELTSListeningSessionScreen() {
 
     if (sound) {
       try {
-        await sound.unloadAsync();
+        sound.remove();
       } catch {}
       setSound(null);
       setIsPlaying(false);
@@ -299,9 +301,9 @@ export default function IELTSListeningSessionScreen() {
 
     try {
       setAudioLoading(true);
-      await Audio.setAudioModeAsync({
-        playsInSilentModeIOS: true,
-        allowsRecordingIOS: false,
+      await setAudioModeAsync({
+        playsInSilentMode: true,
+        allowsRecording: false,
       });
 
       const cachedUri = await mediaCache.getCachedAudioUri(rawAudioUrl);
@@ -310,20 +312,16 @@ export default function IELTSListeningSessionScreen() {
         return;
       }
 
-      const { sound: newSound } = await Audio.Sound.createAsync(
-        { uri: cachedUri },
-        { shouldPlay: true },
-        (status) => {
-          if (status.isLoaded) {
-            setAudioPosition(status.positionMillis || 0);
-            setAudioDuration(status.durationMillis || 1);
-            if (status.didJustFinish) {
-              setIsPlaying(false);
-              setPlayedSections(prev => ({ ...prev, [groupIndex]: true }));
-            }
-          }
+      const newSound = createAudioPlayer({ uri: cachedUri });
+      newSound.addListener('playbackStatusUpdate', (status) => {
+        setAudioPosition(status.currentTime || 0);
+        setAudioDuration(status.duration || 1);
+        if (status.didJustFinish) {
+          setIsPlaying(false);
+          setPlayedSections(prev => ({ ...prev, [groupIndex]: true }));
         }
-      );
+      });
+      newSound.play();
 
       setSound(newSound);
       setIsPlaying(true);
@@ -342,7 +340,9 @@ export default function IELTSListeningSessionScreen() {
     if (!loading && listeningSection && !playedSections[activeGroupIndex]) {
       playSectionAudio(activeGroupIndex);
     } else if (playedSections[activeGroupIndex] && sound) {
-      sound.unloadAsync().catch(() => {});
+      try {
+        sound.remove();
+      } catch {}
       setSound(null);
       setIsPlaying(false);
     }
@@ -398,8 +398,8 @@ export default function IELTSListeningSessionScreen() {
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const formatAudioTime = (millis: number) => {
-    const totalSecs = Math.floor(millis / 1000);
+  const formatAudioTime = (seconds: number) => {
+    const totalSecs = Math.floor(seconds);
     const mins = Math.floor(totalSecs / 60);
     const secs = totalSecs % 60;
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
@@ -657,7 +657,9 @@ export default function IELTSListeningSessionScreen() {
 
       // 1. Stop audio playback immediately
       if (sound) {
-        sound.unloadAsync().catch(() => {});
+        try {
+          sound.remove();
+        } catch {}
         setSound(null);
         setIsPlaying(false);
       }
@@ -781,6 +783,7 @@ export default function IELTSListeningSessionScreen() {
       if (attemptId && !isNaN(attemptId)) {
         submitRes = await examService.submitExam(attemptId, { responses: responsesPayload });
         await storage.remove('@classore_active_attempt');
+        await storage.set('@classore_last_attempt_id', attemptId);
         examService.saveRecentAttempt({
           id: attemptId,
           exam_type: 42,

@@ -1,48 +1,50 @@
-import { Audio } from 'expo-av';
+import { AudioPlayer } from 'expo-audio';
 
 type SoundStopCallback = () => void;
 
 class SoundManager {
-  private currentSound: Audio.Sound | null = null;
+  private currentPlayer: AudioPlayer | null = null;
   private currentStopCallback: SoundStopCallback | null = null;
 
-  async registerAndPlay(sound: Audio.Sound, onStop?: SoundStopCallback) {
-    if (this.currentSound && this.currentSound !== sound) {
+  async registerAndPlay(player: AudioPlayer, onStop?: SoundStopCallback) {
+    if (this.currentPlayer && this.currentPlayer !== player) {
       await this.stopCurrent();
     }
-    this.currentSound = sound;
+    this.currentPlayer = player;
     this.currentStopCallback = onStop || null;
   }
 
   async stopCurrent() {
-    if (this.currentSound) {
-      const soundToStop = this.currentSound;
+    if (this.currentPlayer) {
+      const playerToStop = this.currentPlayer;
       const callback = this.currentStopCallback;
       
-      this.currentSound = null;
+      this.currentPlayer = null;
       this.currentStopCallback = null;
 
       try {
         if (callback) {
           callback();
         }
-        await soundToStop.stopAsync().catch(() => {});
-        await soundToStop.unloadAsync().catch(() => {});
+        playerToStop.pause();
+        if (typeof (playerToStop as any).release === 'function') {
+          (playerToStop as any).release();
+        }
       } catch (err) {
-        // ignore unload errors
+        // ignore errors
       }
     }
   }
 
-  async onSoundFinished(sound: Audio.Sound) {
-    if (this.currentSound === sound) {
-      this.currentSound = null;
+  async onSoundFinished(player: AudioPlayer) {
+    if (this.currentPlayer === player) {
+      this.currentPlayer = null;
       this.currentStopCallback = null;
     }
   }
 
-  getCurrentSound(): Audio.Sound | null {
-    return this.currentSound;
+  getCurrentSound(): AudioPlayer | null {
+    return this.currentPlayer;
   }
 }
 

@@ -21,6 +21,7 @@ interface VerificationResult {
   serial_no: string;
   recipient_name: string;
   exam_name: string;
+  grade?: string;
   score: number | string;
   total_score: number | string;
   percentage: number | string;
@@ -38,6 +39,7 @@ export default function VerifyCertificateScreen() {
     from?: string;
     recipientName?: string;
     examName?: string;
+    grade?: string;
     score?: string;
     totalScore?: string;
     percentage?: string;
@@ -57,11 +59,14 @@ export default function VerifyCertificateScreen() {
     } catch (err: any) {
       // If local params provided and matching, build reliable client fallback
       if (params.ref && refQuery.trim().toUpperCase() === params.ref.toUpperCase()) {
+        const pct = Number(params.percentage || 96.5);
+        const calculatedGrade = params.grade || (pct >= 90 ? 'Distinction' : pct >= 80 ? 'Merit' : 'Pass');
         setResult({
           valid: true,
           serial_no: params.ref,
           recipient_name: params.recipientName || 'Daniel Adekunle',
           exam_name: params.examName || 'JAMB UTME Practice Exam',
+          grade: calculatedGrade,
           score: params.score || '382',
           total_score: params.totalScore || '400',
           percentage: params.percentage || '96.5',
@@ -210,6 +215,21 @@ export default function VerifyCertificateScreen() {
                     <AppText style={styles.infoLabel}>Performance Result</AppText>
                     <AppText style={styles.infoValue}>
                       {result.score} / {result.total_score} ({result.percentage}%)
+                    </AppText>
+                  </View>
+                </View>
+
+                <View style={styles.infoDivider} />
+
+                {/* Grade Classification */}
+                <View style={styles.infoRow}>
+                  <View style={styles.infoIconBox}>
+                    <Ionicons name="ribbon-outline" size={18} color="#7C3AED" />
+                  </View>
+                  <View style={styles.infoTextCol}>
+                    <AppText style={styles.infoLabel}>Grade Classification</AppText>
+                    <AppText style={styles.infoValue}>
+                      {result.grade || (Number(result.percentage) >= 90 ? 'Distinction' : Number(result.percentage) >= 80 ? 'Merit' : 'Pass')}
                     </AppText>
                   </View>
                 </View>

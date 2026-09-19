@@ -2,6 +2,7 @@ import axios, { AxiosRequestConfig } from 'axios';
 import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
+import { getOrCreateDeviceId, getCurrentDevicePayload } from '@/utils/deviceInfo';
 
 // Use 10.0.2.2 for Android Emulator, localhost for iOS/Web
 const DEFAULT_URL = Platform.OS === 'android' ? 'http://10.0.2.2:8000' : 'http://127.0.0.1:8000/';
@@ -179,6 +180,8 @@ api.interceptors.request.use(async (config) => {
       '/api/auth/forgot-password/',
       '/api/auth/reset-password/',
       '/api/admin/exams/',
+      '/api/admin/sections/',
+      '/api/admin/exam-tier-configs/',
       '/api/user/sections/',
       '/api/user/search/query/',
       '/api/user/contests/',
@@ -186,6 +189,14 @@ api.interceptors.request.use(async (config) => {
       '/api/user/demo-tests/'
     ];
     const isPublic = config.url && publicEndpoints.some(endpoint => config.url?.includes(endpoint));
+
+    // Attach persistent client Device ID (native platforms only to avoid non-simple CORS preflight issues on web)
+    if (Platform.OS !== 'web') {
+      const deviceId = await getOrCreateDeviceId();
+      if (deviceId && !config.headers['X-Device-Id']) {
+        config.headers['X-Device-Id'] = deviceId;
+      }
+    }
 
     // If Authorization header isn't explicitly set and we're not hitting a public endpoint
     if (!config.headers.Authorization) {
@@ -195,7 +206,7 @@ api.interceptors.request.use(async (config) => {
       }
     }
   } catch (error) {
-    console.error('Error fetching token for request in api.interceptors.request:', error);
+    console.error('Error fetching token or device for request in api.interceptors.request:', error);
   }
   return config;
 });
@@ -335,3 +346,16 @@ api.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
+/**
+ * Registers or heartbeats the current mobile device with the backend sessions tracker.
+ */
+export const registerCurrentDeviceSession = async () => {
+  try {
+    const payload = await getCurrentDevicePayload();
+    await api.post('/api/user/sessions/register/', payload);
+  } catch (err) {
+    // Non-blocking background registration failure should not crash app
+    console.warn('[api] registerCurrentDeviceSession warning:', err);
+  }
+};

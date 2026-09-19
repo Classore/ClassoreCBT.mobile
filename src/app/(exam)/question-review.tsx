@@ -10,11 +10,11 @@ import {
 } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
-import { Audio } from 'expo-av';
 import { AppText } from '@/components/AppText';
 import { useAuth } from '@/context/AuthContext';
 import { examService, ChoiceItem } from '@/services/exam';
 import { resolveMediaUrl } from '@/services/mediaCache';
+import { createAudioPlayer, AudioPlayer as ExpoAudioPlayer, setAudioModeAsync } from 'expo-audio';
 import { soundManager } from '@/services/soundManager';
 import { BLANK_REGEX, hasBlanks, normalizeBlankToken } from '@/utils/questionFormatter';
 import { parseSpeakingFeedback, AiFeedbackItem } from './test-result';
@@ -43,22 +43,24 @@ interface AudioPlayerProps {
 }
 
 function AudioPlayer({ audioUrl, label, accentColor = '#7C3AED', startTime, endTime }: AudioPlayerProps) {
-  const [sound, setSound] = useState<Audio.Sound | null>(null);
+  const [sound, setSound] = useState<ExpoAudioPlayer | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [position, setPosition] = useState(0);
   const [duration, setDuration] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
 
   const hasRange = typeof startTime === 'number' && typeof endTime === 'number' && endTime > startTime;
-  const startMillis = hasRange ? (startTime as number) * 1000 : 0;
-  const endMillis = hasRange ? (endTime as number) * 1000 : 0;
-  const segmentDurationMillis = hasRange ? (endMillis - startMillis) : duration;
+  const startSec = hasRange ? (startTime as number) : 0;
+  const endSec = hasRange ? (endTime as number) : 0;
+  const segmentDurationSec = hasRange ? (endSec - startSec) : duration;
 
   useEffect(() => {
     return () => {
       if (sound) {
         soundManager.onSoundFinished(sound);
-        sound.unloadAsync().catch(() => {});
+        try {
+          sound.remove();
+        } catch {}
       }
     };
   }, [sound]);
@@ -66,7 +68,9 @@ function AudioPlayer({ audioUrl, label, accentColor = '#7C3AED', startTime, endT
   useEffect(() => {
     if (sound) {
       soundManager.onSoundFinished(sound);
-      sound.unloadAsync().catch(() => {});
+      try {
+        sound.remove();
+      } catch {}
       setSound(null);
       setIsPlaying(false);
       setPosition(0);
@@ -79,11 +83,11 @@ function AudioPlayer({ audioUrl, label, accentColor = '#7C3AED', startTime, endT
     try {
       if (sound) {
         if (isPlaying) {
-          await sound.pauseAsync();
+          sound.pause();
           setIsPlaying(false);
         } else {
-          if (hasRange && position >= segmentDurationMillis) {
-            await sound.setPositionAsync(startMillis);
+          if (hasRange && position >= segmentDurationSec) {
+            await sound.seekTo(startSec);
             setPosition(0);
           }
           await soundManager.registerAndPlay(sound, () => {
@@ -91,7 +95,7 @@ function AudioPlayer({ audioUrl, label, accentColor = '#7C3AED', startTime, endT
             setSound(null);
             setPosition(0);
           });
-          await sound.playAsync();
+          sound.play();
           setIsPlaying(true);
         }
       } else {
@@ -102,37 +106,36 @@ function AudioPlayer({ audioUrl, label, accentColor = '#7C3AED', startTime, endT
           return;
         }
 
-        await Audio.setAudioModeAsync({ playsInSilentModeIOS: true, allowsRecordingIOS: false });
-        const { sound: newSound } = await Audio.Sound.createAsync(
-          { uri: resolved },
-          { shouldPlay: false, positionMillis: startMillis },
-          (status) => {
-            if (status.isLoaded) {
-              const currentPos = status.positionMillis || 0;
-              const totalDur = status.durationMillis || 0;
-              setDuration(totalDur);
+        await setAudioModeAsync({ playsInSilentMode: true, allowsRecording: false });
+        const newSound = createAudioPlayer({ uri: resolved });
+        if (hasRange && startSec > 0) {
+          await newSound.seekTo(startSec);
+        }
 
-              if (hasRange) {
-                const relativePos = Math.max(0, currentPos - startMillis);
-                setPosition(Math.min(segmentDurationMillis, relativePos));
-                if (currentPos >= endMillis || status.didJustFinish) {
-                  newSound.pauseAsync().catch(() => {});
-                  newSound.setPositionAsync(startMillis).catch(() => {});
-                  setIsPlaying(false);
-                  setPosition(0);
-                  soundManager.onSoundFinished(newSound);
-                }
-              } else {
-                setPosition(currentPos);
-                if (status.didJustFinish) {
-                  setIsPlaying(false);
-                  setPosition(0);
-                  soundManager.onSoundFinished(newSound);
-                }
-              }
+        newSound.addListener('playbackStatusUpdate', (status) => {
+          const currentPos = status.currentTime || 0;
+          const totalDur = status.duration || 0;
+          setDuration(totalDur);
+
+          if (hasRange) {
+            const relativePos = Math.max(0, currentPos - startSec);
+            setPosition(Math.min(segmentDurationSec, relativePos));
+            if (currentPos >= endSec || status.didJustFinish) {
+              newSound.pause();
+              newSound.seekTo(startSec).catch(() => {});
+              setIsPlaying(false);
+              setPosition(0);
+              soundManager.onSoundFinished(newSound);
+            }
+          } else {
+            setPosition(currentPos);
+            if (status.didJustFinish) {
+              setIsPlaying(false);
+              setPosition(0);
+              soundManager.onSoundFinished(newSound);
             }
           }
-        );
+        });
 
         await soundManager.registerAndPlay(newSound, () => {
           setIsPlaying(false);
@@ -140,7 +143,7 @@ function AudioPlayer({ audioUrl, label, accentColor = '#7C3AED', startTime, endT
           setPosition(0);
         });
 
-        await newSound.playAsync();
+        newSound.play();
         setSound(newSound);
         setIsPlaying(true);
         setIsLoading(false);
@@ -152,14 +155,13 @@ function AudioPlayer({ audioUrl, label, accentColor = '#7C3AED', startTime, endT
     }
   };
 
-  const formatTime = (millis: number) => {
-    const totalSecs = Math.floor(millis / 1000);
+  const formatTime = (totalSecs: number) => {
     const mins = Math.floor(totalSecs / 60);
-    const secs = totalSecs % 60;
+    const secs = Math.floor(totalSecs % 60);
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const effectiveDuration = hasRange ? segmentDurationMillis : duration;
+  const effectiveDuration = hasRange ? segmentDurationSec : duration;
   const progressPct = effectiveDuration > 0 ? Math.min(100, Math.round((position / effectiveDuration) * 100)) : 0;
 
   return (
@@ -899,9 +901,12 @@ export default function QuestionReviewScreen() {
               candidateAudioUrl
             );
 
-            const displayScore = scoreAwarded !== null 
-              ? scoreAwarded.toFixed(1) 
-              : (aiFeedback.score_awarded !== undefined ? Number(aiFeedback.score_awarded).toFixed(1) : null);
+            const rawScore = scoreAwarded !== null 
+              ? scoreAwarded 
+              : (aiFeedback.score_awarded !== undefined ? Number(aiFeedback.score_awarded) : null);
+            const displayScore = rawScore !== null
+              ? Math.min(9.0, Math.max(0.0, rawScore)).toFixed(1)
+              : null;
 
             if (isSpeakingCard) {
               return (
@@ -926,7 +931,7 @@ export default function QuestionReviewScreen() {
                         {aiFeedback.fluency_coherence_score !== undefined && (
                           <View style={styles.rubricScorePill}>
                             <AppText style={styles.rubricScorePillText}>
-                              {Number(aiFeedback.fluency_coherence_score).toFixed(1)} / 9.0
+                              {Math.min(9.0, Math.max(0.0, Number(aiFeedback.fluency_coherence_score))).toFixed(1)} / 9.0
                             </AppText>
                           </View>
                         )}
@@ -945,7 +950,7 @@ export default function QuestionReviewScreen() {
                         {aiFeedback.vocabulary_score !== undefined && (
                           <View style={styles.rubricScorePill}>
                             <AppText style={styles.rubricScorePillText}>
-                              {Number(aiFeedback.vocabulary_score).toFixed(1)} / 9.0
+                              {Math.min(9.0, Math.max(0.0, Number(aiFeedback.vocabulary_score))).toFixed(1)} / 9.0
                             </AppText>
                           </View>
                         )}
@@ -964,7 +969,7 @@ export default function QuestionReviewScreen() {
                         {aiFeedback.grammar_score !== undefined && (
                           <View style={styles.rubricScorePill}>
                             <AppText style={styles.rubricScorePillText}>
-                              {Number(aiFeedback.grammar_score).toFixed(1)} / 9.0
+                              {Math.min(9.0, Math.max(0.0, Number(aiFeedback.grammar_score))).toFixed(1)} / 9.0
                             </AppText>
                           </View>
                         )}
@@ -1014,7 +1019,7 @@ export default function QuestionReviewScreen() {
                       {aiFeedback.task_achievement_score !== undefined && (
                         <View style={styles.rubricScorePillWriting}>
                           <AppText style={styles.rubricScorePillTextWriting}>
-                            {Number(aiFeedback.task_achievement_score).toFixed(1)} / 9.0
+                            {Math.min(9.0, Math.max(0.0, Number(aiFeedback.task_achievement_score))).toFixed(1)} / 9.0
                           </AppText>
                         </View>
                       )}
@@ -1033,7 +1038,7 @@ export default function QuestionReviewScreen() {
                       {aiFeedback.coherence_cohesion_score !== undefined && (
                         <View style={styles.rubricScorePillWriting}>
                           <AppText style={styles.rubricScorePillTextWriting}>
-                            {Number(aiFeedback.coherence_cohesion_score).toFixed(1)} / 9.0
+                            {Math.min(9.0, Math.max(0.0, Number(aiFeedback.coherence_cohesion_score))).toFixed(1)} / 9.0
                           </AppText>
                         </View>
                       )}

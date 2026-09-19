@@ -1,19 +1,19 @@
 import { useAuth } from '@/context/AuthContext';
-import React, { useState, useEffect } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  SafeAreaView, 
-  ScrollView, 
-  TouchableOpacity, 
-  Platform,
-  Modal,
-  ActivityIndicator
-} from 'react-native';
-import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useRouter, useLocalSearchParams } from 'expo-router';
 import { examService } from '@/services/exam';
+import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Modal,
+  Platform,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
+} from 'react-native';
 
 interface TopicItem {
   name: string;
@@ -41,6 +41,7 @@ export default function TopicPerformanceScreen() {
   const [examTitle, setExamTitle] = useState<string>(
     params.exam_name || (detectedIsIelts ? 'IELTS Academic Test' : 'Topic Performance')
   );
+  const [examTypeId, setExamTypeId] = useState<number | null>(null);
   const [loading, setLoading] = useState<boolean>(Boolean(params.attempt_id));
   const [selectedSubject, setSelectedSubject] = useState<string>(params.subject || '');
   const [isDropdownOpen, setIsDropdownOpen] = useState<boolean>(false);
@@ -61,6 +62,9 @@ export default function TopicPerformanceScreen() {
         setError(null);
         const data = await examService.getTopicAnalysis(Number(params.attempt_id));
         if (data) {
+          if (data.exam_type_id) {
+            setExamTypeId(data.exam_type_id);
+          }
           const isIeltsAttempt = 
             detectedIsIelts ||
             Boolean(data.exam_name && (data.exam_name.toLowerCase().includes('ielts') || data.exam_name.toLowerCase().includes('toefl'))) ||
@@ -78,6 +82,10 @@ export default function TopicPerformanceScreen() {
               const attempt = await examService.getAttemptReview(Number(params.attempt_id));
               if (attempt?.exam_name) {
                 setExamTitle(attempt.exam_name);
+              }
+              const extractedExamId = (attempt as any)?.exam_type_id ?? (typeof attempt?.exam_type === 'number' ? attempt.exam_type : (attempt?.exam_type as any)?.id);
+              if (typeof extractedExamId === 'number') {
+                setExamTypeId(extractedExamId);
               }
             } catch {}
           }
@@ -160,13 +168,13 @@ export default function TopicPerformanceScreen() {
             <MaterialCommunityIcons name="chart-bubble" size={48} color="#94A3B8" />
             <Text style={styles.errorTitle}>No Topic Data</Text>
             <Text style={styles.errorSubtitle}>{error || 'No topic breakdown available for this attempt.'}</Text>
-            <TouchableOpacity 
+            {/* <TouchableOpacity 
               style={styles.retryButton} 
               onPress={() => router.replace('/(tabs)')}
               activeOpacity={0.85}
             >
               <Text style={styles.retryButtonText}>Go to Home</Text>
-            </TouchableOpacity>
+            </TouchableOpacity> */}
           </View>
         ) : (
           <ScrollView 
@@ -222,7 +230,7 @@ export default function TopicPerformanceScreen() {
                   <Ionicons name="radio-button-on" size={22} color="#7C3AED" />
                 </View>
                 <View style={styles.focusInfo}>
-                  <Text style={styles.focusLabel}>AI Study Recommendation</Text>
+                  <Text style={styles.focusLabel}> Study Recommendation</Text>
                   <Text style={styles.focusTopic}>{selectedSubject}</Text>
                   <Text style={styles.focusSub}>
                     {aiFocusRecommendation}
@@ -234,20 +242,55 @@ export default function TopicPerformanceScreen() {
             {/* Practice Weak Topics Button */}
             <TouchableOpacity 
               style={[styles.doneButton, { backgroundColor: '#7C3AED', marginBottom: 12 }]}
-              onPress={async () => {
-                if (!params.attempt_id) {
-                  router.push('/(tabs)/practice');
-                  return;
+              onPress={() => {
+                let targetExamId = examTypeId;
+                if (!targetExamId) {
+                  const cachedExams = examService.getCachedExamsSync() || [];
+                  const matched = cachedExams.find(e => 
+                    e.name.toLowerCase() === examTitle.toLowerCase() || 
+                    examTitle.toLowerCase().includes(e.name.toLowerCase()) ||
+                    e.name.toLowerCase().includes(examTitle.toLowerCase())
+                  );
+                  if (matched) {
+                    targetExamId = matched.id;
+                  }
                 }
-                try {
-                  const remedial = await examService.createRemedialPractice(Number(params.attempt_id));
-                  router.push({
-                    pathname: '/(exam)/session',
-                    params: { attempt_id: remedial.attempt.id, mode: 'Practice' }
+
+                const weakTopicsBySubject: Record<string, string[]> = {};
+                const subjectNamesList: string[] = [];
+
+                sectionsData.forEach((sec: any) => {
+                  const secName = sec.section_name || 'General';
+                  const secTopics = sec.topics || [];
+                  const weak = secTopics.filter((t: any) => {
+                    const pct = t.accuracy_percentage ?? (t.total_questions ? (t.correct_answers / t.total_questions) * 100 : 0);
+                    return pct < 75 || t.proficiency_level === 'Needs Work' || t.proficiency_level === 'Developing';
                   });
-                } catch (e: any) {
-                  router.push('/(tabs)/practice');
+                  const candidates = weak.length > 0
+                    ? weak
+                    : [...secTopics].sort((a: any, b: any) => (a.accuracy_percentage ?? 0) - (b.accuracy_percentage ?? 0)).slice(0, 2);
+
+                  if (candidates.length > 0) {
+                    weakTopicsBySubject[secName] = candidates.map((c: any) => c.topic_name).filter(Boolean);
+                    if (!subjectNamesList.includes(secName)) {
+                      subjectNamesList.push(secName);
+                    }
+                  }
+                });
+
+                if (subjectNamesList.length === 0 && selectedSubject) {
+                  subjectNamesList.push(selectedSubject);
                 }
+
+                router.push({
+                  pathname: '/(tabs)/practice/practice-setup',
+                  params: {
+                    exam: String(targetExamId || (detectedIsIelts ? 42 : 1)),
+                    exam_name: examTitle,
+                    subjects: JSON.stringify(subjectNamesList),
+                    weak_topics: JSON.stringify(weakTopicsBySubject),
+                  }
+                });
               }}
               activeOpacity={0.85}
             >

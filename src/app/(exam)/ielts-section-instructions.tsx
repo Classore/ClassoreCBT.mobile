@@ -13,7 +13,7 @@ import {
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { examService } from '@/services/exam';
+import { examService, resolveNumericExamId } from '@/services/exam';
 import { 
   SubscriptionRequiredModal, 
   isSubscriptionError, 
@@ -148,7 +148,7 @@ export default function IELTSSectionInstructionsScreen() {
     // Otherwise, start a brand new attempt
     setIsStarting(true);
     try {
-      const examId = params.exam ? Number(params.exam) : (params.exam_type_id ? Number(params.exam_type_id) : 42);
+      const examId = resolveNumericExamId(params.exam || params.exam_type_id, 42);
       const order = params.section_order ? params.section_order.split(',').map(Number) : (params.sections ? (typeof params.sections === 'string' ? JSON.parse(params.sections) : params.sections) : undefined);
       const mode = (params.mode as any) || 'Standard';
       const timeLimitOverride = params.time_limit ? Number(params.time_limit) : undefined;

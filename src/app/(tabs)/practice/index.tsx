@@ -11,6 +11,7 @@ const { width } = Dimensions.get('window');
 const cardWidth = width * 0.36;
 
 import { examService, ExamType, isSectionBasedExam } from '@/services/exam';
+import MockTestsScreen from '@/app/mock-tests';
 
 export default function ExamSetupScreen() {
   const { user, token } = useAuth();
@@ -122,6 +123,10 @@ export default function ExamSetupScreen() {
     return null;
   };
 
+  if (isGuest) {
+    return <MockTestsScreen />;
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       {/* Header Bar */}
@@ -130,10 +135,12 @@ export default function ExamSetupScreen() {
           <Feather name="chevron-left" size={24} color="#000" />
         </TouchableOpacity>
         <View style={styles.headerRight}>
-          <View style={styles.fireBadge}>
-            <AppText style={styles.fireEmoji}>🔥</AppText>
-            <AppText style={styles.fireText}>{user?.streak || 0}</AppText>
-          </View>
+          {!isGuest && (
+            <View style={styles.fireBadge}>
+              <AppText style={styles.fireEmoji}>🔥</AppText>
+              <AppText style={styles.fireText}>{user?.streak || 0}</AppText>
+            </View>
+          )}
           <TouchableOpacity 
             style={styles.notifButton} 
             onPress={() => router.push('/notifications')}

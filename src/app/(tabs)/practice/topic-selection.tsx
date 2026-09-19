@@ -12,7 +12,7 @@ import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { AppText } from '@/components/AppText';
 import { useAuth } from '@/context/AuthContext';
-import { examService, isSectionBasedExam } from '@/services/exam';
+import { examService, isSectionBasedExam, resolveNumericExamId } from '@/services/exam';
 import { 
   SubscriptionRequiredModal, 
   isSubscriptionError, 
@@ -60,7 +60,7 @@ export default function TopicSelectionScreen() {
     topic?: string;
   }>();
 
-  const examId = parseInt(params.exam_type_id || params.exam || '1', 10);
+  const examId = resolveNumericExamId(params.exam_type_id || params.exam, 1);
   const subjectId = parseInt(params.subject_id || params.section_id || '0', 10);
   const subjectName = params.subject_name || 'Mathematics';
   const difficulty = params.difficulty || 'Medium';

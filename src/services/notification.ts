@@ -8,6 +8,11 @@ export interface NotificationItem {
   message: string;
   is_unread: boolean;
   created_at: string;
+  attempt_id?: string | number;
+  data?: Record<string, any>;
+  reference_id?: string | number;
+  target_id?: string | number;
+  action_url?: string;
 }
 
 const READ_NOTIFICATIONS_KEY = '@classore_read_notification_ids';

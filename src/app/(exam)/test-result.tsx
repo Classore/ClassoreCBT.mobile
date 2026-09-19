@@ -14,7 +14,10 @@ import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import Svg, { Circle } from 'react-native-svg';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { examService, isSectionBasedExam } from '@/services/exam';
+import { guestService } from '@/services/guest';
+import { GuestAuthModal } from '@/components/GuestAuthModal';
 import { soundManager } from '@/services/soundManager';
+import { storage } from '@/services/storage';
 
 export function getIeltsDescriptor(score: number): string {
   if (score >= 9.0) return 'Expert User';
@@ -131,15 +134,23 @@ export function getSectionScore(item: IeltsSectionDef, scores: Record<string, nu
 }
 
 export function roundIeltsBand(score: number): number {
+  if (score === null || score === undefined || isNaN(score) || score <= 0) {
+    return 0.0;
+  }
+  if (score >= 9.0) {
+    return 9.0;
+  }
   const floor = Math.floor(score);
   const decimal = score - floor;
+  let rounded = floor;
   if (decimal < 0.25) {
-    return floor;
+    rounded = floor;
   } else if (decimal < 0.75) {
-    return floor + 0.5;
+    rounded = floor + 0.5;
   } else {
-    return floor + 1.0;
+    rounded = floor + 1.0;
   }
+  return Math.min(9.0, Math.max(0.0, rounded));
 }
 
 export default function TestResultScreen() {
@@ -157,6 +168,7 @@ export default function TestResultScreen() {
     section_names?: string;
     section_order?: string;
     sections?: string;
+    is_guest?: string;
   }>();
 
   // Initial detection
@@ -194,6 +206,7 @@ export default function TestResultScreen() {
   );
   const [examTitle, setExamTitle] = useState<string>(params.exam_name || (detectedIsIelts ? 'IELTS Academic Test' : 'JAMB Practice Test'));
   const [error, setError] = useState<string | null>(null);
+  const [guestLimitModalVisible, setGuestLimitModalVisible] = useState(false);
 
   // IELTS Specific State
   const [scorePerSection, setScorePerSection] = useState<Record<string, number>>({});
@@ -302,8 +315,12 @@ export default function TestResultScreen() {
 
       effectiveSecs.forEach(sec => {
         const val = getSectionScore(sec, secScores);
-        if (val !== null && !isNaN(val) && val > 0) {
-          activeScores.push(val);
+        // In IELTS, 0.0 is a valid band score and must be included in the overall band calculation
+        if (val !== null && !isNaN(val)) {
+          activeScores.push(Math.min(9.0, Math.max(0.0, val)));
+        } else if (matchedSecs.length > 0) {
+          // If this section was part of the attempted exam, count unattempted/unscored section as 0.0
+          activeScores.push(0.0);
         }
       });
 
@@ -312,9 +329,12 @@ export default function TestResultScreen() {
         const sum = activeScores.reduce((acc, curr) => acc + curr, 0);
         rawScore = roundIeltsBand(sum / activeScores.length);
       } else {
-        rawScore = data.total_score !== undefined
+        const backendScore = data.total_score !== undefined
           ? parseFloat(String(data.total_score))
           : (data.overall_band !== undefined ? parseFloat(String(data.overall_band)) : initialScore);
+        rawScore = backendScore !== null && !isNaN(backendScore)
+          ? Math.min(9.0, Math.max(0.0, roundIeltsBand(backendScore)))
+          : null;
       }
 
       if (rawScore !== null && !isNaN(rawScore)) {
@@ -384,7 +404,13 @@ export default function TestResultScreen() {
             if (parsed || resp.audio_response || resp.written_response) {
               extractedFeedbacks.push({
                 question_id: resp.question?.id || resp.id,
-                score_awarded: resp.score_awarded ?? parsed?.score_awarded ?? parsed?.score,
+                score_awarded: (() => {
+                  const raw = resp.score_awarded ?? parsed?.score_awarded ?? parsed?.score;
+                  if (raw !== undefined && raw !== null && !isNaN(Number(raw))) {
+                    return Math.min(9.0, Math.max(0.0, Number(raw)));
+                  }
+                  return undefined;
+                })(),
                 audio_response: resp.audio_response || resp.bulk_audio_file || attemptData?.bulk_audio_file,
                 audio_start_time: resp.audio_start_time,
                 audio_end_time: resp.audio_end_time,
@@ -415,7 +441,30 @@ export default function TestResultScreen() {
   }, []);
 
   const fetchResults = useCallback(async (isPolling = false) => {
-    if (!params.attempt_id) {
+    let resolvedAttemptId = params.attempt_id ? Number(params.attempt_id) : null;
+
+    if (!resolvedAttemptId || isNaN(resolvedAttemptId)) {
+      // 1. Try local storage for last completed attempt
+      const storedLastAttempt = await storage.get<number | string>('@classore_last_attempt_id');
+      if (storedLastAttempt && !isNaN(Number(storedLastAttempt))) {
+        resolvedAttemptId = Number(storedLastAttempt);
+      }
+    }
+
+    if (!resolvedAttemptId || isNaN(resolvedAttemptId)) {
+      // 2. Try fetching the latest completed exam from exam history API
+      try {
+        const history = await examService.getExamHistory();
+        const list = Array.isArray(history) ? history : (history?.results || []);
+        if (list.length > 0 && list[0]?.id) {
+          resolvedAttemptId = Number(list[0].id);
+        }
+      } catch (histErr) {
+        console.warn('Could not fetch exam history fallback:', histErr);
+      }
+    }
+
+    if (!resolvedAttemptId || isNaN(resolvedAttemptId)) {
       if (initialScore === null) {
         setError('No exam session ID provided.');
       }
@@ -424,7 +473,7 @@ export default function TestResultScreen() {
       return;
     }
 
-    const attemptId = Number(params.attempt_id);
+    const attemptId = resolvedAttemptId;
     if (!isPolling) {
       if (initialScore === null) {
         setLoading(true);
@@ -723,6 +772,43 @@ export default function TestResultScreen() {
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.scrollContent}
           >
+            {/* Guest Mode AI Assessment Locked Banner */}
+            {(!user || params.is_guest === 'true') && (
+              <View style={{
+                backgroundColor: '#FEF3C7',
+                borderRadius: 16,
+                borderWidth: 1,
+                borderColor: '#FDE68A',
+                padding: 16,
+                marginBottom: 16,
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 12,
+              }}>
+                <Ionicons name="lock-closed" size={24} color="#D97706" />
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 14, fontWeight: '700', color: '#92400E', marginBottom: 2 }}>
+                    Guest Mode Results
+                  </Text>
+                  <Text style={{ fontSize: 12.5, color: '#B45309', lineHeight: 17 }}>
+                    Showing scores for standard questions. Create an account to unlock full AI assessment breakdown & feedback.
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  onPress={() => router.push('/auth/login' as any)}
+                  style={{
+                    backgroundColor: '#D97706',
+                    paddingVertical: 7,
+                    paddingHorizontal: 12,
+                    borderRadius: 10,
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '700' }}>Sign Up</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
             {/* AI Evaluation in progress banner */}
             {isAiEvaluating && (
               <View style={styles.evaluatingBanner}>
@@ -800,6 +886,55 @@ export default function TestResultScreen() {
               </View>
             )}
 
+            {/* Certificate Earned / Upgraded Banner */}
+            {percentage >= 70 && (
+              <TouchableOpacity
+                style={styles.certBanner}
+                activeOpacity={0.85}
+                onPress={() => router.push('/(tabs)/certificates')}
+              >
+                <View style={styles.certBannerLeft}>
+                  <View style={[
+                    styles.certBannerIcon,
+                    percentage >= 90 ? { backgroundColor: '#FEF3C7' } :
+                    percentage >= 80 ? { backgroundColor: '#F3E8FF' } : { backgroundColor: '#ECFDF5' }
+                  ]}>
+                    <Ionicons
+                      name="ribbon"
+                      size={22}
+                      color={percentage >= 90 ? "#D97706" : percentage >= 80 ? "#7C3AED" : "#059669"}
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text style={styles.certBannerTitle}>
+                        Certificate Earned!
+                      </Text>
+                      <View style={[
+                        styles.certBannerPill,
+                        percentage >= 90 ? { backgroundColor: '#FEF3C7', borderColor: '#FDE68A' } :
+                        percentage >= 80 ? { backgroundColor: '#F3E8FF', borderColor: '#E9D5FF' } : { backgroundColor: '#ECFDF5', borderColor: '#A7F3D0' }
+                      ]}>
+                        <Text style={[
+                          styles.certBannerPillText,
+                          { color: percentage >= 90 ? '#B45309' : percentage >= 80 ? '#7C3AED' : '#059669' }
+                        ]}>
+                          {percentage >= 90 ? 'Distinction' : percentage >= 80 ? 'Merit' : 'Pass'}
+                        </Text>
+                      </View>
+                    </View>
+                    <Text style={styles.certBannerSub}>
+                      You scored {percentage}% and qualified for an official Certificate of Achievement.
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.certBannerRight}>
+                  <Text style={styles.certBannerBtnText}>View</Text>
+                  <Feather name="chevron-right" size={16} color="#6D28D9" />
+                </View>
+              </TouchableOpacity>
+            )}
+
             {/* Detailed Analytics In-Flight Banner */}
             {isIelts && analyticsLoading && !isAiEvaluating && (
               <View style={styles.analyticsLoadingBanner}>
@@ -837,7 +972,7 @@ export default function TestResultScreen() {
                     const isCardLoading = analyticsLoading && (foundVal === undefined || foundVal === null);
 
                     const valDisplay = foundVal !== undefined && foundVal !== null 
-                      ? `${parseFloat(String(foundVal)).toFixed(1)}` 
+                      ? `${Math.min(9.0, Math.max(0.0, parseFloat(String(foundVal)))).toFixed(1)}` 
                       : (isPending ? '...' : '--');
 
                     return (
@@ -968,7 +1103,10 @@ export default function TestResultScreen() {
             {!isIelts && (
               <TouchableOpacity 
                 style={styles.rankCard}
-                onPress={() => router.push('/(exam)/leaderboard')}
+                onPress={() => router.push({
+                  pathname: '/(exam)/leaderboard',
+                  params: { from: '/(exam)/test-result' }
+                } as any)}
                 activeOpacity={0.8}
               >
                 <View style={styles.rankIconBg}>
@@ -1039,7 +1177,17 @@ export default function TestResultScreen() {
             {/* Return to Home / Practice */}
             <TouchableOpacity 
               style={[styles.actionButton, { backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: '#E2E8F0', marginTop: 12 }]}
-              onPress={() => router.replace('/(tabs)/practice')}
+              onPress={async () => {
+                const isGuest = params.is_guest === 'true' || !user;
+                if (isGuest) {
+                  const exceeded = await guestService.hasExceededGuestAttempts();
+                  if (exceeded) {
+                    setGuestLimitModalVisible(true);
+                    return;
+                  }
+                }
+                router.replace('/(tabs)/practice');
+              }}
               activeOpacity={0.85}
             >
               <Text style={[styles.actionButtonText, { color: '#4B5563' }]}>Done</Text>
@@ -1049,6 +1197,18 @@ export default function TestResultScreen() {
           </ScrollView>
         )}
       </View>
+
+      {/* Guest Limit Exhausted Modal */}
+      <GuestAuthModal
+        visible={guestLimitModalVisible}
+        onClose={() => {
+          setGuestLimitModalVisible(false);
+          router.replace('/(tabs)');
+        }}
+        title="🎉 You’ve completed your 3 free guest tests."
+        subtitle="Create your free Classore account to continue taking tests, save your results, build your streak and track your progress."
+        showContinueAsGuest={false}
+      />
     </SafeAreaView>
   );
 }
@@ -1646,5 +1806,71 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '700',
+  },
+  certBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: '#E9D5FF',
+    padding: 14,
+    marginTop: 14,
+    marginBottom: 6,
+    shadowColor: '#7C3AED',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  certBannerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+    marginRight: 8,
+  },
+  certBannerIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  certBannerTitle: {
+    fontSize: 14.5,
+    fontWeight: '800',
+    color: '#111827',
+  },
+  certBannerPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  certBannerPillText: {
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  certBannerSub: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 2,
+    lineHeight: 16,
+  },
+  certBannerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    backgroundColor: '#F5F3FF',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+  },
+  certBannerBtnText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: '#6D28D9',
   },
 });

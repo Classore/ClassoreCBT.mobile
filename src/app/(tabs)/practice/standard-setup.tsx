@@ -6,7 +6,7 @@ import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { examService, ExamSection, ExamTierConfig, isSectionBasedExam } from '@/services/exam';
+import { examService, ExamSection, ExamTierConfig, isSectionBasedExam, resolveNumericExamId } from '@/services/exam';
 import {
   SubscriptionRequiredModal,
   isSubscriptionError,
@@ -19,8 +19,7 @@ export default function StandardSetupScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ exam?: string; exam_name?: string }>();
 
-  const examIdStr = Array.isArray(params.exam) ? params.exam[0] : params.exam;
-  const examId = examIdStr ? parseInt(examIdStr, 10) : 1;
+  const examId = resolveNumericExamId(params.exam, 1);
 
   // Instant synchronous memory cache
   const initialSections = examService.getCachedSectionsSync(examId);
@@ -35,6 +34,14 @@ export default function StandardSetupScreen() {
     if (cached) {
       const found = cached.find(e => e.id === examId);
       if (found?.name) return found.name;
+    }
+    const rawExamParam = Array.isArray(params.exam) ? params.exam[0] : params.exam;
+    if (typeof rawExamParam === 'string' && isNaN(Number(rawExamParam))) {
+      const code = rawExamParam.toLowerCase();
+      if (code.includes('jamb') || code.includes('utme')) return 'JAMB UTME';
+      if (code.includes('waec') || code.includes('ssce') || code.includes('wassce')) return 'WAEC Practice';
+      if (code.includes('neco')) return 'NECO Practice';
+      if (code.includes('ielts')) return 'IELTS Academic';
     }
     return 'JAMB UTME';
   };
@@ -59,8 +66,7 @@ export default function StandardSetupScreen() {
 
   useEffect(() => {
     let isMounted = true;
-    const currentExamIdStr = Array.isArray(params.exam) ? params.exam[0] : params.exam;
-    const currentExamId = currentExamIdStr ? parseInt(currentExamIdStr, 10) : 1;
+    const currentExamId = resolveNumericExamId(params.exam, 1);
 
     const loadData = async () => {
       const memSections = examService.getCachedSectionsSync(currentExamId);
@@ -262,8 +268,7 @@ export default function StandardSetupScreen() {
           disabled={isStarting}
           onPress={async () => {
             if (isStarting) return;
-            const examIdStr = Array.isArray(params.exam) ? params.exam[0] : params.exam;
-            const examId = examIdStr ? parseInt(examIdStr, 10) : 41;
+            const examId = resolveNumericExamId(params.exam, 1);
 
             setIsStarting(true);
             try {

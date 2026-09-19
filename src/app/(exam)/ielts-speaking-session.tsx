@@ -20,7 +20,15 @@ import { examService, UserAttempt, AttemptSection, QuestionGroupItem, UserRespon
 import { storage } from '@/services/storage';
 import { mediaCache, resolveMediaUrl } from '@/services/mediaCache';
 import { soundManager } from '@/services/soundManager';
-import { Audio } from 'expo-av';
+import {
+  useAudioRecorder,
+  RecordingPresets,
+  createAudioPlayer,
+  AudioPlayer,
+  requestRecordingPermissionsAsync,
+  getRecordingPermissionsAsync,
+  setAudioModeAsync,
+} from 'expo-audio';
 import {
   SubscriptionRequiredModal,
   isSubscriptionError,
@@ -36,68 +44,64 @@ const FALLBACK_SPEAKING_STRUCTURE: AttemptSection = {
   question_groups: [
     {
       group_id: 1,
-      group_title: 'Part 1',
-      group_type: 'Introduction & Interview',
-      context_text: 'The examiner will ask you general questions about yourself, your home, your work or studies and other familiar topics.',
+      group_title: 'Part 1: Introduction & Interview',
+      group_type: 'Speaking Part 1',
+      context_text: 'In this part, the examiner will ask you general questions about yourself and a range of familiar topics.',
       responses: [
         {
           id: 101,
           question: {
             id: 101,
             question_type: 'AUDIO',
-            text: 'Let us talk about your hometown. Where is your hometown located?',
-            instructions: 'Answer clearly and naturally.',
-            prep_time_seconds: 5,
-            recording_time_seconds: 45
-          }
+            text: 'Let’s talk about your hometown. Where is your hometown located, and what do you like most about living there?',
+            instructions: 'Speak for 30 to 45 seconds.',
+            metadata: { max_duration_seconds: 45, get_ready_seconds: 5 },
+          },
         },
         {
           id: 102,
           question: {
             id: 102,
             question_type: 'AUDIO',
-            text: 'What do you like most about your hometown?',
-            instructions: 'Provide specific examples.',
-            prep_time_seconds: 5,
-            recording_time_seconds: 45
-          }
+            text: 'How has your hometown changed since you were a child?',
+            instructions: 'Speak for 30 to 45 seconds.',
+            metadata: { max_duration_seconds: 45, get_ready_seconds: 5 },
+          },
         },
         {
           id: 103,
           question: {
             id: 103,
             question_type: 'AUDIO',
-            text: 'Has your hometown changed much since you were a child?',
-            instructions: 'Describe the developments.',
-            prep_time_seconds: 5,
-            recording_time_seconds: 45
-          }
-        }
-      ]
+            text: 'Do you think you will continue to live in your hometown in the future? Why or why not?',
+            instructions: 'Speak for 30 to 45 seconds.',
+            metadata: { max_duration_seconds: 45, get_ready_seconds: 5 },
+          },
+        },
+      ],
     },
     {
       group_id: 2,
-      group_title: 'Part 2',
-      group_type: 'Long Turn',
-      context_text: 'Long Turn - Talk about a book you have read.',
+      group_title: 'Part 2: Individual Long Turn',
+      group_type: 'Speaking Part 2 (Cue Card)',
+      context_text: 'Describe an important journey or trip that you made recently that was memorable.',
       responses: [
         {
           id: 201,
           question: {
             id: 201,
             question_type: 'AUDIO',
-            text: 'Long Turn - Talk about a book you have read.',
-            instructions: 'You should say:\n• What the book is\n• When you read it\n• What it is about\n• And explain why you liked it.',
-            prep_time_seconds: 60,
-            recording_time_seconds: 120
-          }
-        }
-      ]
+            text: 'Describe an important journey or trip that you made recently that was memorable.\n\nYou should say:\n- Where you went\n- How you travelled\n- Who you went with\nand explain why this journey was so memorable to you.',
+            instructions: 'You have 1 minute to prepare your notes, then speak for 1 to 2 minutes.',
+            metadata: { max_duration_seconds: 120, get_ready_seconds: 60 },
+          },
+        },
+      ],
     },
     {
       group_id: 3,
-      group_title: 'Part 3',
-      group_type: 'Discussion',
+      group_title: 'Part 3: Two-way Discussion',
+      group_type: 'Speaking Part 3',
       context_text: 'The examiner will ask further questions connected to the topic in Part 2.',
       responses: [
         {
@@ -105,26 +109,24 @@ const FALLBACK_SPEAKING_STRUCTURE: AttemptSection = {
           question: {
             id: 301,
             question_type: 'AUDIO',
-            text: 'Do people in your country read as many books today as in the past?',
-            instructions: 'Discuss reading trends and digital media.',
-            prep_time_seconds: 5,
-            recording_time_seconds: 60
-          }
+            text: 'How do you think transportation systems in cities will evolve over the next twenty years?',
+            instructions: 'Speak for 45 to 60 seconds.',
+            metadata: { max_duration_seconds: 60, get_ready_seconds: 5 },
+          },
         },
         {
           id: 302,
           question: {
             id: 302,
             question_type: 'AUDIO',
-            text: 'What are the main advantages of reading physical books versus digital e-books?',
-            instructions: 'Compare convenience, focus, and comprehension.',
-            prep_time_seconds: 5,
-            recording_time_seconds: 60
-          }
-        }
-      ]
-    }
-  ]
+            text: 'What are the environmental advantages of expanding public rail networks instead of building more highways?',
+            instructions: 'Speak for 45 to 60 seconds.',
+            metadata: { max_duration_seconds: 60, get_ready_seconds: 5 },
+          },
+        },
+      ],
+    },
+  ],
 };
 
 export default function IELTSSpeakingSessionScreen() {
@@ -139,7 +141,7 @@ export default function IELTSSpeakingSessionScreen() {
     section_names?: string;
     mode?: string;
   }>();
-  
+
   const [attempt, setAttempt] = useState<UserAttempt | null>(null);
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -212,14 +214,16 @@ export default function IELTSSpeakingSessionScreen() {
   const [showSubmitModal, setShowSubmitModal] = useState(false);
 
   // Audio Recording & Playback
-  const [recording, setRecording] = useState<Audio.Recording | null>(null);
-  const collatedRecordingRef = useRef<Audio.Recording | null>(null);
+  // Audio Recording & Playback
+  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const [isRecording, setIsRecording] = useState<boolean>(false);
+  const collatedRecordingActiveRef = useRef<boolean>(false);
   const collatedAudioUriRef = useRef<string | null>(null);
   const isRecorderPausedRef = useRef<boolean>(false);
   const questionTimestampsRef = useRef<{ questionId: number; start: number; end: number }[]>([]);
   const currentQStartTimeRef = useRef<number>(0);
   const [audioPermission, setAudioPermission] = useState<boolean>(false);
-  const [sound, setSound] = useState<Audio.Sound | null>(null);
+  const [sound, setSound] = useState<AudioPlayer | null>(null);
   const [isPlayingQuestionAudio, setIsPlayingQuestionAudio] = useState(false);
   const [questionAudioLoading, setQuestionAudioLoading] = useState(false);
   const [questionAudioPosition, setQuestionAudioPosition] = useState(0);
@@ -245,22 +249,22 @@ export default function IELTSSpeakingSessionScreen() {
   useEffect(() => {
     (async () => {
       try {
-        const perm = await Audio.requestPermissionsAsync();
-        setAudioPermission(perm.status === 'granted');
+        const perm = await getRecordingPermissionsAsync();
+        setAudioPermission(perm.granted);
       } catch (e) {
         console.warn('Audio permission error:', e);
       }
     })();
 
     return () => {
-      if (collatedRecordingRef.current) {
-        collatedRecordingRef.current.stopAndUnloadAsync().catch(() => {});
-      }
       if (sound) {
-        sound.unloadAsync().catch(() => {});
+        soundManager.stopCurrent();
+        try {
+          sound.remove();
+        } catch {}
       }
     };
-  }, []);
+  }, [sound]);
 
   // Initialize Exam Attempt & Data
   useEffect(() => {
@@ -444,8 +448,7 @@ export default function IELTSSpeakingSessionScreen() {
 
       if (sound) {
         try {
-          await sound.setOnPlaybackStatusUpdate(null);
-          await sound.unloadAsync();
+          sound.remove();
         } catch {}
         setSound(null);
       }
@@ -460,35 +463,31 @@ export default function IELTSSpeakingSessionScreen() {
       if (rawAudioUrl) {
         try {
           setQuestionAudioLoading(true);
-          await Audio.setAudioModeAsync({ playsInSilentModeIOS: true, allowsRecordingIOS: false });
+          await setAudioModeAsync({ playsInSilentMode: true, allowsRecording: false });
           const cachedUri = await mediaCache.getCachedAudioUri(rawAudioUrl);
           
           if (isCancelled) return;
 
           if (cachedUri) {
-            const { sound: newSound } = await Audio.Sound.createAsync(
-              { uri: cachedUri },
-              { shouldPlay: true },
-              (status) => {
-                if (status.isLoaded) {
-                  setQuestionAudioPosition(status.positionMillis || 0);
-                  setQuestionAudioDuration(status.durationMillis || 0);
-                  if (status.durationMillis && status.positionMillis !== undefined) {
-                    const remainingSec = Math.max(1, Math.ceil((status.durationMillis - status.positionMillis) / 1000));
-                    setListenTimeLeft(remainingSec);
-                  }
-                  if (status.didJustFinish && !isCancelled) {
-                    setIsPlayingQuestionAudio(false);
-                    newSound.setOnPlaybackStatusUpdate(null);
-                    // Automatically transition to recording state when question audio finishes!
-                    handleListenComplete();
-                  }
+            const newSound = createAudioPlayer({ uri: cachedUri });
+            newSound.addListener('playbackStatusUpdate', (status) => {
+              if (status.isLoaded) {
+                setQuestionAudioPosition(status.currentTime || 0);
+                setQuestionAudioDuration(status.duration || 0);
+                if (status.duration && status.currentTime !== undefined) {
+                  const remainingSec = Math.max(1, Math.ceil(status.duration - status.currentTime));
+                  setListenTimeLeft(remainingSec);
+                }
+                if (status.didJustFinish && !isCancelled) {
+                  setIsPlayingQuestionAudio(false);
+                  // Automatically transition to recording state when question audio finishes!
+                  handleListenComplete();
                 }
               }
-            );
+            });
+
             if (isCancelled) {
-              newSound.setOnPlaybackStatusUpdate(null);
-              newSound.unloadAsync().catch(() => {});
+              try { newSound.remove(); } catch {}
               return;
             }
             setSound(newSound);
@@ -496,6 +495,7 @@ export default function IELTSSpeakingSessionScreen() {
             soundManager.registerAndPlay(newSound, () => {
               setIsPlayingQuestionAudio(false);
             });
+            newSound.play();
           }
         } catch (err) {
           console.warn('Question audio playback error:', err);
@@ -515,6 +515,7 @@ export default function IELTSSpeakingSessionScreen() {
     } else {
       if (sound) {
         soundManager.stopCurrent();
+        try { sound.remove(); } catch {}
         setSound(null);
         setIsPlayingQuestionAudio(false);
       }
@@ -524,6 +525,7 @@ export default function IELTSSpeakingSessionScreen() {
       isCancelled = true;
       if (sound) {
         soundManager.stopCurrent();
+        try { sound.remove(); } catch {}
       }
     };
   }, [subState, activeGroupIndex, currentResponseIndex, speakingSection]);
@@ -616,57 +618,51 @@ export default function IELTSSpeakingSessionScreen() {
   const startRecording = async () => {
     try {
       if (!audioPermission) {
-        const perm = await Audio.requestPermissionsAsync();
-        if (perm.status !== 'granted') return;
+        const perm = await requestRecordingPermissionsAsync();
+        if (!perm.granted) return;
         setAudioPermission(true);
       }
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
 
       // If a collated recorder is already active and paused, resume it smoothly
-      if (collatedRecordingRef.current && isRecorderPausedRef.current) {
+      if (collatedRecordingActiveRef.current && isRecorderPausedRef.current) {
         try {
-          const status = await collatedRecordingRef.current.getStatusAsync();
-          currentQStartTimeRef.current = (status?.durationMillis || 0) / 1000.0;
-          await collatedRecordingRef.current.startAsync();
+          currentQStartTimeRef.current = recorder.currentTime || 0;
+          recorder.record();
           isRecorderPausedRef.current = false;
-          setRecording(collatedRecordingRef.current);
+          setIsRecording(true);
           return;
         } catch (resumeErr) {
           console.warn('Failed to resume collated recording, recreating:', resumeErr);
           try {
-            await collatedRecordingRef.current.stopAndUnloadAsync();
-            const uri = collatedRecordingRef.current.getURI();
+            await recorder.stop();
+            const uri = recorder.uri;
             if (uri) collatedAudioUriRef.current = uri;
           } catch {}
-          collatedRecordingRef.current = null;
+          collatedRecordingActiveRef.current = false;
           isRecorderPausedRef.current = false;
         }
       }
 
-      const { recording: newRecording } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY
-      );
-      collatedRecordingRef.current = newRecording;
+      await recorder.prepareToRecordAsync();
+      recorder.record();
+      collatedRecordingActiveRef.current = true;
       currentQStartTimeRef.current = 0.0;
       isRecorderPausedRef.current = false;
-      setRecording(newRecording);
+      setIsRecording(true);
     } catch (err) {
       console.warn('Failed to start audio recording:', err);
     }
   };
 
   const pauseRecording = async () => {
-    if (!collatedRecordingRef.current || isRecorderPausedRef.current) return;
+    if (!collatedRecordingActiveRef.current || isRecorderPausedRef.current) return;
     try {
-      let durationSec = 0;
-      try {
-        const status = await collatedRecordingRef.current.getStatusAsync();
-        durationSec = (status?.durationMillis || 0) / 1000.0;
-      } catch {}
+      const durationSec = recorder.currentTime || 0;
 
-      await collatedRecordingRef.current.pauseAsync();
+      recorder.pause();
       isRecorderPausedRef.current = true;
-      setRecording(null);
+      setIsRecording(false);
 
       if (currentQ?.id && subState === 'recording') {
         const start = Number(currentQStartTimeRef.current.toFixed(2));
@@ -681,42 +677,39 @@ export default function IELTSSpeakingSessionScreen() {
     } catch (err) {
       console.warn('Failed to pause collated recording, stopping instead:', err);
       try {
-        await collatedRecordingRef.current.stopAndUnloadAsync();
-        const uri = collatedRecordingRef.current.getURI();
+        await recorder.stop();
+        const uri = recorder.uri;
         if (uri) collatedAudioUriRef.current = uri;
       } catch {}
-      collatedRecordingRef.current = null;
+      collatedRecordingActiveRef.current = false;
       isRecorderPausedRef.current = false;
-      setRecording(null);
+      setIsRecording(false);
     }
   };
 
   const stopAndFinalizeCollatedAudio = async (): Promise<string | null> => {
-    if (collatedRecordingRef.current) {
+    if (collatedRecordingActiveRef.current) {
       try {
         if (!isRecorderPausedRef.current && currentQ?.id && subState === 'recording') {
-          try {
-            const status = await collatedRecordingRef.current.getStatusAsync();
-            const durationSec = (status?.durationMillis || 0) / 1000.0;
-            const start = Number(currentQStartTimeRef.current.toFixed(2));
-            const end = Number(Math.max(start + 0.5, durationSec).toFixed(2));
-            if (end - start >= 1.0) {
-              questionTimestampsRef.current = [
-                ...questionTimestampsRef.current.filter(t => t.questionId !== currentQ.id),
-                { questionId: currentQ.id, start, end }
-              ];
-            }
-          } catch {}
+          const durationSec = recorder.currentTime || 0;
+          const start = Number(currentQStartTimeRef.current.toFixed(2));
+          const end = Number(Math.max(start + 0.5, durationSec).toFixed(2));
+          if (end - start >= 1.0) {
+            questionTimestampsRef.current = [
+              ...questionTimestampsRef.current.filter(t => t.questionId !== currentQ.id),
+              { questionId: currentQ.id, start, end }
+            ];
+          }
         }
-        await collatedRecordingRef.current.stopAndUnloadAsync();
-        const uri = collatedRecordingRef.current.getURI();
+        await recorder.stop();
+        const uri = recorder.uri;
         if (uri) collatedAudioUriRef.current = uri;
       } catch (err) {
         console.warn('Failed to stop/unload collated audio recording:', err);
       }
-      collatedRecordingRef.current = null;
+      collatedRecordingActiveRef.current = false;
       isRecorderPausedRef.current = false;
-      setRecording(null);
+      setIsRecording(false);
     }
     return collatedAudioUriRef.current;
   };

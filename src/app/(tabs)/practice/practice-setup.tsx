@@ -5,7 +5,9 @@ import { View, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, TextInput
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { examService, ExamSection, ExamTierConfig, isSectionBasedExam } from '@/services/exam';
+import { examService, ExamSection, ExamTierConfig, isSectionBasedExam, resolveNumericExamId } from '@/services/exam';
+import { guestService } from '@/services/guest';
+import { GuestAuthModal } from '@/components/GuestAuthModal';
 import { 
   SubscriptionRequiredModal, 
   isSubscriptionError, 
@@ -21,26 +23,121 @@ interface TopicItem {
 const DEFAULT_FALLBACK_TOPICS: Record<string, string[]> = {
   mathematics: ['Number Systems', 'Algebra', 'Geometry', 'Trigonometry', 'Mensuration', 'Statistics', 'Calculus', 'Matrices'],
   maths: ['Number Systems', 'Algebra', 'Geometry', 'Trigonometry', 'Mensuration', 'Statistics', 'Calculus', 'Matrices'],
-  english: ['Comprehension', 'Lexis and Structure', 'Oral Forms', 'Sentence Completion', 'Idioms & Figures of Speech', 'Antonyms & Synonyms'],
-  'use of english': ['Comprehension', 'Lexis and Structure', 'Oral Forms', 'Sentence Completion', 'Idioms & Figures of Speech', 'Antonyms & Synonyms'],
-  physics: ['Mechanics', 'Waves & Optics', 'Electricity & Magnetism', 'Thermal Physics', 'Modern Physics', 'Radioactivity'],
-  chemistry: ['Physical Chemistry', 'Organic Chemistry', 'Inorganic Chemistry', 'Chemical Reactions & Stoichiometry', 'Electrochemistry'],
-  biology: ['Cell Biology', 'Genetics & Evolution', 'Ecology', 'Plant Physiology', 'Animal Physiology', 'Reproduction'],
-  economics: ['Microeconomics', 'Macroeconomics', 'Market Structures', 'National Income', 'Public Finance', 'Monetary Policy'],
-  government: ['Political Concepts', 'Forms of Government', 'Nigerian Politics', 'International Organizations', 'Constitutions'],
-  commerce: ['Trade & Commerce', 'Business Organizations', 'Banking & Finance', 'Insurance', 'Marketing'],
-  accounting: ['Bookkeeping & Principles', 'Financial Statements', 'Partnership Accounts', 'Company Accounts', 'Departmental Accounts'],
-  geography: ['Physical Geography', 'Human Geography', 'Map Reading', 'Regional Geography of Nigeria', 'Environmental Issues'],
-  literature: ['Drama & Theatre', 'Poetry Analysis', 'Prose & Fiction', 'Literary Devices & Figures of Speech', 'African & Non-African Literature'],
+  english: ['Lexis and Structure', 'Oral Forms', 'Comprehension', 'Synonyms and Antonyms', 'Sentence Completion', 'Register', 'Grammar'],
+  physics: ['Mechanics', 'Thermal Physics', 'Waves and Optics', 'Electricity and Magnetism', 'Modern Physics', 'Atomic Models'],
+  chemistry: ['Atomic Structure', 'Chemical Bonding', 'Stoichiometry', 'Organic Chemistry', 'Thermodynamics', 'Electrochemistry', 'Periodic Properties'],
+  biology: ['Cell Biology', 'Physiology of Plants', 'Genetics and Evolution', 'Ecology', 'Microorganisms', 'Vertebrate Anatomy'],
+  economics: ['Microeconomics', 'Macroeconomics', 'Public Finance', 'International Trade', 'Economic Development', 'Market Structures'],
+  government: ['Constitutional Development', 'Political Systems', 'Public Administration', 'International Relations', 'Electoral Systems'],
+  literature: ['African Prose', 'Non-African Prose', 'African Poetry', 'Non-African Poetry', 'African Drama', 'Non-African Drama', 'Literary Terms'],
+  commerce: ['Trade and Commerce', 'Business Organizations', 'Banking and Finance', 'Insurance', 'Marketing and Warehousing'],
+  accounting: ['Bookkeeping Basics', 'Financial Statements', 'Partnership Accounts', 'Company Accounts', 'Bank Reconciliation'],
+  crk: ['Old Testament Prophecy', 'Life of Christ', 'The Early Church', 'Faith and Works'],
+  irk: ['Tawhid', 'Sirah of the Prophet', 'Hadith Studies', 'Fiqh and Worship'],
+  geography: ['Physical Geography', 'Human Geography', 'Map Reading', 'Regional Geography of Nigeria']
+};
+
+export interface IELTSSubsection {
+  id: string;
+  name: string;
+  subtitle: string;
+  questionCount: number;
+}
+
+export const IELTS_SECTION_SUBSECTIONS: Record<string, IELTSSubsection[]> = {
+  listening: [
+    { id: 'Part 1', name: 'Part 1', subtitle: 'Questions 1–10', questionCount: 10 },
+    { id: 'Part 2', name: 'Part 2', subtitle: 'Questions 11–20', questionCount: 10 },
+    { id: 'Part 3', name: 'Part 3', subtitle: 'Questions 21–30', questionCount: 10 },
+    { id: 'Part 4', name: 'Part 4', subtitle: 'Questions 31–40', questionCount: 10 },
+  ],
+  reading: [
+    { id: 'Passage 1', name: 'Passage 1', subtitle: 'Questions 1–13', questionCount: 13 },
+    { id: 'Passage 2', name: 'Passage 2', subtitle: 'Questions 14–26', questionCount: 13 },
+    { id: 'Passage 3', name: 'Passage 3', subtitle: 'Questions 27–40', questionCount: 14 },
+  ],
+  writing: [
+    { id: 'Task 1', name: 'Task 1', subtitle: 'Task 1 (Report / Letter)', questionCount: 1 },
+    { id: 'Task 2', name: 'Task 2', subtitle: 'Task 2 (Essay)', questionCount: 1 },
+  ],
+  speaking: [
+    { id: 'Part 1', name: 'Part 1', subtitle: 'Part 1 (Introduction & Interview)', questionCount: 4 },
+    { id: 'Part 2', name: 'Part 2', subtitle: 'Part 2 (Individual Long Turn)', questionCount: 1 },
+    { id: 'Part 3', name: 'Part 3', subtitle: 'Part 3 (Two-Way Discussion)', questionCount: 4 },
+  ],
+};
+
+export const getIeltsSubsectionsForSectionName = (sectionName?: string): IELTSSubsection[] => {
+  const lower = (sectionName || '').toLowerCase();
+  if (lower.includes('listen')) return IELTS_SECTION_SUBSECTIONS.listening;
+  if (lower.includes('read')) return IELTS_SECTION_SUBSECTIONS.reading;
+  if (lower.includes('writ')) return IELTS_SECTION_SUBSECTIONS.writing;
+  if (lower.includes('speak')) return IELTS_SECTION_SUBSECTIONS.speaking;
+  return [];
 };
 
 export default function PracticeSetupScreen() {
-  const { user } = useAuth();
   const router = useRouter();
-  const params = useLocalSearchParams<{ exam?: string; subject?: string; topic_id?: string; topic_name?: string; topic?: string; exam_name?: string }>();
+  const { user } = useAuth();
+  const params = useLocalSearchParams<{ 
+    exam?: string; 
+    subject?: string; 
+    subjects?: string;
+    topic_id?: string; 
+    topic_name?: string; 
+    topic?: string; 
+    topics?: string;
+    weak_topics?: string;
+    exam_name?: string;
+    is_guest?: string;
+    demoId?: string;
+  }>();
+
+  const isGuestMode = params.is_guest === 'true' || !user;
   
-  const examIdStr = Array.isArray(params.exam) ? params.exam[0] : params.exam;
-  const examId = examIdStr ? parseInt(examIdStr, 10) : 1; // Default to 1 if missing
+  const examId = resolveNumericExamId(params.exam, 1);
+
+  // Helper to parse weak topics from params
+  const parsedWeakTopicsMap: Record<string, string[]> = React.useMemo(() => {
+    if (!params.weak_topics) return {};
+    try {
+      const parsed = JSON.parse(params.weak_topics);
+      if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+        return parsed;
+      }
+    } catch {
+      const list = params.weak_topics.split(',').map(s => s.trim()).filter(Boolean);
+      if (list.length > 0) return { default: list };
+    }
+    return {};
+  }, [params.weak_topics]);
+
+  // Helper to parse subject list from params
+  const requestedSubjectNames: string[] = React.useMemo(() => {
+    const list: string[] = [];
+    if (params.subjects) {
+      try {
+        const parsed = JSON.parse(params.subjects);
+        if (Array.isArray(parsed)) {
+          list.push(...parsed.map(String));
+        } else if (typeof parsed === 'string') {
+          list.push(parsed);
+        }
+      } catch {
+        list.push(...params.subjects.split(',').map(s => s.trim()).filter(Boolean));
+      }
+    }
+    if (params.subject && !list.includes(params.subject)) {
+      list.push(params.subject);
+    }
+    // Also include subjects present as keys in parsedWeakTopicsMap
+    Object.keys(parsedWeakTopicsMap).forEach(key => {
+      if (key !== 'default' && !list.some(s => s.toLowerCase() === key.toLowerCase())) {
+        list.push(key);
+      }
+    });
+    return list;
+  }, [params.subjects, params.subject, parsedWeakTopicsMap]);
 
   // Instant synchronous memory cache
   const initialSections = examService.getCachedSectionsSync(examId);
@@ -56,7 +153,15 @@ export default function PracticeSetupScreen() {
     if (initialExamObj?.name) {
       return initialExamObj.name;
     }
-    return '';
+    const rawExamParam = Array.isArray(params.exam) ? params.exam[0] : params.exam;
+    if (typeof rawExamParam === 'string' && isNaN(Number(rawExamParam))) {
+      const code = rawExamParam.toLowerCase();
+      if (code.includes('jamb') || code.includes('utme')) return 'JAMB UTME';
+      if (code.includes('waec') || code.includes('ssce') || code.includes('wassce')) return 'WAEC Practice';
+      if (code.includes('neco')) return 'NECO Practice';
+      if (code.includes('ielts')) return 'IELTS Academic';
+    }
+    return 'JAMB UTME';
   };
 
   const [examName, setExamName] = useState<string>(resolveExamName);
@@ -68,8 +173,94 @@ export default function PracticeSetupScreen() {
 
   const isSectionExam = isSectionBasedExam(examName, subjects);
 
+  const isSubscribed = Boolean(
+    (user as any)?.is_premium ||
+    (user as any)?.has_active_subscription ||
+    (user?.scholar_tier && user.scholar_tier.toLowerCase() !== 'free')
+  );
+
+  const buildTopicItemsFromNames = (names: string[], subId: number): TopicItem[] => {
+    return names.map((name, index) => ({
+      id: `topic-${subId}-${index + 1}`,
+      name,
+      isLocked: !isGuestMode && !isSubscribed && index >= 3,
+    }));
+  };
+
+  const getPreselectedTopicsForSubject = (items: TopicItem[], subName: string, subId: number): string[] => {
+    // Check weak topics mapping
+    const weakListForSub = parsedWeakTopicsMap[subName] || 
+                           parsedWeakTopicsMap[String(subId)] || 
+                           Object.entries(parsedWeakTopicsMap).find(([k]) => k.toLowerCase() === subName.toLowerCase())?.[1] ||
+                           parsedWeakTopicsMap['default'];
+
+    if (weakListForSub && weakListForSub.length > 0) {
+      const matchedNames: string[] = [];
+      weakListForSub.forEach(wTopic => {
+        const wLower = wTopic.toLowerCase().trim();
+        const matchedItem = items.find(t => 
+          t.name.toLowerCase() === wLower ||
+          t.name.toLowerCase().includes(wLower) ||
+          wLower.includes(t.name.toLowerCase())
+        );
+        if (matchedItem) {
+          matchedItem.isLocked = false;
+          if (!matchedNames.includes(matchedItem.name)) {
+            matchedNames.push(matchedItem.name);
+          }
+        }
+      });
+      if (matchedNames.length > 0) {
+        return matchedNames;
+      }
+    }
+
+    // Check single target topic
+    const targetTopicQuery = (params.topic_name || params.topic || params.topic_id || '').toString().toLowerCase().trim();
+    if (targetTopicQuery) {
+      const matched = items.find(t =>
+        t.name.toLowerCase().includes(targetTopicQuery) ||
+        targetTopicQuery.includes(t.name.toLowerCase())
+      );
+      if (matched) {
+        matched.isLocked = false;
+        return [matched.name];
+      }
+    }
+
+    // Default select unlocked topics (up to 3)
+    const unlocked = items.filter(t => !t.isLocked).slice(0, 3).map(t => t.name);
+    return unlocked.length > 0 ? unlocked : (items[0] ? [items[0].name] : []);
+  };
+
+  const resolveSubjectSelection = (sectionsList: ExamSection[]): number[] => {
+    if (!sectionsList || sectionsList.length === 0) return [];
+    if (requestedSubjectNames.length > 0) {
+      const matchedIds: number[] = [];
+      requestedSubjectNames.forEach(target => {
+        const targetLower = target.toLowerCase().trim();
+        const match = sectionsList.find(s => 
+          String(s.id) === targetLower ||
+          s.name.toLowerCase() === targetLower ||
+          s.name.toLowerCase().includes(targetLower) ||
+          targetLower.includes(s.name.toLowerCase())
+        );
+        if (match && !matchedIds.includes(match.id)) {
+          matchedIds.push(match.id);
+        }
+      });
+      if (matchedIds.length > 0) return matchedIds;
+    }
+    return [sectionsList[0].id];
+  };
+
   // Form State
-  const [selectedSubjects, setSelectedSubjects] = useState<number[]>([]);
+  const [selectedSubjects, setSelectedSubjects] = useState<number[]>(() => {
+    if (initialSections && initialSections.length > 0) {
+      return resolveSubjectSelection(initialSections);
+    }
+    return [];
+  });
   const [difficulty, setDifficulty] = useState<string>('Medium');
   const [questionCount, setQuestionCount] = useState<number | null>(40);
   const [isCustomQuestions, setIsCustomQuestions] = useState<boolean>(false);
@@ -92,12 +283,102 @@ export default function PracticeSetupScreen() {
   const [showSubscriptionModal, setShowSubscriptionModal] = useState<boolean>(false);
   const [modalTopicName, setModalTopicName] = useState<string>('');
   const [subscriptionMessage, setSubscriptionMessage] = useState<string | undefined>();
+  const [guestLimitModalVisible, setGuestLimitModalVisible] = useState<boolean>(false);
 
-  const isSubscribed = Boolean(
-    (user as any)?.is_premium ||
-    (user as any)?.has_active_subscription ||
-    (user?.scholar_tier && user.scholar_tier.toLowerCase() !== 'free')
-  );
+  // Auto-initialize IELTS subsections for selected sections
+  useEffect(() => {
+    if (!isSectionExam || subjects.length === 0 || selectedSubjects.length === 0) return;
+
+    setSelectedTopicsBySubject(prev => {
+      let changed = false;
+      const updated = { ...prev };
+      selectedSubjects.forEach(subId => {
+        if (!updated[subId] || updated[subId].length === 0) {
+          const sub = subjects.find(s => s.id === subId);
+          if (sub) {
+            const configList = getIeltsSubsectionsForSectionName(sub.name);
+            if (configList.length > 0) {
+              updated[subId] = configList.map(c => c.id);
+              changed = true;
+            }
+          }
+        }
+      });
+      return changed ? updated : prev;
+    });
+  }, [isSectionExam, subjects, selectedSubjects]);
+
+  // Compute total questions for IELTS from selected subsections
+  const ieltsTotalQuestions = React.useMemo(() => {
+    if (!isSectionExam) return null;
+    return selectedSubjects.reduce((total, subId) => {
+      const sub = subjects.find(s => s.id === subId);
+      if (!sub) return total;
+      const configList = getIeltsSubsectionsForSectionName(sub.name);
+      const chosen = selectedTopicsBySubject[subId] || [];
+      const secTotal = chosen.reduce((sum, subIdOrName) => {
+        const item = configList.find(c => c.id === subIdOrName || c.name === subIdOrName);
+        return sum + (item ? item.questionCount : 0);
+      }, 0);
+      return total + secTotal;
+    }, 0);
+  }, [isSectionExam, selectedSubjects, subjects, selectedTopicsBySubject]);
+
+  // Keep questionCount synchronized with IELTS subsections
+  useEffect(() => {
+    if (isSectionExam && ieltsTotalQuestions !== null && ieltsTotalQuestions > 0) {
+      setQuestionCount(ieltsTotalQuestions);
+    }
+  }, [isSectionExam, ieltsTotalQuestions]);
+
+  const handleToggleIeltsSubsection = (sectionId: number, subsectionId: string) => {
+    setSelectedTopicsBySubject(prev => {
+      const current = prev[sectionId] || [];
+      const exists = current.includes(subsectionId);
+      const updated = exists 
+        ? current.filter(id => id !== subsectionId)
+        : [...current, subsectionId];
+      return {
+        ...prev,
+        [sectionId]: updated,
+      };
+    });
+  };
+
+  const handleSelectAllIeltsSubsections = (sectionId: number) => {
+    const sub = subjects.find(s => s.id === sectionId);
+    if (!sub) return;
+    const configList = getIeltsSubsectionsForSectionName(sub.name);
+    setSelectedTopicsBySubject(prev => ({
+      ...prev,
+      [sectionId]: configList.map(c => c.id),
+    }));
+  };
+
+  const handleClearIeltsSubsections = (sectionId: number) => {
+    setSelectedTopicsBySubject(prev => ({
+      ...prev,
+      [sectionId]: [],
+    }));
+  };
+
+  const getIeltsTimeAndSubsectionsSubtitle = () => {
+    if (selectedSubjects.length === 0) {
+      return 'Select sections first';
+    }
+    const totalChosenSubsections = selectedSubjects.reduce((acc, subId) => {
+      return acc + (selectedTopicsBySubject[subId]?.length || 0);
+    }, 0);
+
+    if (totalChosenSubsections === 0) {
+      return 'Select subsections to practice';
+    }
+
+    const timerText = isTimed ? `${timeMinutes} mins` : 'Untimed';
+    const qCount = ieltsTotalQuestions || 0;
+    const qText = `${qCount} ${qCount === 1 ? 'question' : 'questions'}`;
+    return `${totalChosenSubsections} ${totalChosenSubsections === 1 ? 'part' : 'parts'} (${qText}) • ${timerText}`;
+  };
 
   // Modals
   const [showSubjects, setShowSubjects] = useState(false);
@@ -108,60 +389,92 @@ export default function PracticeSetupScreen() {
   
   useEffect(() => {
     let isMounted = true;
-    const currentExamIdStr = Array.isArray(params.exam) ? params.exam[0] : params.exam;
-    const currentExamId = currentExamIdStr ? parseInt(currentExamIdStr, 10) : 1;
+    const currentExamId = resolveNumericExamId(params.exam, 1);
+
+    const applySections = (sectionsList: ExamSection[]) => {
+      if (!isMounted || !sectionsList || sectionsList.length === 0) return;
+      setSubjects(sectionsList);
+      setSelectedSubjects(prev => {
+        if (prev.length > 0) return prev;
+        return resolveSubjectSelection(sectionsList);
+      });
+
+      // If any section already has topics returned with it, populate subjectTopicsMap immediately
+      const immediateMap: Record<number, TopicItem[]> = {};
+      const immediateSelected: Record<number, string[]> = {};
+      sectionsList.forEach(s => {
+        if (s.topics && Array.isArray(s.topics) && s.topics.length > 0) {
+          const items = buildTopicItemsFromNames(s.topics, s.id);
+          immediateMap[s.id] = items;
+          immediateSelected[s.id] = getPreselectedTopicsForSubject(items, s.name, s.id);
+        }
+      });
+
+      if (Object.keys(immediateMap).length > 0) {
+        setSubjectTopicsMap(prev => ({ ...prev, ...immediateMap }));
+        setSelectedTopicsBySubject(prev => ({ ...prev, ...immediateSelected }));
+      }
+    };
 
     const loadData = async () => {
       // 1. If we don't have cached subjects from memory, try persistent storage
       const memSections = examService.getCachedSectionsSync(currentExamId);
       if (memSections && memSections.length > 0) {
-        if (isMounted) {
-          setSubjects(memSections);
-          setLoading(false);
-        }
+        applySections(memSections);
+        if (isMounted) setLoading(false);
       } else {
         const storedSections = await examService.getCachedSections(currentExamId);
-        if (isMounted && storedSections && storedSections.length > 0) {
-          setSubjects(storedSections);
-          setLoading(false);
+        if (storedSections && storedSections.length > 0) {
+          applySections(storedSections);
+          if (isMounted) setLoading(false);
         }
       }
 
-      const memTiers = examService.getCachedTierConfigsSync();
-      if (memTiers && memTiers.length > 0) {
-        const cfg = memTiers.find(t => t.exam_type === currentExamId);
-        if (isMounted && cfg) setTierConfig(cfg);
-      } else {
-        const storedTiers = await examService.getCachedTierConfigs();
-        const cfg = storedTiers?.find(t => t.exam_type === currentExamId);
-        if (isMounted && cfg) setTierConfig(cfg);
+      if (!isGuestMode) {
+        const memTiers = examService.getCachedTierConfigsSync();
+        if (memTiers && memTiers.length > 0) {
+          const cfg = memTiers.find(t => t.exam_type === currentExamId);
+          if (isMounted && cfg) setTierConfig(cfg);
+        } else {
+          examService.getCachedTierConfigs().then(storedTiers => {
+            const cfg = storedTiers?.find(t => t.exam_type === currentExamId);
+            if (isMounted && cfg) setTierConfig(cfg);
+          }).catch(() => {});
+        }
       }
 
-      // 2. Fetch fresh sections and tier configs from backend in background
+      // 2. Fetch fresh sections from backend
       try {
-        const [fetchedSections, fetchedTiers] = await Promise.all([
-          examService.getSections(currentExamId),
-          examService.getExamTierConfigs()
-        ]);
-        if (isMounted && Array.isArray(fetchedSections) && fetchedSections.length > 0) {
-          setSubjects(fetchedSections);
-          setSelectedSubjects(prev => {
-            if (prev.length > 0) return prev;
-            if (params.subject) {
-              const match = fetchedSections.find(s => s.name.toLowerCase().includes(String(params.subject).toLowerCase()));
-              if (match) return [match.id];
-            }
-            return [fetchedSections[0].id];
-          });
+        let fetchedSections: ExamSection[] = [];
+        if (isGuestMode) {
+          fetchedSections = await guestService.getSections(currentExamId);
+          if (!fetchedSections || fetchedSections.length === 0) {
+            fetchedSections = await examService.getSections(currentExamId);
+          }
+        } else {
+          fetchedSections = await examService.getSections(currentExamId);
         }
-        const config = fetchedTiers.find(t => t.exam_type === currentExamId);
-        if (isMounted && config) setTierConfig(config);
+
+        if (Array.isArray(fetchedSections) && fetchedSections.length > 0) {
+          applySections(fetchedSections);
+        }
       } catch (error) {
-        console.error('Error fetching practice setup data:', error);
-      } finally {
-        if (isMounted) {
-          setLoading(false);
+        console.warn('Error fetching practice setup sections:', error);
+      }
+
+      // 3. Fetch tier configs independently (only for authenticated users)
+      if (!isGuestMode) {
+        try {
+          const fetchedTiers = await examService.getExamTierConfigs();
+          const config = fetchedTiers?.find(t => t.exam_type === currentExamId);
+          if (isMounted && config) setTierConfig(config);
+        } catch (tierErr) {
+          console.warn('Could not fetch tier configs (non-fatal):', tierErr);
         }
+      }
+
+      if (isMounted) {
+        setLoading(false);
       }
     };
 
@@ -170,7 +483,7 @@ export default function PracticeSetupScreen() {
     return () => {
       isMounted = false;
     };
-  }, [params.exam, params.subject]);
+  }, [params.exam, params.subject, params.subjects, params.weak_topics]);
 
   // Keep active topic subject tab valid
   useEffect(() => {
@@ -190,18 +503,57 @@ export default function PracticeSetupScreen() {
       const missingSubjectIds = selectedSubjects.filter(id => !subjectTopicsMap[id]);
       if (missingSubjectIds.length === 0) return;
 
+      // Check if any missing subject already has topics in subject.topics!
+      const stillMissing: number[] = [];
+      const immediateMap: Record<number, TopicItem[]> = {};
+      const immediateSelected: Record<number, string[]> = {};
+
+      missingSubjectIds.forEach(subId => {
+        const subjectObj = subjects.find(s => s.id === subId);
+        if (subjectObj?.topics && Array.isArray(subjectObj.topics) && subjectObj.topics.length > 0) {
+          const items = buildTopicItemsFromNames(subjectObj.topics, subId);
+          immediateMap[subId] = items;
+          immediateSelected[subId] = getPreselectedTopicsForSubject(items, subjectObj.name || '', subId);
+        } else {
+          stillMissing.push(subId);
+        }
+      });
+
+      if (Object.keys(immediateMap).length > 0 && isMounted) {
+        setSubjectTopicsMap(prev => ({ ...prev, ...immediateMap }));
+        setSelectedTopicsBySubject(prev => {
+          const updated = { ...prev };
+          Object.keys(immediateSelected).forEach(k => {
+            const keyNum = parseInt(k, 10);
+            if (!updated[keyNum] || updated[keyNum].length === 0 || params.weak_topics) {
+              updated[keyNum] = immediateSelected[keyNum];
+            }
+          });
+          return updated;
+        });
+      }
+
+      if (stillMissing.length === 0) return;
+
       setLoadingTopics(true);
       try {
         const newMap: Record<number, TopicItem[]> = {};
         const newSelected: Record<number, string[]> = {};
 
         await Promise.all(
-          missingSubjectIds.map(async (subId) => {
+          stillMissing.map(async (subId) => {
             const subjectObj = subjects.find(s => s.id === subId);
             const subName = subjectObj?.name || '';
             let fetchedNames: string[] = [];
             try {
-              fetchedNames = await examService.getSectionTopics(subId);
+              if (isGuestMode) {
+                fetchedNames = await guestService.getTopics(subId);
+                if (!fetchedNames || fetchedNames.length === 0) {
+                  fetchedNames = await examService.getSectionTopics(subId);
+                }
+              } else {
+                fetchedNames = await examService.getSectionTopics(subId);
+              }
             } catch (e) {
               console.warn(`Could not fetch topics for subject ${subId}:`, e);
             }
@@ -216,32 +568,9 @@ export default function PracticeSetupScreen() {
               }
             }
 
-            const items: TopicItem[] = fetchedNames.map((name, index) => ({
-              id: `topic-${subId}-${index + 1}`,
-              name,
-              isLocked: !isSubscribed && index >= 3,
-            }));
-
+            const items: TopicItem[] = buildTopicItemsFromNames(fetchedNames, subId);
             newMap[subId] = items;
-
-            // Pre-select topic if specific topic requested
-            const targetTopicQuery = (params.topic_name || params.topic || params.topic_id || '').toString().toLowerCase().trim();
-            let matchedTopic: TopicItem | undefined;
-            if (targetTopicQuery) {
-              matchedTopic = items.find(t => 
-                t.name.toLowerCase().includes(targetTopicQuery) || 
-                targetTopicQuery.includes(t.name.toLowerCase())
-              );
-            }
-
-            if (matchedTopic) {
-              matchedTopic.isLocked = false;
-              newSelected[subId] = [matchedTopic.name];
-            } else {
-              // Default select unlocked topics (up to 3)
-              const unlocked = items.filter(t => !t.isLocked).slice(0, 3).map(t => t.name);
-              newSelected[subId] = unlocked.length > 0 ? unlocked : (items[0] ? [items[0].name] : []);
-            }
+            newSelected[subId] = getPreselectedTopicsForSubject(items, subName, subId);
           })
         );
 
@@ -249,18 +578,17 @@ export default function PracticeSetupScreen() {
           setSubjectTopicsMap(prev => ({ ...prev, ...newMap }));
           setSelectedTopicsBySubject(prev => {
             const updated = { ...prev };
-            const targetTopicQuery = (params.topic_name || params.topic || params.topic_id || '').toString().trim();
             Object.keys(newSelected).forEach(k => {
               const keyNum = parseInt(k, 10);
-              if (targetTopicQuery || !updated[keyNum] || updated[keyNum].length === 0) {
+              if (!updated[keyNum] || updated[keyNum].length === 0 || params.weak_topics || params.topic_name || params.topic) {
                 updated[keyNum] = newSelected[keyNum];
               }
             });
             return updated;
           });
         }
-      } catch (err) {
-        console.error('Error fetching section topics:', err);
+      } catch (e) {
+        console.error('Error in loadTopicsForSelected:', e);
       } finally {
         if (isMounted) {
           setLoadingTopics(false);
@@ -271,7 +599,11 @@ export default function PracticeSetupScreen() {
     if (selectedSubjects.length > 0 && subjects.length > 0) {
       loadTopicsForSelected();
     }
-  }, [selectedSubjects, subjects, isSubscribed, params.topic_id, params.topic_name, params.topic]);
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedSubjects, subjects, parsedWeakTopicsMap, requestedSubjectNames, isSubscribed, params.topic_id, params.topic_name, params.topic]);
 
   const filteredSubjects = subjects.filter(s => s.name.toLowerCase().includes(searchQuery.toLowerCase()));
 
@@ -378,20 +710,32 @@ export default function PracticeSetupScreen() {
       return;
     }
 
-    const totalSelectedTopicsCount = selectedSubjects.reduce((acc, subId) => {
-      return acc + (selectedTopicsBySubject[subId]?.length || 0);
-    }, 0);
+    if (isSectionExam) {
+      const totalIeltsSelected = selectedSubjects.reduce((acc, subId) => {
+        return acc + (selectedTopicsBySubject[subId]?.length || 0);
+      }, 0);
 
-    if (totalSelectedTopicsCount === 0) {
-      setShowTopics(true);
-      return;
+      if (totalIeltsSelected === 0) {
+        setShowTime(true);
+        Alert.alert('Select Subsections', 'Please select at least one subsection to practice.');
+        return;
+      }
+    } else {
+      const totalSelectedTopicsCount = selectedSubjects.reduce((acc, subId) => {
+        return acc + (selectedTopicsBySubject[subId]?.length || 0);
+      }, 0);
+
+      if (totalSelectedTopicsCount === 0) {
+        setShowTopics(true);
+        return;
+      }
     }
 
     if (!difficulty) {
       setShowDifficulty(true);
       return;
     }
-    if (!questionCount) {
+    if (!questionCount && !isSectionExam) {
       setShowTime(true);
       return;
     }
@@ -400,8 +744,7 @@ export default function PracticeSetupScreen() {
     setIsStarting(true);
 
     try {
-      const examIdStr = Array.isArray(params.exam) ? params.exam[0] : params.exam;
-      const examId = examIdStr ? parseInt(examIdStr, 10) : 1;
+      const examId = resolveNumericExamId(params.exam, 1);
 
       // Check if exam is section-based (e.g. IELTS, TOEFL)
       const cachedExams = examService.getCachedExamsSync() || [];
@@ -414,9 +757,10 @@ export default function PracticeSetupScreen() {
       }
 
       const isSectionExam = isSectionBasedExam(currentExam?.name);
+      const finalQuestionCount = isSectionExam ? (ieltsTotalQuestions || questionCount || 40) : (questionCount || 40);
 
       const practiceConfig: Record<string, any> = {
-        question_count: questionCount,
+        question_count: finalQuestionCount,
         difficulty: difficulty,
       };
 
@@ -424,19 +768,74 @@ export default function PracticeSetupScreen() {
       selectedSubjects.forEach(subId => {
         const subTopics = selectedTopicsBySubject[subId] || [];
         allChosenTopics.push(...subTopics);
+
+        let secQCount = finalQuestionCount;
+        if (isSectionExam) {
+          const sub = subjects.find(s => s.id === subId);
+          if (sub) {
+            const configList = getIeltsSubsectionsForSectionName(sub.name);
+            secQCount = subTopics.reduce((sum, itemKey) => {
+              const matched = configList.find(c => c.id === itemKey || c.name === itemKey);
+              return sum + (matched ? matched.questionCount : 0);
+            }, 0);
+          }
+        }
+
         practiceConfig[String(subId)] = {
-          question_count: questionCount,
+          question_count: secQCount,
           difficulty: difficulty,
           topics: subTopics,
         };
       });
+
+      if (isGuestMode || params.is_guest === 'true') {
+        const isExceeded = await guestService.hasExceededGuestAttempts();
+        if (isExceeded) {
+          setIsStarting(false);
+          setGuestLimitModalVisible(true);
+          return;
+        }
+
+        let attemptIdStr = 'guest-temp';
+        if (params.demoId) {
+          try {
+            const demoRes = await guestService.startDemoTest(Number(params.demoId));
+            attemptIdStr = String(demoRes.attempt_id);
+          } catch (e: any) {
+            if (e?.response?.status === 403 || e?.response?.data?.code === 'GUEST_LIMIT_REACHED') {
+              setIsStarting(false);
+              setGuestLimitModalVisible(true);
+              return;
+            }
+            console.warn('Could not start demo test on backend, proceeding with local guest session:', e);
+          }
+        }
+
+        router.push({
+          pathname: isSectionExam ? '/(exam)/ielts-session' : '/(exam)/session',
+          params: {
+            attempt_id: attemptIdStr,
+            exam_type_id: String(examId),
+            exam_name: currentExam?.name || (params.exam_name ? String(params.exam_name) : 'Mock Test'),
+            mode: 'demo',
+            is_guest: 'true',
+            demoId: params.demoId || undefined,
+            sections: JSON.stringify(selectedSubjects),
+            difficulty: difficulty,
+            question_count: String(finalQuestionCount),
+            time_limit: isTimed ? String(timeMinutes) : '0',
+            is_timed: isTimed ? 'true' : 'false',
+          },
+        });
+        return;
+      }
 
       const newAttempt = await examService.startExam({
         exam_type_id: examId,
         mode: 'Practice',
         selected_section_ids: selectedSubjects,
         time_limit_override: isTimed ? timeMinutes : undefined,
-        question_count: questionCount,
+        question_count: finalQuestionCount,
         difficulty: difficulty,
         topics: allChosenTopics,
         practice_config: practiceConfig,
@@ -472,7 +871,7 @@ export default function PracticeSetupScreen() {
             section_index: '0',
             section_name: finalSecNames[0] || undefined,
             difficulty: difficulty,
-            question_count: String(questionCount),
+            question_count: String(finalQuestionCount),
             time_limit: isTimed ? String(timeMinutes) : '0',
             is_timed: isTimed ? 'true' : 'false',
           },
@@ -487,7 +886,7 @@ export default function PracticeSetupScreen() {
             mode: 'Practice',
             sections: JSON.stringify(selectedSubjects),
             difficulty: difficulty,
-            question_count: String(questionCount),
+            question_count: String(finalQuestionCount),
             time_limit: isTimed ? String(timeMinutes) : '0',
             is_timed: isTimed ? 'true' : 'false',
           },
@@ -555,29 +954,31 @@ export default function PracticeSetupScreen() {
           <Feather name="chevron-right" size={20} color="#D1D5DB" />
         </TouchableOpacity>
 
-        {/* Select Topics Card (Immediately after subject selection) */}
-        <TouchableOpacity 
-          style={[styles.setupCard, selectedSubjects.length === 0 && { opacity: 0.6 }]} 
-          onPress={() => {
-            if (selectedSubjects.length === 0) {
-              setShowSubjects(true);
-            } else {
-              setShowTopics(true);
-            }
-          }} 
-          activeOpacity={0.7}
-        >
-          <View style={[styles.setupCardIconBg, { backgroundColor: '#EEF2FF' }]}>
-            <Feather name="book-open" size={20} color="#6366F1" />
-          </View>
-          <View style={styles.setupCardContent}>
-            <AppText style={styles.setupCardTitle}>Select topics</AppText>
-            <AppText style={styles.setupCardSubtitle} numberOfLines={1}>
-              {getTopicsSummarySubtitle()}
-            </AppText>
-          </View>
-          <Feather name="chevron-right" size={20} color="#D1D5DB" />
-        </TouchableOpacity>
+        {/* Select Topics Card (Immediately after subject selection) - Non-IELTS only */}
+        {!isSectionExam && (
+          <TouchableOpacity 
+            style={[styles.setupCard, selectedSubjects.length === 0 && { opacity: 0.6 }]} 
+            onPress={() => {
+              if (selectedSubjects.length === 0) {
+                setShowSubjects(true);
+              } else {
+                setShowTopics(true);
+              }
+            }} 
+            activeOpacity={0.7}
+          >
+            <View style={[styles.setupCardIconBg, { backgroundColor: '#EEF2FF' }]}>
+              <Feather name="book-open" size={20} color="#6366F1" />
+            </View>
+            <View style={styles.setupCardContent}>
+              <AppText style={styles.setupCardTitle}>Select topics</AppText>
+              <AppText style={styles.setupCardSubtitle} numberOfLines={1}>
+                {getTopicsSummarySubtitle()}
+              </AppText>
+            </View>
+            <Feather name="chevron-right" size={20} color="#D1D5DB" />
+          </TouchableOpacity>
+        )}
 
         <TouchableOpacity style={styles.setupCard} onPress={() => setShowDifficulty(true)} activeOpacity={0.7}>
           <View style={[styles.setupCardIconBg, { backgroundColor: '#ECFDF5' }]}>
@@ -594,12 +995,16 @@ export default function PracticeSetupScreen() {
 
         <TouchableOpacity style={styles.setupCard} onPress={() => setShowTime(true)} activeOpacity={0.7}>
           <View style={[styles.setupCardIconBg, { backgroundColor: '#FFFBEB' }]}>
-            <Feather name="clock" size={20} color="#F59E0B" />
+            <Feather name={isSectionExam ? "layers" : "clock"} size={20} color="#F59E0B" />
           </View>
           <View style={styles.setupCardContent}>
-            <AppText style={styles.setupCardTitle}>Set time & question count</AppText>
+            <AppText style={styles.setupCardTitle}>
+              {isSectionExam ? 'Set time & subsections' : 'Set time & question count'}
+            </AppText>
             <AppText style={styles.setupCardSubtitle}>
-              {questionCount ? `${isTimed ? `${timeMinutes} mins` : 'Untimed'} & ${questionCount} questions` : 'Timed or Untimed'}
+              {isSectionExam 
+                ? getIeltsTimeAndSubsectionsSubtitle()
+                : (questionCount ? `${isTimed ? `${timeMinutes} mins` : 'Untimed'} & ${questionCount} questions` : 'Timed or Untimed')}
             </AppText>
           </View>
           <Feather name="chevron-right" size={20} color="#D1D5DB" />
@@ -707,7 +1112,11 @@ export default function PracticeSetupScreen() {
                 disabled={selectedSubjects.length === 0}
                 onPress={() => {
                   setShowSubjects(false);
-                  setShowTopics(true);
+                  if (isSectionExam) {
+                    setShowTime(true);
+                  } else {
+                    setShowTopics(true);
+                  }
                 }}
               >
                 <AppText style={styles.continueButtonText}>Continue ({selectedSubjects.length})</AppText>
@@ -971,89 +1380,207 @@ export default function PracticeSetupScreen() {
         </View>
       </Modal>
 
-      {/* Time & Questions Modal */}
+      {/* Time & Questions / Subsections Modal */}
       <Modal visible={showTime} animationType="fade" transparent>
         <View style={styles.modalOverlay}>
-          <View style={styles.bottomSheet}>
+          <View style={[styles.bottomSheet, { maxHeight: isSectionExam ? '90%' : '80%' }]}>
             <View style={styles.handleBarContainer}><View style={styles.handleBar} /></View>
             <View style={styles.sheetHeader}>
-              <View>
-                <AppText style={styles.sheetTitle}>Set Time & Questions</AppText>
-                <AppText style={styles.sheetSubtitle}>Choose how many questions and whether you want a timer.</AppText>
+              <View style={{ flex: 1 }}>
+                <AppText style={styles.sheetTitle}>
+                  {isSectionExam ? 'Set Time & Subsections' : 'Set Time & Questions'}
+                </AppText>
+                <AppText style={styles.sheetSubtitle}>
+                  {isSectionExam 
+                    ? 'Choose the subsections to practice and configure your timer.' 
+                    : 'Choose how many questions and whether you want a timer.'}
+                </AppText>
               </View>
-              <TouchableOpacity onPress={() => setShowTime(false)}><Feather name="x" size={24} color="#9CA3AF" /></TouchableOpacity>
+              <TouchableOpacity onPress={() => setShowTime(false)} hitSlop={{ top: 10, right: 10, bottom: 10, left: 10 }}>
+                <Feather name="x" size={24} color="#9CA3AF" />
+              </TouchableOpacity>
             </View>
 
-            <View style={{ paddingHorizontal: 24, paddingBottom: 40 }}>
-              <AppText style={styles.sectionLabel}>Number of Questions</AppText>
-              <View style={styles.questionsRow}>
-                {[100, 200, 400, 600].map(num => (
-                  <TouchableOpacity 
-                    key={num} 
-                    style={[styles.questionPill, !isCustomQuestions && questionCount === num && styles.questionPillSelected]}
-                    onPress={() => {
-                      setIsCustomQuestions(false);
-                      setQuestionCount(num);
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <AppText style={[styles.questionPillText, !isCustomQuestions && questionCount === num && styles.questionPillTextSelected]}>{num}</AppText>
-                  </TouchableOpacity>
-                ))}
-
-                <TouchableOpacity 
-                  style={[styles.customPill, isCustomQuestions && styles.customPillSelected]}
-                  onPress={() => {
-                    setIsCustomQuestions(true);
-                    if (customQuestionInput) {
-                      const val = parseInt(customQuestionInput, 10);
-                      if (!isNaN(val) && val > 0) {
-                        setQuestionCount(val);
-                      }
-                    }
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <AppText style={[styles.customPillText, isCustomQuestions && styles.customPillTextSelected]}>
-                    {isCustomQuestions && questionCount ? `Custom (${questionCount}) ` : 'Custom '}
+            <ScrollView style={styles.scrollArea} showsVerticalScrollIndicator={false}>
+              {isSectionExam ? (
+                <View style={{ marginBottom: 20 }}>
+                  <View style={styles.subsectionsHeaderRow}>
+                    <AppText style={styles.sectionLabel}>Select Subsections</AppText>
+                    {ieltsTotalQuestions !== null && ieltsTotalQuestions > 0 && (
+                      <View style={styles.totalQuestionsBadge}>
+                        <Feather name="help-circle" size={13} color="#6D28D9" />
+                        <AppText style={styles.totalQuestionsBadgeText}>
+                          {ieltsTotalQuestions} {ieltsTotalQuestions === 1 ? 'question' : 'questions'}
+                        </AppText>
+                      </View>
+                    )}
+                  </View>
+                  <AppText style={styles.subsectionsSubtitle}>
+                    Choose the parts or passages you want to practice for your selected sections.
                   </AppText>
-                  <Feather name="edit-2" size={12} color={isCustomQuestions ? '#FFF' : '#111827'} />
-                </TouchableOpacity>
-              </View>
 
-              {isCustomQuestions && (
-                <View style={styles.customInputContainer}>
-                  <AppText style={styles.customInputLabel}>Enter custom question count (1 - 1000):</AppText>
-                  <View style={[styles.customInputRow, isCustomInputFocused && styles.customInputRowFocused]}>
-                    <TextInput
-                      style={styles.customTextInput}
-                      keyboardType="number-pad"
-                      placeholder="e.g. 50"
-                      placeholderTextColor="#9CA3AF"
-                      value={customQuestionInput}
-                      onFocus={() => setIsCustomInputFocused(true)}
-                      onBlur={() => setIsCustomInputFocused(false)}
-                      selectionColor="#7C3AED"
-                      underlineColorAndroid="transparent"
-                      onChangeText={(text) => {
-                        const cleaned = text.replace(/[^0-9]/g, '');
-                        setCustomQuestionInput(cleaned);
-                        const val = parseInt(cleaned, 10);
-                        if (!isNaN(val) && val > 0) {
-                          setQuestionCount(val);
-                        } else {
-                          setQuestionCount(null);
+                  {selectedSubjects.length === 0 ? (
+                    <View style={styles.noSectionBox}>
+                      <Feather name="info" size={18} color="#6B7280" />
+                      <AppText style={styles.noSectionText}>Please select at least one section first.</AppText>
+                      <TouchableOpacity 
+                        style={styles.selectSectionBtn} 
+                        onPress={() => {
+                          setShowTime(false);
+                          setShowSubjects(true);
+                        }}
+                      >
+                        <AppText style={styles.selectSectionBtnText}>Choose Sections</AppText>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    selectedSubjects.map(subId => {
+                      const sub = subjects.find(s => s.id === subId);
+                      if (!sub) return null;
+                      const configList = getIeltsSubsectionsForSectionName(sub.name);
+                      const selectedList = selectedTopicsBySubject[subId] || [];
+
+                      return (
+                        <View key={subId} style={styles.ieltsSectionGroup}>
+                          {/* Section Header with Select All / Clear */}
+                          <View style={styles.ieltsSectionHeader}>
+                            <View style={{ flex: 1 }}>
+                              <AppText style={styles.ieltsSectionTitle}>{sub.name}</AppText>
+                              <AppText style={styles.ieltsSectionCount}>
+                                {selectedList.length} of {configList.length} selected
+                              </AppText>
+                            </View>
+                            <View style={styles.ieltsSectionActions}>
+                              <TouchableOpacity 
+                                onPress={() => handleSelectAllIeltsSubsections(subId)} 
+                                style={styles.ieltsMiniBtn}
+                              >
+                                <AppText style={styles.ieltsMiniBtnText}>All</AppText>
+                              </TouchableOpacity>
+                              <TouchableOpacity 
+                                onPress={() => handleClearIeltsSubsections(subId)} 
+                                style={styles.ieltsMiniBtn}
+                              >
+                                <AppText style={styles.ieltsMiniBtnDangerText}>Clear</AppText>
+                              </TouchableOpacity>
+                            </View>
+                          </View>
+
+                          {/* Subsection Cards */}
+                          <View style={styles.ieltsSubsectionsList}>
+                            {configList.map((item) => {
+                              const isSelected = selectedList.includes(item.id);
+                              return (
+                                <TouchableOpacity
+                                  key={item.id}
+                                  style={[
+                                    styles.ieltsSubsectionCard,
+                                    isSelected && styles.ieltsSubsectionCardSelected,
+                                  ]}
+                                  onPress={() => handleToggleIeltsSubsection(subId, item.id)}
+                                  activeOpacity={0.7}
+                                >
+                                  <View style={styles.ieltsSubsectionLeft}>
+                                    <AppText style={[styles.ieltsSubsectionName, isSelected && styles.ieltsSubsectionNameSelected]}>
+                                      {item.name}
+                                    </AppText>
+                                    <AppText style={styles.ieltsSubsectionSubtitle}>
+                                      {item.subtitle}
+                                    </AppText>
+                                  </View>
+
+                                  <View style={styles.ieltsSubsectionRight}>
+                                    <View style={[styles.ieltsQCountChip, isSelected && styles.ieltsQCountChipSelected]}>
+                                      <AppText style={[styles.ieltsQCountText, isSelected && styles.ieltsQCountTextSelected]}>
+                                        {item.questionCount} Qs
+                                      </AppText>
+                                    </View>
+                                    <View style={[styles.checkCircle, isSelected && styles.checkCircleSelected]}>
+                                      {isSelected && <Feather name="check" size={13} color="#FFFFFF" />}
+                                    </View>
+                                  </View>
+                                </TouchableOpacity>
+                              );
+                            })}
+                          </View>
+                        </View>
+                      );
+                    })
+                  )}
+                </View>
+              ) : (
+                <>
+                  <AppText style={styles.sectionLabel}>Number of Questions</AppText>
+                  <View style={styles.questionsRow}>
+                    {[100, 200, 400, 600].map(num => (
+                      <TouchableOpacity 
+                        key={num} 
+                        style={[styles.questionPill, !isCustomQuestions && questionCount === num && styles.questionPillSelected]}
+                        onPress={() => {
+                          setIsCustomQuestions(false);
+                          setQuestionCount(num);
+                        }}
+                        activeOpacity={0.7}
+                      >
+                        <AppText style={[styles.questionPillText, !isCustomQuestions && questionCount === num && styles.questionPillTextSelected]}>{num}</AppText>
+                      </TouchableOpacity>
+                    ))}
+
+                    <TouchableOpacity 
+                      style={[styles.customPill, isCustomQuestions && styles.customPillSelected]}
+                      onPress={() => {
+                        setIsCustomQuestions(true);
+                        if (customQuestionInput) {
+                          const val = parseInt(customQuestionInput, 10);
+                          if (!isNaN(val) && val > 0) {
+                            setQuestionCount(val);
+                          }
                         }
                       }}
-                      maxLength={4}
-                      autoFocus
-                    />
-                    <AppText style={styles.customInputUnit}>questions</AppText>
+                      activeOpacity={0.7}
+                    >
+                      <AppText style={[styles.customPillText, isCustomQuestions && styles.customPillTextSelected]}>
+                        {isCustomQuestions && questionCount ? `Custom (${questionCount}) ` : 'Custom '}
+                      </AppText>
+                      <Feather name="edit-2" size={12} color={isCustomQuestions ? '#FFF' : '#111827'} />
+                    </TouchableOpacity>
                   </View>
-                </View>
+
+                  {isCustomQuestions && (
+                    <View style={styles.customInputContainer}>
+                      <AppText style={styles.customInputLabel}>Enter custom question count (1 - 1000):</AppText>
+                      <View style={[styles.customInputRow, isCustomInputFocused && styles.customInputRowFocused]}>
+                        <TextInput
+                          style={styles.customTextInput}
+                          keyboardType="number-pad"
+                          placeholder="e.g. 50"
+                          placeholderTextColor="#9CA3AF"
+                          value={customQuestionInput}
+                          onFocus={() => setIsCustomInputFocused(true)}
+                          onBlur={() => setIsCustomInputFocused(false)}
+                          selectionColor="#7C3AED"
+                          underlineColorAndroid="transparent"
+                          onChangeText={(text) => {
+                            const cleaned = text.replace(/[^0-9]/g, '');
+                            setCustomQuestionInput(cleaned);
+                            const val = parseInt(cleaned, 10);
+                            if (!isNaN(val) && val > 0) {
+                              setQuestionCount(val);
+                            } else {
+                              setQuestionCount(null);
+                            }
+                          }}
+                          maxLength={4}
+                          autoFocus
+                        />
+                        <AppText style={styles.customInputUnit}>questions</AppText>
+                      </View>
+                    </View>
+                  )}
+                </>
               )}
 
-              <AppText style={[styles.sectionLabel, { marginTop: isCustomQuestions ? 8 : 20 }]}>Timer</AppText>
+              <AppText style={[styles.sectionLabel, { marginTop: (!isSectionExam && isCustomQuestions) ? 8 : 12 }]}>Timer</AppText>
               <View style={styles.timerRow}>
                 <TouchableOpacity style={[styles.timerCard, isTimed && styles.timerCardSelected]} onPress={() => setIsTimed(true)} activeOpacity={0.8}>
                   <View style={styles.timerCardHeader}>
@@ -1111,10 +1638,21 @@ export default function PracticeSetupScreen() {
                 </TouchableOpacity>
               </View>
 
-              <TouchableOpacity style={[styles.continueButton, { marginTop: 24 }]} onPress={() => setShowTime(false)}>
-                <AppText style={styles.continueButtonText}>Continue</AppText>
+              <TouchableOpacity 
+                style={[
+                  styles.continueButton, 
+                  { marginTop: 24 },
+                  isSectionExam && (ieltsTotalQuestions === null || ieltsTotalQuestions === 0) && styles.continueButtonDisabled
+                ]} 
+                disabled={isSectionExam && (ieltsTotalQuestions === null || ieltsTotalQuestions === 0)}
+                onPress={() => setShowTime(false)}
+              >
+                <AppText style={styles.continueButtonText}>
+                  {isSectionExam ? `Done (${ieltsTotalQuestions || 0} Questions)` : 'Continue'}
+                </AppText>
               </TouchableOpacity>
-            </View>
+              <View style={{ height: 40 }} />
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -1141,6 +1679,15 @@ export default function PracticeSetupScreen() {
           setSubscriptionMessage(undefined);
           router.push('/(tabs)/bundles' as any);
         }}
+      />
+
+      {/* Guest Limit Exhausted Modal */}
+      <GuestAuthModal
+        visible={guestLimitModalVisible}
+        onClose={() => setGuestLimitModalVisible(false)}
+        title="🎉 You’ve completed your 3 free guest tests."
+        subtitle="Create your free Classore account to continue taking tests, save your results, build your streak and track your progress."
+        showContinueAsGuest={false}
       />
       
     </SafeAreaView>
@@ -1462,5 +2009,163 @@ const styles = StyleSheet.create({
   checkCircleSelected: {
     backgroundColor: '#6D28D9',
     borderColor: '#6D28D9',
+  },
+
+  // IELTS Subsections Styles
+  subsectionsHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  totalQuestionsBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EDE9FE',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 5,
+  },
+  totalQuestionsBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#6D28D9',
+  },
+  subsectionsSubtitle: {
+    fontSize: 13,
+    color: '#6B7280',
+    marginBottom: 16,
+  },
+  noSectionBox: {
+    padding: 20,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+    alignItems: 'center',
+    marginVertical: 10,
+  },
+  noSectionText: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginVertical: 8,
+    textAlign: 'center',
+  },
+  selectSectionBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    backgroundColor: '#6D28D9',
+    borderRadius: 8,
+    marginTop: 4,
+  },
+  selectSectionBtnText: {
+    color: '#FFF',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  ieltsSectionGroup: {
+    marginBottom: 18,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
+  },
+  ieltsSectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  ieltsSectionTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  ieltsSectionCount: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 1,
+  },
+  ieltsSectionActions: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  ieltsMiniBtn: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    backgroundColor: '#FFF',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  ieltsMiniBtnText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#4B5563',
+  },
+  ieltsMiniBtnDangerText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#EF4444',
+  },
+  ieltsSubsectionsList: {
+    gap: 8,
+  },
+  ieltsSubsectionCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FFF',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  ieltsSubsectionCardSelected: {
+    borderColor: '#7E57C2',
+    backgroundColor: '#FBF9FF',
+    borderWidth: 1.5,
+  },
+  ieltsSubsectionLeft: {
+    flex: 1,
+    marginRight: 10,
+  },
+  ieltsSubsectionName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: 2,
+  },
+  ieltsSubsectionNameSelected: {
+    color: '#5B21B6',
+  },
+  ieltsSubsectionSubtitle: {
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  ieltsSubsectionRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  ieltsQCountChip: {
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    backgroundColor: '#F3F4F6',
+  },
+  ieltsQCountChipSelected: {
+    backgroundColor: '#EDE9FE',
+  },
+  ieltsQCountText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#6B7280',
+  },
+  ieltsQCountTextSelected: {
+    color: '#6D28D9',
   },
 });

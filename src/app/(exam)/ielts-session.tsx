@@ -15,9 +15,10 @@ import {
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Image } from 'expo-image';
-import { Audio } from 'expo-av';
+import { createAudioPlayer, AudioPlayer, setAudioModeAsync } from 'expo-audio';
 import { mediaCache } from '@/services/mediaCache';
-import { examService, UserAttempt, AttemptSection, QuestionGroupItem, UserResponseItem } from '@/services/exam';
+import { examService, UserAttempt, AttemptSection, QuestionGroupItem, UserResponseItem, resolveNumericExamId } from '@/services/exam';
+import { guestService } from '@/services/guest';
 import { storage } from '@/services/storage';
 import { 
   MultiSelectQuestion, 
@@ -35,8 +36,25 @@ import {
   isSubscriptionError, 
   getSubscriptionErrorMessage 
 } from '@/components/SubscriptionRequiredModal';
+import { ExamSupportModal } from '@/components/ExamSupportModal';
 import { formatQuestionText } from '@/utils/questionFormatter';
 import { navigateWithFrom } from '@/utils/helpNavigation';
+
+export const isResponseAnswered = (r?: UserResponseItem | null): boolean => {
+  if (!r) return false;
+  if (r.selected_choice !== null && r.selected_choice !== undefined) return true;
+  if (typeof r.written_response === 'string' && r.written_response.trim().length > 0) return true;
+  if (r.audio_response) return true;
+  if (r.metadata) {
+    if (r.metadata.tfng_answer || r.metadata.ynng_answer) return true;
+    if (Array.isArray(r.metadata.selected_choices) && r.metadata.selected_choices.length > 0) return true;
+    if (r.metadata.matches && Object.keys(r.metadata.matches).length > 0) return true;
+    if (r.metadata.blanks && Object.values(r.metadata.blanks).some((v: any) => typeof v === 'string' && v.trim().length > 0)) return true;
+    if (r.metadata.labels && Object.values(r.metadata.labels).some((v: any) => typeof v === 'string' && v.trim().length > 0)) return true;
+    if (r.metadata.audio_uri) return true;
+  }
+  return false;
+};
 
 export default function IELTSSessionScreen() {
   const router = useRouter();
@@ -51,6 +69,7 @@ export default function IELTSSessionScreen() {
     mode?: string;
     time_limit?: string;
     section_index?: string;
+    is_guest?: string;
   }>();
   
   const [attempt, setAttempt] = useState<UserAttempt | null>(null);
@@ -62,7 +81,7 @@ export default function IELTSSessionScreen() {
   const [currentResponseIndex, setCurrentResponseIndex] = useState(0);
 
   // Listening Audio State
-  const [sound, setSound] = useState<Audio.Sound | null>(null);
+  const [sound, setSound] = useState<AudioPlayer | null>(null);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [hasPlayedAudio, setHasPlayedAudio] = useState(false);
   const [audioPosition, setAudioPosition] = useState(0);
@@ -77,6 +96,7 @@ export default function IELTSSessionScreen() {
   const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
   const [subscriptionMessage, setSubscriptionMessage] = useState<string | undefined>();
   const [showSubmitModal, setShowSubmitModal] = useState(false);
+  const [showSupportModal, setShowSupportModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [writingElapsedSeconds, setWritingElapsedSeconds] = useState(0);
   const tabsScrollViewRef = useRef<ScrollView>(null);
@@ -90,14 +110,36 @@ export default function IELTSSessionScreen() {
         let currentAttempt: UserAttempt | undefined;
         const attemptId = examService.parseAttemptId(params.attempt_id) || (await examService.getActiveAttemptId());
         if (attemptId) {
-          const res = await examService.resumeExam(attemptId);
-          currentAttempt = res;
-          if (res.timer_info?.remaining_seconds !== undefined) {
-            setTimeLeft(res.timer_info.remaining_seconds);
+          try {
+            const res = await examService.resumeExam(attemptId);
+            if (res.status === 'Completed' || res.timer_info?.is_expired) {
+              await storage.remove('@classore_active_attempt').catch(() => {});
+              examService.clearActiveAttemptId();
+              router.replace({
+                pathname: '/(exam)/test-result',
+                params: { attempt_id: String(attemptId) }
+              });
+              return;
+            }
+            currentAttempt = res;
+            if (res.timer_info?.remaining_seconds !== undefined) {
+              setTimeLeft(res.timer_info.remaining_seconds);
+            }
+          } catch (e: any) {
+            console.warn('Failed to resume IELTS attempt:', e);
+            if (e?.response?.data?.is_completed || e?.response?.data?.status === 'Completed' || e?.response?.status === 400) {
+              await storage.remove('@classore_active_attempt').catch(() => {});
+              examService.clearActiveAttemptId();
+              router.replace({
+                pathname: '/(exam)/test-result',
+                params: { attempt_id: String(attemptId) }
+              });
+              return;
+            }
           }
         }
         if (!currentAttempt) {
-          const examId = params.exam ? Number(params.exam) : (params.exam_type_id ? Number(params.exam_type_id) : 42);
+          const examId = resolveNumericExamId(params.exam || params.exam_type_id, 42);
           let order: number[] | undefined;
           if (params.section_order) {
             order = params.section_order.split(',').map(Number);
@@ -203,6 +245,49 @@ export default function IELTSSessionScreen() {
     }
   }, [params.section_index]);
 
+  // Keep @classore_active_attempt and recent attempts synchronized with real-time dynamic answered count
+  useEffect(() => {
+    if (!attempt?.id) return;
+    let total = 0;
+    let answered = 0;
+    attempt.sections?.forEach(sec => {
+      sec.question_groups?.forEach(grp => {
+        grp.responses?.forEach(r => {
+          total++;
+          const hasChoice = r.selected_choice !== null && r.selected_choice !== undefined;
+          const hasText = typeof r.written_response === 'string' && r.written_response.trim().length > 0;
+          let hasMeta = false;
+          if (r.metadata && typeof r.metadata === 'object') {
+            const keys = Object.keys(r.metadata);
+            if (keys.length > 0) {
+              hasMeta = keys.some(k => {
+                const val = (r.metadata as any)[k];
+                return val !== null && val !== undefined && val !== '';
+              });
+            }
+          }
+          if (hasChoice || hasText || hasMeta || r.audio_response) {
+            answered++;
+          }
+        });
+      });
+    });
+
+    const resolvedTitle = (attempt as any)?.exam_type_name || params.exam_name || 'IELTS Academic Test';
+    const activeData = {
+      id: attempt.id,
+      exam_type: attempt.exam_type || 42,
+      title: resolvedTitle,
+      is_section_based: true,
+      total_questions: total || 40,
+      answered_questions: answered,
+      status: 'in_progress',
+      timestamp: Date.now(),
+    };
+    storage.set('@classore_active_attempt', activeData).catch(() => {});
+    examService.saveRecentAttempt(activeData).catch(() => {});
+  }, [attempt, params.exam_name]);
+
   // Auto-redirect if active section is Listening or Speaking
   useEffect(() => {
     if (!loading && attempt && attempt.sections && attempt.sections.length > 0) {
@@ -290,9 +375,7 @@ export default function IELTSSessionScreen() {
       sec.question_groups?.forEach(grp => {
         grp.responses?.forEach(resp => {
           total += 1;
-          if (resp.selected_choice !== null && resp.selected_choice !== undefined) {
-            answered += 1;
-          } else if (resp.written_response || resp.audio_response) {
+          if (isResponseAnswered(resp)) {
             answered += 1;
           }
           if ((resp as any).is_bookmarked) {
@@ -312,7 +395,9 @@ export default function IELTSSessionScreen() {
   useEffect(() => {
     return () => {
       if (sound) {
-        sound.unloadAsync();
+        try {
+          sound.remove();
+        } catch {}
       }
     };
   }, [sound]);
@@ -516,14 +601,14 @@ export default function IELTSSessionScreen() {
     try {
       if (sound) {
         if (isPlayingAudio) {
-          await sound.pauseAsync();
+          sound.pause();
           setIsPlayingAudio(false);
         } else {
           if (params.mode === 'Standard' && hasPlayedAudio) {
             Alert.alert('Audio Limit', 'In Standard IELTS Listening, the audio track can only be played once.');
             return;
           }
-          await sound.playAsync();
+          sound.play();
           setIsPlayingAudio(true);
         }
         return;
@@ -534,27 +619,23 @@ export default function IELTSSessionScreen() {
         return;
       }
 
-      await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
+      await setAudioModeAsync({ playsInSilentMode: true });
       const cachedAudioUri = await mediaCache.getCachedAudioUri(audioUri);
       if (!cachedAudioUri) {
         Alert.alert('Audio Unavailable', 'Could not resolve audio source URL.');
         return;
       }
 
-      const { sound: newSound } = await Audio.Sound.createAsync(
-        { uri: cachedAudioUri },
-        { shouldPlay: true },
-        (status) => {
-          if (status.isLoaded) {
-            setAudioPosition(status.positionMillis || 0);
-            setAudioDuration(status.durationMillis || 0);
-            if (status.didJustFinish) {
-              setIsPlayingAudio(false);
-              setHasPlayedAudio(true);
-            }
-          }
+      const newSound = createAudioPlayer({ uri: cachedAudioUri });
+      newSound.addListener('playbackStatusUpdate', (status) => {
+        setAudioPosition(status.currentTime || 0);
+        setAudioDuration(status.duration || 0);
+        if (status.didJustFinish) {
+          setIsPlayingAudio(false);
+          setHasPlayedAudio(true);
         }
-      );
+      });
+      newSound.play();
       setSound(newSound);
       setIsPlayingAudio(true);
     } catch (e: any) {
@@ -871,7 +952,9 @@ export default function IELTSSessionScreen() {
 
         // Unload any playing audio
         if (sound) {
-          sound.unloadAsync().catch(() => {});
+          try {
+            sound.remove();
+          } catch {}
           setSound(null);
           setIsPlayingAudio(false);
         }
@@ -981,16 +1064,38 @@ export default function IELTSSessionScreen() {
       const submitRes = await examService.submitExam(attempt.id, { responses: responsesPayload });
       await storage.remove(pendingKey);
       await storage.remove('@classore_active_attempt');
+
+      let submitTotalCount = 0;
+      attempt.sections?.forEach(sec => {
+        sec.question_groups?.forEach(grp => {
+          submitTotalCount += grp.responses?.length || 0;
+        });
+      });
+      const submitAnsweredCount = responsesPayload.filter(r => 
+        (r.choice_id !== null && r.choice_id !== undefined) || 
+        (typeof r.written_response === 'string' && r.written_response.trim().length > 0) || 
+        (r.metadata && Object.keys(r.metadata).length > 0)
+      ).length;
+
       examService.saveRecentAttempt({
         id: attempt.id,
         exam_type: attempt.exam_type || 42,
         title: params.exam_name || 'IELTS Academic Test',
-        total_questions: 40,
-        answered_questions: 40,
+        total_questions: submitTotalCount || 40,
+        answered_questions: submitAnsweredCount,
         status: 'completed',
         is_section_based: true,
         timestamp: Date.now(),
       }).catch(() => {});
+      await storage.set('@classore_last_attempt_id', attempt.id);
+      if (params.is_guest === 'true') {
+        try {
+          await guestService.incrementGuestAttemptsCount();
+        } catch (e) {
+          console.warn('Could not increment guest attempts count:', e);
+        }
+      }
+
       setShowSubmitModal(false);
       router.replace({
         pathname: '/(exam)/test-result',
@@ -1004,6 +1109,7 @@ export default function IELTSSessionScreen() {
           ai_feedbacks: submitRes?.ai_feedbacks ? JSON.stringify(submitRes.ai_feedbacks) : '',
           ai_assessment_status: submitRes?.ai_assessment_status || '',
           ai_skip_reason: submitRes?.ai_skip_reason || '',
+          is_guest: params.is_guest || undefined,
         }
       });
     } catch (err: any) {
@@ -1433,7 +1539,13 @@ export default function IELTSSessionScreen() {
                   <TFNGQuestion
                     statement={currentResponse.question.text}
                     format={currentResponse.question.metadata?.format}
-                    selectedAnswer={currentResponse.metadata?.tfng_answer || currentResponse.metadata?.ynng_answer}
+                    selectedAnswer={
+                      currentResponse.metadata?.tfng_answer || 
+                      currentResponse.metadata?.ynng_answer ||
+                      (currentResponse.selected_choice !== null && currentResponse.selected_choice !== undefined
+                        ? currentResponse.question.choices?.find(c => Number(c.id) === Number(currentResponse.selected_choice))?.text?.trim().toUpperCase() 
+                        : undefined)
+                    }
                     onSelect={handleSelectTFNG}
                   />
                 ) : currentResponse.question.question_type === 'MATCHING' ? (
@@ -1495,7 +1607,12 @@ export default function IELTSSessionScreen() {
                   /* FORMAT 6: Multi-Select MCQ ("Choose 2 or 3 options") */
                   <MultiSelectQuestion
                     choices={currentResponse.question.choices || []}
-                    selectedChoiceIds={currentResponse.metadata?.selected_choices || (currentResponse.selected_choice ? [currentResponse.selected_choice] : [])}
+                    selectedChoiceIds={
+                      currentResponse.metadata?.selected_choices || 
+                      (currentResponse.selected_choice !== null && currentResponse.selected_choice !== undefined
+                        ? [Number(currentResponse.selected_choice)] 
+                        : [])
+                    }
                     maxChoices={currentResponse.question.metadata?.max_choices || currentResponse.question.metadata?.max_selections || 2}
                     onSelect={handleSelectMultiChoice}
                   />
@@ -1504,7 +1621,9 @@ export default function IELTSSessionScreen() {
                   currentResponse.question.choices && currentResponse.question.choices.length > 0 && (
                     <View style={styles.optionsList}>
                       {currentResponse.question.choices.map((opt, i) => {
-                        const isSelected = currentResponse.selected_choice === opt.id;
+                        const isSelected = currentResponse.selected_choice !== null && 
+                                           currentResponse.selected_choice !== undefined && 
+                                           Number(currentResponse.selected_choice) === Number(opt.id);
                         const label = String.fromCharCode(65 + i);
                         return (
                           <TouchableOpacity
@@ -1584,7 +1703,7 @@ export default function IELTSSessionScreen() {
           <TouchableOpacity 
             style={styles.bottomBarAction} 
             activeOpacity={0.7}
-            onPress={() => navigateWithFrom('/(tabs)/contact-support', '/(exam)/ielts-session', undefined, params)}
+            onPress={() => setShowSupportModal(true)}
           >
             <Feather name="headphones" size={18} color="#4B5563" />
             <Text style={styles.bottomBarActionText}>Contact Support</Text>
@@ -1722,7 +1841,7 @@ export default function IELTSSessionScreen() {
                     }
 
                     const isCurrent = activeGroupIndex === targetGroupIdx && currentResponseIndex === targetRespIdx;
-                    const isAnswered = r.selected_choice !== null || r.written_response !== null;
+                    const isAnswered = isResponseAnswered(r);
                     const isQBookmarked = bookmarkedQuestions.includes(r.question?.id);
 
                     return (
@@ -1780,6 +1899,14 @@ export default function IELTSSessionScreen() {
           setShowSubscriptionModal(false);
           router.replace('/(tabs)/bundles' as any);
         }}
+      />
+
+      <ExamSupportModal
+        visible={showSupportModal}
+        onClose={() => setShowSupportModal(false)}
+        examTitle={attempt?.exam_name || 'IELTS Examination'}
+        currentQuestionNumber={globalQuestionNumber}
+        attemptId={attempt?.id}
       />
     </SafeAreaView>
   );

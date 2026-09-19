@@ -1,7 +1,7 @@
 import { AppText } from '@/components/AppText';
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, SafeAreaView, Platform, ActivityIndicator } from 'react-native';
-import { Ionicons, Feather } from '@expo/vector-icons';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, SafeAreaView, Platform, ActivityIndicator, Alert } from 'react-native';
+import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 
 import { useAuth } from '@/context/AuthContext';
@@ -59,9 +59,10 @@ export default function HomeScreen() {
       }
 
       const res = await examService.resumeExam(attemptId);
+      const isStatusInProgress = String(res?.status || '').toLowerCase().includes('progress');
       if (
         res &&
-        res.status === 'in_progress' &&
+        isStatusInProgress &&
         !res.timer_info?.is_expired &&
         (res.timer_info?.remaining_seconds ?? 0) > 0
       ) {
@@ -99,11 +100,13 @@ export default function HomeScreen() {
           is_section_based: isSectionBased,
         });
       } else {
-        await storage.remove('@classore_active_attempt');
+        await storage.remove('@classore_active_attempt').catch(() => {});
         setActiveAttempt(null);
       }
     } catch (e) {
       console.warn('Failed to check active exam attempt:', e);
+      await storage.remove('@classore_active_attempt').catch(() => {});
+      setActiveAttempt(null);
     }
   }, []);
 
@@ -228,6 +231,162 @@ export default function HomeScreen() {
     const m = Math.floor((diff / 1000 / 60) % 60);
     return `${d}d : ${h}h : ${m}m`;
   };
+
+  const isGuest = !token;
+
+  if (isGuest) {
+    return (
+      <SafeAreaView style={styles.guestSafeArea}>
+        <ScrollView contentContainerStyle={styles.guestScrollContent} showsVerticalScrollIndicator={false}>
+          {/* Guest Header */}
+          <View style={styles.guestHeader}>
+            <View style={styles.guestHeaderLeft}>
+              <AppText style={styles.guestGreeting}>Hello, Guest!</AppText>
+              <AppText style={styles.guestSubGreeting}>
+                Explore our mock tests and see what Classore has to offer.
+              </AppText>
+            </View>
+            <View style={styles.guestHeaderRight}>
+              <TouchableOpacity 
+                style={styles.iconButton} 
+                activeOpacity={0.8}
+                onPress={() => router.push('/notifications')}
+              >
+                <Feather name="bell" size={20} color="#1E293B" />
+                {hasUnread && <View style={styles.notificationDot} />}
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.darkModeToggle, isDarkMode ? styles.darkModeToggleActive : styles.darkModeToggleInactive]} 
+                onPress={() => setIsDarkMode(!isDarkMode)}
+                activeOpacity={0.85}
+              >
+                <View style={[styles.toggleThumb, isDarkMode ? styles.toggleThumbRight : styles.toggleThumbLeft]}>
+                  <Ionicons 
+                    name="moon" 
+                    size={13} 
+                    color={isDarkMode ? '#FFFFFF' : '#4B5563'} 
+                  />
+                </View>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Search Bar */}
+          <TouchableOpacity 
+            style={styles.guestSearchBar} 
+            activeOpacity={0.85}
+            onPress={() => router.push('/(tabs)/search' as any)}
+          >
+            <Feather name="search" size={18} color="#9CA3AF" />
+            <AppText style={styles.guestSearchText}>Search for anything</AppText>
+            <Feather name="sliders" size={18} color="#9CA3AF" />
+          </TouchableOpacity>
+
+          {/* Guest Hero Banner */}
+          <View style={styles.guestHeroCard}>
+            <View style={styles.guestHeroLeft}>
+              <AppText style={styles.guestHeroTitle}>
+                Mock Tests{'\n'}Available for Guests
+              </AppText>
+              <AppText style={styles.guestHeroSubtitle}>
+                Try our practice tests and build your confidence.
+              </AppText>
+              <TouchableOpacity 
+                style={styles.guestHeroBtn}
+                onPress={() => router.push('/mock-tests' as any)}
+                activeOpacity={0.85}
+              >
+                <AppText style={styles.guestHeroBtnText}>Start Test</AppText>
+                <Feather name="arrow-right" size={15} color="#FFFFFF" />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.guestHeroRight}>
+              <Image 
+                source={require('../../../assets/images/guest-mock-tests-hero.png')} 
+                style={styles.guestHeroImage} 
+                contentFit="contain" 
+              />
+            </View>
+          </View>
+
+          {/* Side-by-Side Quick Cards */}
+          <View style={styles.guestSplitRow}>
+            {/* Mock Tests Card */}
+            <TouchableOpacity 
+              style={styles.guestActionCardPurple}
+              onPress={() => router.push('/mock-tests' as any)}
+              activeOpacity={0.85}
+            >
+              <View style={styles.guestIconBadgePurple}>
+                <Feather name="user" size={18} color="#FFFFFF" />
+              </View>
+              <AppText style={styles.guestActionTitle}>Mock Tests</AppText>
+              <AppText style={styles.guestActionSubtitle}>Free for guests</AppText>
+            </TouchableOpacity>
+
+            {/* View Contest Card */}
+            <TouchableOpacity 
+              style={styles.guestActionCardGreen}
+              onPress={() => router.push('/(tabs)/contest')}
+              activeOpacity={0.85}
+            >
+              <View style={styles.guestIconBadgeGreen}>
+                <MaterialCommunityIcons name="cube-outline" size={20} color="#FFFFFF" />
+              </View>
+              <AppText style={styles.guestActionTitle}>View Contest</AppText>
+              <AppText style={styles.guestActionSubtitle}>Learn & Earn</AppText>
+            </TouchableOpacity>
+          </View>
+
+          {/* Popular Exams Section */}
+          <View style={styles.guestPopularSection}>
+            <View style={styles.guestPopularHeader}>
+              <AppText style={styles.guestPopularTitle}>Popular Exams</AppText>
+              <TouchableOpacity onPress={() => router.push('/(tabs)/practice')} activeOpacity={0.7}>
+                <AppText style={styles.guestViewAllText}>View all</AppText>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.guestExamsRow}>
+              {/* IELTS Card */}
+              <TouchableOpacity 
+                style={styles.guestExamCard}
+                activeOpacity={0.8}
+                onPress={() => router.push({ pathname: '/(tabs)/practice', params: { exam: 'ielts' } })}
+              >
+                <View style={styles.guestIeltsIconBox}>
+                  <Image 
+                    source={require('../../../assets/images/ielts-logo.png')} 
+                    style={styles.guestExamIconImg} 
+                    contentFit="contain" 
+                  />
+                </View>
+                <AppText style={styles.guestExamName}>IELTS</AppText>
+              </TouchableOpacity>
+
+              {/* JAMB Card */}
+              <TouchableOpacity 
+                style={styles.guestExamCard}
+                activeOpacity={0.8}
+                onPress={() => router.push({ pathname: '/(tabs)/practice', params: { exam: 'jamb' } })}
+              >
+                <View style={styles.guestJambIconBox}>
+                  <Image 
+                    source={require('../../../assets/images/jamb-logo.png')} 
+                    style={styles.guestExamIconImg} 
+                    contentFit="contain" 
+                  />
+                </View>
+                <AppText style={styles.guestExamName}>JAMB</AppText>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View style={{ height: 100 }} />
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -381,7 +540,7 @@ export default function HomeScreen() {
         <TouchableOpacity 
           style={styles.searchBar} 
           activeOpacity={0.9}
-          onPress={() => router.push('/search' as any)}
+          onPress={() => router.push('/(tabs)/search' as any)}
         >
           <Image source={require('../../../assets/images/search-icon.png')} style={{ width: 18, height: 18 }} contentFit="contain" />
           <AppText style={styles.searchText}>What do you want to practice today?</AppText>
@@ -441,18 +600,29 @@ export default function HomeScreen() {
             { id: 3, name: 'Weak Areas', image: require('../../../assets/images/qa-target.png'), bg: '#DBEAFE', route: '/weak-topics' },
             { id: 4, name: 'Achievements', image: require('../../../assets/images/qa-achievements.png'), bg: '#FFE4E6', route: '/(tabs)/achievements' },
             { id: 5, name: 'Wallet', image: require('../../../assets/images/qa-wallet.png'), bg: '#EDE9FE', route: '/wallet' },
-            { id: 6, name: 'Refer & Earn', image: require('../../../assets/images/qa-gift-icon.png'), bg: '#FEF3C7', route: '/(tabs)/profile' },
+            { id: 6, name: 'Refer & Earn', image: require('../../../assets/images/qa-gift-icon.png'), bg: '#FEF3C7', route: '/(tabs)/profile', comingSoon: true },
           ].map(action => (
             <TouchableOpacity 
               key={action.id} 
-              style={styles.actionItem} 
+              style={[styles.actionItem, action.comingSoon && { opacity: 0.85 }]} 
               activeOpacity={0.75}
-              onPress={() => action.route && router.push(action.route as any)}
+              onPress={() => {
+                if (action.comingSoon) {
+                  Alert.alert('Coming Soon 🚀', 'The Refer & Earn program will be available in an upcoming update. Stay tuned!');
+                } else if (action.route) {
+                  router.push(action.route as any);
+                }
+              }}
             >
-              <View style={[styles.actionIconContainer, { backgroundColor: action.bg }]}>
-                <Image source={action.image} style={{ width: 22, height: 22 }} contentFit="contain" />
+              <View style={[styles.actionIconContainer, { backgroundColor: action.comingSoon ? '#F1F5F9' : action.bg }]}>
+                {action.comingSoon && (
+                  <View style={styles.comingSoonBadge}>
+                    <Text style={styles.comingSoonBadgeText}>Soon</Text>
+                  </View>
+                )}
+                <Image source={action.image} style={{ width: 22, height: 22, opacity: action.comingSoon ? 0.4 : 1 }} contentFit="contain" />
               </View>
-              <AppText style={styles.actionText} numberOfLines={1}>{action.name}</AppText>
+              <AppText style={[styles.actionText, action.comingSoon && { color: '#9CA3AF' }]} numberOfLines={2}>{action.name}</AppText>
             </TouchableOpacity>
           ))}
         </View>
@@ -819,13 +989,29 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   actionItem: { alignItems: 'center', flex: 1 },
+  comingSoonBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    backgroundColor: '#F59E0B',
+    borderRadius: 8,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    zIndex: 10,
+  },
+  comingSoonBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontWeight: '800',
+  },
   actionIconContainer: { 
     width: 48, 
     height: 48, 
     borderRadius: 14, 
     justifyContent: 'center', 
     alignItems: 'center', 
-    marginBottom: 8 
+    marginBottom: 8,
+    position: 'relative',
   },
   actionText: { fontSize: 10, color: '#374151', textAlign: 'center', fontWeight: '700' },
 
@@ -1102,6 +1288,233 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontFamily: 'Inter_600SemiBold',
     color: '#6D28D9',
+  },
+  // Guest Mode Dedicated Home Screen Styles
+  guestSafeArea: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+  },
+  guestScrollContent: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    backgroundColor: '#FFFFFF',
+  },
+  guestHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginTop: 4,
+    marginBottom: 16,
+  },
+  guestHeaderLeft: {
+    flex: 1,
+    paddingRight: 12,
+  },
+  guestGreeting: {
+    fontSize: 26,
+    fontWeight: '800',
+    color: '#111827',
+    fontFamily: 'Inter_700Bold',
+    marginBottom: 6,
+  },
+  guestSubGreeting: {
+    fontSize: 13.5,
+    color: '#6B7280',
+    lineHeight: 19,
+    fontFamily: 'Inter_400Regular',
+  },
+  guestHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  guestSearchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    height: 48,
+    marginBottom: 18,
+  },
+  guestSearchText: {
+    flex: 1,
+    marginLeft: 10,
+    fontSize: 14,
+    color: '#9CA3AF',
+    fontFamily: 'Inter_400Regular',
+  },
+  guestHeroCard: {
+    backgroundColor: '#EFEAFB',
+    borderRadius: 22,
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 18,
+    minHeight: 165,
+  },
+  guestHeroLeft: {
+    flex: 1.15,
+    paddingRight: 8,
+  },
+  guestHeroTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#111827',
+    lineHeight: 23,
+    marginBottom: 8,
+    fontFamily: 'Inter_700Bold',
+  },
+  guestHeroSubtitle: {
+    fontSize: 12.5,
+    color: '#6B7280',
+    lineHeight: 17,
+    marginBottom: 14,
+    fontFamily: 'Inter_400Regular',
+  },
+  guestHeroBtn: {
+    backgroundColor: '#512898',
+    borderRadius: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 6,
+  },
+  guestHeroBtnText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
+    fontFamily: 'Inter_600SemiBold',
+  },
+  guestHeroRight: {
+    flex: 0.85,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  guestHeroImage: {
+    width: 120,
+    height: 125,
+  },
+  guestSplitRow: {
+    flexDirection: 'row',
+    gap: 14,
+    marginBottom: 24,
+  },
+  guestActionCardPurple: {
+    flex: 1,
+    backgroundColor: '#EFEAFB',
+    borderRadius: 18,
+    padding: 16,
+  },
+  guestActionCardGreen: {
+    flex: 1,
+    backgroundColor: '#DFF6EA',
+    borderRadius: 18,
+    padding: 16,
+  },
+  guestIconBadgePurple: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: '#512898',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  guestIconBadgeGreen: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: '#0F9D58',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  guestActionTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#111827',
+    marginBottom: 3,
+    fontFamily: 'Inter_700Bold',
+  },
+  guestActionSubtitle: {
+    fontSize: 12,
+    color: '#6B7280',
+    fontFamily: 'Inter_400Regular',
+  },
+  guestPopularSection: {
+    marginTop: 4,
+    marginBottom: 16,
+  },
+  guestPopularHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  guestPopularTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#111827',
+    fontFamily: 'Inter_700Bold',
+  },
+  guestViewAllText: {
+    fontSize: 13.5,
+    fontWeight: '700',
+    color: '#512898',
+    fontFamily: 'Inter_600SemiBold',
+  },
+  guestExamsRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  guestExamCard: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#EEECF5',
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.03,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  guestIeltsIconBox: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: '#FEE2E2',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  guestJambIconBox: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: '#DFF6EA',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  guestExamIconImg: {
+    width: 24,
+    height: 24,
+  },
+  guestExamName: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#111827',
+    fontFamily: 'Inter_700Bold',
   },
 });
 

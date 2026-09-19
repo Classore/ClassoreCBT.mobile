@@ -8,7 +8,8 @@ import {
   persistAuthTokens, 
   purgeStoredAuthTokens, 
   setAuthTokens, 
-  getStoredTokenWithFallback 
+  getStoredTokenWithFallback,
+  registerCurrentDeviceSession
 } from '@/services/api';
 import { router } from 'expo-router';
 
@@ -36,6 +37,7 @@ export interface UserProfile {
   best_streak?: number;
   days_active?: number;
   protection_cards_count?: number;
+  auto_protect_streak?: boolean;
   token_balance?: number;
   daily_freemium_attempts?: number;
   last_freemium_reset_date?: string | null;
@@ -55,6 +57,7 @@ type AuthContextType = {
   updateUserProfile: (data: Partial<UserProfile> | FormData) => Promise<UserProfile>;
   changePassword: (oldPassword: string, newPassword: string) => Promise<void>;
   useStreakProtection: () => Promise<{ success: boolean; message: string; remainingCards?: number; streak?: number }>;
+  toggleAutoStreakProtection: (enable?: boolean) => Promise<{ success: boolean; auto_protect_streak: boolean; message?: string }>;
   setGoal: (examName: string) => Promise<void>;
 };
 
@@ -145,6 +148,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setAuthTokens(storedToken);
           // 2. Fetch fresh user details in background (stale-while-revalidate)
           await fetchUserDetails(storedToken);
+          registerCurrentDeviceSession().catch(() => {});
         }
       } catch (e) {
         console.error('Failed to load token or cached user', e);
@@ -187,6 +191,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setToken(newToken);
       // Fetch details asynchronously without blocking the login resolution
       fetchUserDetails(newToken).catch(err => console.error('Failed to fetch user after login', err));
+      registerCurrentDeviceSession().catch(() => {});
     } catch (e) {
       console.error('Failed to save token', e);
     }
@@ -269,6 +274,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const toggleAutoStreakProtection = async (enable?: boolean) => {
+    try {
+      const payload = enable !== undefined ? { auto_protect: enable } : {};
+      const response = await api.post('/api/user/streak/toggle-auto-protect/', payload);
+      const updated = Boolean(response.data?.auto_protect_streak);
+      setUser((prev) => (prev ? { ...prev, auto_protect_streak: updated } : prev));
+      return {
+        success: true,
+        auto_protect_streak: updated,
+        message: response.data?.message,
+      };
+    } catch (e: any) {
+      console.warn('Failed to toggle auto streak protection:', e);
+      return {
+        success: false,
+        auto_protect_streak: user?.auto_protect_streak ?? true,
+        message: e?.response?.data?.message || 'Failed to update auto-protect setting.',
+      };
+    }
+  };
+
   const setGoal = async (examName: string) => {
     try {
       await api.patch('/api/auth/set-goal/', { exam_name: examName });
@@ -292,6 +318,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         updateUserProfile,
         changePassword,
         useStreakProtection,
+        toggleAutoStreakProtection,
         setGoal 
       }}
     >

@@ -13,6 +13,8 @@ import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { notificationService, NotificationItem } from '@/services/notification';
 import { useNotifications } from '@/context/NotificationContext';
+import { storage } from '@/services/storage';
+import { examService } from '@/services/exam';
 
 export default function NotificationsScreen() {
   const router = useRouter();
@@ -22,6 +24,137 @@ export default function NotificationsScreen() {
   useEffect(() => {
     refreshNotifications();
   }, [refreshNotifications]);
+
+  const handleNotificationPress = async (item: NotificationItem) => {
+    // 1. Mark as read immediately
+    if (item.is_unread) {
+      markAsRead(item.id);
+    }
+
+    // 2. Direct url navigation if notification payload specifies a target route/url
+    const explicitUrl = item.action_url || item.data?.url || item.data?.route;
+    if (explicitUrl) {
+      try {
+        router.push(explicitUrl as any);
+        return;
+      } catch (e) {
+        console.warn('Failed to route explicit notification url:', e);
+      }
+    }
+
+    const titleLower = (item.title || '').toLowerCase();
+    const messageLower = (item.message || '').toLowerCase();
+    const type = item.notification_type;
+
+    // 3. "Test completed" notification -> Navigate to test results screen for that test
+    if (
+      type === 'test' ||
+      titleLower.includes('test completed') ||
+      titleLower.includes('exam completed') ||
+      titleLower.includes('test result') ||
+      titleLower.includes('exam result') ||
+      messageLower.includes('test completed') ||
+      messageLower.includes('exam completed')
+    ) {
+      let attemptId =
+        item.attempt_id ||
+        item.data?.attempt_id ||
+        (item as any).object_id ||
+        (item as any).attempt ||
+        (item as any).exam_attempt_id ||
+        item.reference_id ||
+        item.target_id;
+
+      if (!attemptId) {
+        // Check if attempt id is in title or message (e.g., attempt #123, ID 123)
+        const hashMatch = (item.title + ' ' + item.message).match(/(?:#|id[:\s]+)(\d+)/i);
+        if (hashMatch) {
+          attemptId = hashMatch[1];
+        }
+      }
+
+      if (!attemptId) {
+        const storedLastAttempt = await storage.get<number | string>('@classore_last_attempt_id');
+        if (storedLastAttempt) {
+          attemptId = storedLastAttempt;
+        }
+      }
+
+      if (!attemptId) {
+        try {
+          const history = await examService.getExamHistory();
+          const list = Array.isArray(history) ? history : (history?.results || []);
+          if (list.length > 0 && list[0]?.id) {
+            attemptId = list[0].id;
+          }
+        } catch (err) {
+          console.warn('Failed fetching latest attempt from history:', err);
+        }
+      }
+
+      const isIelts =
+        titleLower.includes('ielts') ||
+        messageLower.includes('ielts') ||
+        titleLower.includes('toefl') ||
+        messageLower.includes('toefl') ||
+        item.data?.is_ielts === true;
+
+      const examName = item.data?.exam_name || (isIelts ? 'IELTS Academic Test' : undefined);
+
+      router.push({
+        pathname: '/(exam)/test-result',
+        params: {
+          ...(attemptId ? { attempt_id: String(attemptId) } : {}),
+          ...(examName ? { exam_name: examName } : {}),
+          ...(isIelts ? { is_ielts: 'true' } : {}),
+        },
+      });
+      return;
+    }
+
+    // 4. "New Achievement Unlocked!" notification -> Navigate to achievement page
+    if (
+      type === 'achievement' ||
+      titleLower.includes('achievement') ||
+      titleLower.includes('badge') ||
+      messageLower.includes('achievement unlocked') ||
+      messageLower.includes('achievement')
+    ) {
+      router.push('/(tabs)/achievements');
+      return;
+    }
+
+    // 5. Streak notification -> Navigate to streak screen
+    if (type === 'streak' || titleLower.includes('streak') || messageLower.includes('streak')) {
+      router.push('/streak');
+      return;
+    }
+
+    // 6. Contest notification -> Navigate to contest details or list
+    if (type === 'contest' || titleLower.includes('contest') || messageLower.includes('contest')) {
+      const contestId = item.data?.contest_id || item.reference_id || item.target_id;
+      if (contestId) {
+        router.push({
+          pathname: '/(tabs)/contest/details',
+          params: { id: String(contestId) },
+        });
+      } else {
+        router.push('/(tabs)/contest');
+      }
+      return;
+    }
+
+    // 7. Token / Wallet notification -> Navigate to bundles
+    if (
+      type === 'token' ||
+      titleLower.includes('token') ||
+      titleLower.includes('wallet') ||
+      messageLower.includes('token')
+    ) {
+      router.push('/(tabs)/bundles');
+      return;
+    }
+  };
 
   const getStyleForType = (type: string) => {
     switch (type) {
@@ -139,11 +272,7 @@ export default function NotificationsScreen() {
                         key={item.id} 
                         style={styles.notificationCard} 
                         activeOpacity={0.7}
-                        onPress={() => {
-                          if (item.is_unread) {
-                            markAsRead(item.id);
-                          }
-                        }}
+                        onPress={() => handleNotificationPress(item)}
                       >
                         <View style={[styles.iconWrapper, { backgroundColor: getStyleForType(item.notification_type).iconBg }]}>
                           {renderIcon(item.notification_type)}
@@ -160,6 +289,7 @@ export default function NotificationsScreen() {
                             {item.message}
                           </Text>
                         </View>
+                        <Feather name="chevron-right" size={16} color="#CBD5E1" style={{ marginLeft: 8 }} />
                       </TouchableOpacity>
                     ))}
                   </View>
@@ -176,11 +306,7 @@ export default function NotificationsScreen() {
                         key={item.id} 
                         style={styles.notificationCard} 
                         activeOpacity={0.7}
-                        onPress={() => {
-                          if (item.is_unread) {
-                            markAsRead(item.id);
-                          }
-                        }}
+                        onPress={() => handleNotificationPress(item)}
                       >
                         <View style={[styles.iconWrapper, { backgroundColor: getStyleForType(item.notification_type).iconBg }]}>
                           {renderIcon(item.notification_type)}
@@ -197,6 +323,7 @@ export default function NotificationsScreen() {
                             {item.message}
                           </Text>
                         </View>
+                        <Feather name="chevron-right" size={16} color="#CBD5E1" style={{ marginLeft: 8 }} />
                       </TouchableOpacity>
                     ))}
                   </View>

@@ -1,9 +1,11 @@
 import { Tabs, usePathname } from 'expo-router';
+import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { SymbolView } from 'expo-symbols';
-
 import { Image } from 'expo-image';
+import { useAuth } from '@/context/AuthContext';
+import { GuestAuthModal } from '@/components/GuestAuthModal';
 
 // Custom tab bar button for the center action
 const CustomTabBarButton = ({ children, onPress }: any) => (
@@ -20,6 +22,9 @@ const CustomTabBarButton = ({ children, onPress }: any) => (
 
 export default function TabsLayout() {
   const pathname = usePathname();
+  const { token } = useAuth();
+  const isGuest = !token;
+  const [guestModalVisible, setGuestModalVisible] = useState(false);
 
   const isProfileActive =
     pathname === '/profile' ||
@@ -41,75 +46,108 @@ export default function TabsLayout() {
     pathname?.includes('leaderboard-profile');
 
 
+  const isHomeActive =
+    pathname === '/' ||
+    pathname === '/(tabs)' ||
+    pathname === '/(tabs)/index' ||
+    pathname === '/(tabs)/search' ||
+    pathname === '/search';
+
   return (
-    <Tabs
-      screenOptions={{
-        headerShown: false,
-        tabBarShowLabel: true,
-        tabBarStyle: styles.tabBar,
-        tabBarActiveTintColor: '#6D28D9',
-        tabBarInactiveTintColor: '#9CA3AF',
-        tabBarLabelStyle: styles.tabBarLabel,
-      }}
-    >
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: 'Home',
-          tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? 'home' : 'home-outline'} size={22} color={color} />
-          ),
+    <>
+      <Tabs
+        screenOptions={{
+          headerShown: false,
+          tabBarShowLabel: true,
+          tabBarStyle: styles.tabBar,
+          tabBarActiveTintColor: '#6D28D9',
+          tabBarInactiveTintColor: '#9CA3AF',
+          tabBarLabelStyle: styles.tabBarLabel,
         }}
-      />
-      
-      <Tabs.Screen
-        name="practice"
-        options={{
-          title: 'Practice',
-          tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? 'book' : 'book-outline'} size={22} color={color} />
-          ),
-        }}
-      />
-      
-      <Tabs.Screen
-        name="explore"
-        options={{
-          title: '',
-          tabBarButton: (props) => (
-            <CustomTabBarButton {...props} />
-          ),
-        }}
-      />
-      
-      <Tabs.Screen
-        name="reports"
-        options={{
-          title: 'Reports',
-          tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? 'stats-chart' : 'stats-chart-outline'} size={21} color={color} />
-          ),
-        }}
-      />
-      
-      <Tabs.Screen
-        name="profile"
-        options={{
-          title: 'Profile',
-          tabBarIcon: ({ color, focused }) => (
-            <Ionicons
-              name={focused || isProfileActive ? 'person' : 'person-outline'}
-              size={22}
-              color={isProfileActive ? '#6D28D9' : color}
-            />
-          ),
-          tabBarLabel: ({ color }) => (
-            <Text style={[styles.tabBarLabel, { color: isProfileActive ? '#6D28D9' : (color as string) }]}>
-              Profile
-            </Text>
-          ),
-        }}
-      />
+      >
+        <Tabs.Screen
+          name="index"
+          options={{
+            title: 'Home',
+            tabBarIcon: ({ color, focused }) => (
+              <Ionicons
+                name={focused || isHomeActive ? 'home' : 'home-outline'}
+                size={22}
+                color={isHomeActive ? '#6D28D9' : color}
+              />
+            ),
+            tabBarLabel: ({ color }) => (
+              <Text style={[styles.tabBarLabel, { color: isHomeActive ? '#6D28D9' : (color as string) }]}>
+                Home
+              </Text>
+            ),
+          }}
+        />
+        
+        <Tabs.Screen
+          name="practice"
+          options={{
+            title: 'Practice',
+            tabBarIcon: ({ color, focused }) => (
+              <Ionicons name={focused ? 'book' : 'book-outline'} size={22} color={color} />
+            ),
+          }}
+        />
+        
+        <Tabs.Screen
+          name="explore"
+          options={{
+            title: '',
+            tabBarButton: (props) => (
+              <CustomTabBarButton {...props} />
+            ),
+          }}
+        />
+        
+        <Tabs.Screen
+          name="reports"
+          listeners={{
+            tabPress: (e) => {
+              if (isGuest) {
+                e.preventDefault();
+                setGuestModalVisible(true);
+              }
+            },
+          }}
+          options={{
+            title: 'Reports',
+            tabBarIcon: ({ color, focused }) => (
+              <Ionicons name={focused ? 'stats-chart' : 'stats-chart-outline'} size={21} color={color} />
+            ),
+          }}
+        />
+        
+        <Tabs.Screen
+          name="profile"
+          listeners={{
+            tabPress: (e) => {
+              if (isGuest) {
+                e.preventDefault();
+                setGuestModalVisible(true);
+              }
+            },
+          }}
+          options={{
+            title: 'Profile',
+            tabBarIcon: ({ color, focused }) => (
+              <Ionicons
+                name={focused || isProfileActive ? 'person' : 'person-outline'}
+                size={22}
+                color={isProfileActive ? '#6D28D9' : color}
+              />
+            ),
+            tabBarLabel: ({ color }) => (
+              <Text style={[styles.tabBarLabel, { color: isProfileActive ? '#6D28D9' : (color as string) }]}>
+                Profile
+              </Text>
+            ),
+          }}
+        />
 
       <Tabs.Screen
         name="bundles"
@@ -250,8 +288,20 @@ export default function TabsLayout() {
           href: null,
         }}
       />
+
+      <Tabs.Screen
+        name="search"
+        options={{
+          href: null,
+        }}
+      />
     </Tabs>
 
+    <GuestAuthModal
+      visible={guestModalVisible}
+      onClose={() => setGuestModalVisible(false)}
+    />
+  </>
   );
 }
 

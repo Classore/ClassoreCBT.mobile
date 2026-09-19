@@ -8,7 +8,15 @@ import {
   Alert,
 } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { Audio } from 'expo-av';
+import {
+  useAudioRecorder,
+  RecordingPresets,
+  createAudioPlayer,
+  AudioPlayer,
+  requestRecordingPermissionsAsync,
+  getRecordingPermissionsAsync,
+  setAudioModeAsync,
+} from 'expo-audio';
 import { AppText } from '@/components/AppText';
 import { resolveMediaUrl } from '@/services/mediaCache';
 
@@ -27,13 +35,13 @@ export const AudioResponseQuestion: React.FC<AudioResponseQuestionProps> = ({
   onRecordComplete,
   onClearRecord,
 }) => {
-  const [recording, setRecording] = useState<Audio.Recording | null>(null);
+  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const [isRecording, setIsRecording] = useState<boolean>(false);
   const [recordingSeconds, setRecordingSeconds] = useState<number>(0);
   const [permissionGranted, setPermissionGranted] = useState<boolean>(false);
 
   // Audio Playback state
-  const [sound, setSound] = useState<Audio.Sound | null>(null);
+  const [sound, setSound] = useState<AudioPlayer | null>(null);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [playbackPosition, setPlaybackPosition] = useState<number>(0);
   const [playbackDuration, setPlaybackDuration] = useState<number>(0);
@@ -48,8 +56,8 @@ export const AudioResponseQuestion: React.FC<AudioResponseQuestionProps> = ({
   useEffect(() => {
     (async () => {
       try {
-        const perm = await Audio.requestPermissionsAsync();
-        setPermissionGranted(perm.status === 'granted');
+        const perm = await getRecordingPermissionsAsync();
+        setPermissionGranted(perm.granted);
       } catch (e) {
         console.warn('Audio permission request failed:', e);
       }
@@ -60,10 +68,25 @@ export const AudioResponseQuestion: React.FC<AudioResponseQuestionProps> = ({
   useEffect(() => {
     return () => {
       if (sound) {
-        sound.unloadAsync().catch(() => {});
+        try {
+          sound.remove();
+        } catch {}
       }
     };
   }, [sound]);
+
+  // Reset sound when audioUri changes
+  useEffect(() => {
+    if (sound) {
+      try {
+        sound.remove();
+      } catch {}
+      setSound(null);
+      setIsPlaying(false);
+      setPlaybackPosition(0);
+      setPlaybackDuration(0);
+    }
+  }, [audioUri]);
 
   // Recording Timer effect
   useEffect(() => {
@@ -110,8 +133,8 @@ export const AudioResponseQuestion: React.FC<AudioResponseQuestionProps> = ({
 
   const startRecording = async () => {
     if (!permissionGranted) {
-      const perm = await Audio.requestPermissionsAsync();
-      if (perm.status !== 'granted') {
+      const perm = await requestRecordingPermissionsAsync();
+      if (!perm.granted) {
         Alert.alert('Permission Required', 'Microphone access is needed to record your audio response.');
         return;
       }
@@ -119,15 +142,13 @@ export const AudioResponseQuestion: React.FC<AudioResponseQuestionProps> = ({
     }
 
     try {
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
+      await setAudioModeAsync({
+        allowsRecording: true,
+        playsInSilentMode: true,
       });
 
-      const { recording: newRecording } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY
-      );
-      setRecording(newRecording);
+      await recorder.prepareToRecordAsync();
+      recorder.record();
       setIsRecording(true);
       setRecordingSeconds(0);
     } catch (err) {
@@ -137,14 +158,12 @@ export const AudioResponseQuestion: React.FC<AudioResponseQuestionProps> = ({
   };
 
   const stopRecording = async () => {
-    if (!recording) return;
     try {
       setIsRecording(false);
-      await recording.stopAndUnloadAsync();
-      const uri = recording.getURI();
-      setRecording(null);
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: false,
+      await recorder.stop();
+      const uri = recorder.uri;
+      await setAudioModeAsync({
+        allowsRecording: false,
       });
 
       if (uri) {
@@ -160,30 +179,26 @@ export const AudioResponseQuestion: React.FC<AudioResponseQuestionProps> = ({
     try {
       if (sound) {
         if (isPlaying) {
-          await sound.pauseAsync();
+          sound.pause();
           setIsPlaying(false);
         } else {
-          await sound.playAsync();
+          sound.play();
           setIsPlaying(true);
         }
       } else {
         const resolved = resolveMediaUrl(audioUri);
         if (!resolved) return;
 
-        const { sound: newSound } = await Audio.Sound.createAsync(
-          { uri: resolved },
-          { shouldPlay: true },
-          (status) => {
-            if (status.isLoaded) {
-              setPlaybackPosition(status.positionMillis || 0);
-              setPlaybackDuration(status.durationMillis || 0);
-              if (status.didJustFinish) {
-                setIsPlaying(false);
-                setPlaybackPosition(0);
-              }
-            }
+        const newSound = createAudioPlayer({ uri: resolved });
+        newSound.addListener('playbackStatusUpdate', (status) => {
+          setPlaybackPosition(status.currentTime || 0);
+          setPlaybackDuration(status.duration || 0);
+          if (status.didJustFinish) {
+            setIsPlaying(false);
+            setPlaybackPosition(0);
           }
-        );
+        });
+        newSound.play();
         setSound(newSound);
         setIsPlaying(true);
       }
@@ -224,7 +239,7 @@ export const AudioResponseQuestion: React.FC<AudioResponseQuestionProps> = ({
               <AppText style={styles.playbackTitle}>Audio Response Recorded</AppText>
               <AppText style={styles.playbackSubtitle}>
                 {playbackDuration > 0
-                  ? `${formatSeconds(playbackPosition / 1000)} / ${formatSeconds(playbackDuration / 1000)}`
+                  ? `${formatSeconds(playbackPosition)} / ${formatSeconds(playbackDuration)}`
                   : 'Ready to playback'}
               </AppText>
             </View>
@@ -234,9 +249,15 @@ export const AudioResponseQuestion: React.FC<AudioResponseQuestionProps> = ({
             <TouchableOpacity
               style={styles.reRecordButton}
               onPress={() => {
-                if (sound) sound.unloadAsync().catch(() => {});
+                if (sound) {
+                  try {
+                    sound.remove();
+                  } catch {}
+                }
                 setSound(null);
                 setIsPlaying(false);
+                setPlaybackPosition(0);
+                setPlaybackDuration(0);
                 onClearRecord();
               }}
               activeOpacity={0.7}
