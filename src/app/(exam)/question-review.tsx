@@ -13,6 +13,7 @@ import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { AppText } from '@/components/AppText';
 import { useAuth } from '@/context/AuthContext';
 import { examService, ChoiceItem } from '@/services/exam';
+import { guestService } from '@/services/guest';
 import { resolveMediaUrl } from '@/services/mediaCache';
 import { createAudioPlayer, AudioPlayer as ExpoAudioPlayer, setAudioModeAsync } from 'expo-audio';
 import { soundManager } from '@/services/soundManager';
@@ -528,11 +529,17 @@ export default function QuestionReviewScreen() {
 
       try {
         setLoading(true);
-        const attemptData = await examService.getAttemptReview(Number(params.attempt_id));
-        if (attemptData && attemptData.sections) {
-          const items: FlatQuestionItem[] = [];
-          let overallIndex = 1;
+        let attemptData: any = null;
+        try {
+          attemptData = await examService.getAttemptReview(Number(params.attempt_id));
+        } catch (fetchErr) {
+          console.warn('Direct attempt review fetch failed, trying demo review:', fetchErr);
+        }
 
+        const items: FlatQuestionItem[] = [];
+        let overallIndex = 1;
+
+        if (attemptData && attemptData.sections) {
           // Map top-level attempt ai_feedbacks by question ID if present
           const aiFeedbacksMap = new Map<number, any>();
           const rawAiFeedbacks = (attemptData as any).ai_feedbacks;
@@ -560,7 +567,73 @@ export default function QuestionReviewScreen() {
               });
             });
           });
+        } else {
+          // Fallback to guest demo results
+          const demoReview = await guestService.getDemoTestReview(params.attempt_id);
+          if (demoReview && (demoReview.non_ai_results || demoReview.summary)) {
+            const nonAi = demoReview.non_ai_results || [];
+            const aiQ = demoReview.ai_questions_preview?.questions || [];
 
+            nonAi.forEach((r: any) => {
+              items.push({
+                qId: r.question_id || overallIndex,
+                qNum: overallIndex++,
+                subjectName: r.section || 'General',
+                question: {
+                  id: r.question_id,
+                  text: r.question_text || r.prompt,
+                  question_type: r.question_type || 'MCQ',
+                  explanation: r.explanation,
+                  choices: r.choices || (r.selected_choice && r.correct_choice ? [
+                    { id: 1, text: r.correct_choice, is_correct: true },
+                    ...(r.selected_choice !== r.correct_choice ? [{ id: 2, text: r.selected_choice, is_correct: false }] : [])
+                  ] : []),
+                  group: {
+                    topic_tag: r.topic || 'General',
+                  },
+                },
+                response: {
+                  id: r.question_id,
+                  selected_choice: r.selected_choice,
+                  written_response: r.selected_choice,
+                  score_awarded: r.score_awarded || (r.is_correct ? 1 : 0),
+                  ai_feedback: r.explanation,
+                },
+                group: {
+                  topic_tag: r.topic || 'General',
+                },
+              });
+            });
+
+            aiQ.forEach((r: any) => {
+              items.push({
+                qId: r.question_id || overallIndex,
+                qNum: overallIndex++,
+                subjectName: r.section || 'General',
+                question: {
+                  id: r.question_id,
+                  text: r.prompt,
+                  question_type: r.question_type || 'TEXT',
+                  explanation: r.message,
+                  group: {
+                    topic_tag: 'General',
+                  },
+                },
+                response: {
+                  id: r.question_id,
+                  written_response: r.your_submission,
+                  score_awarded: 0,
+                  ai_feedback: r.message,
+                },
+                group: {
+                  topic_tag: 'General',
+                },
+              });
+            });
+          }
+        }
+
+        if (items.length > 0) {
           setFlatQuestions(items);
 
           // Find targeted question or default to first
@@ -571,9 +644,7 @@ export default function QuestionReviewScreen() {
           }
 
           setCurrentIndex(foundIdx);
-          if (items.length > 0) {
-            populateQuestion(items[foundIdx], items.length);
-          }
+          populateQuestion(items[foundIdx], items.length);
         }
       } catch (err) {
         console.warn('Failed to load question review details:', err);

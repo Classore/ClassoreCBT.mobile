@@ -196,6 +196,20 @@ export const guestService = {
     return await storage.get<any>(`@classore_demo_result_${attemptId}`);
   },
 
+  // 3b. Get Demo Test Review from backend with local fallback
+  getDemoTestReview: async (attemptId: number | string): Promise<any> => {
+    try {
+      const response = await api.get(`/api/user/demo-tests/${attemptId}/review/`);
+      if (response.data) {
+        await guestService.setDemoSubmitResult(attemptId, response.data);
+        return response.data;
+      }
+    } catch (err) {
+      console.warn(`[guestService] Could not fetch demo review from endpoint for attempt ${attemptId}:`, err);
+    }
+    return await guestService.getDemoSubmitResult(attemptId);
+  },
+
   // 4. Sample AI Assessment
   getSampleAiAssessment: async (): Promise<{ summary: string; locked: boolean }> => {
     const response = await api.get('/api/user/demo-tests/sample-ai-assessment/');

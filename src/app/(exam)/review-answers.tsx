@@ -1,5 +1,6 @@
 import { useAuth } from '@/context/AuthContext';
 import { examService } from '@/services/exam';
+import { guestService } from '@/services/guest';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useState } from 'react';
@@ -31,7 +32,7 @@ interface ReviewQuestion {
 export default function ReviewAnswersScreen() {
   const { user } = useAuth();
   const router = useRouter();
-  const params = useLocalSearchParams<{ attempt_id?: string }>();
+  const params = useLocalSearchParams<{ attempt_id?: string; is_guest?: string; exam_name?: string }>();
 
   const [loading, setLoading] = useState<boolean>(Boolean(params.attempt_id));
   const [activeSubject, setActiveSubject] = useState<string>('');
@@ -81,6 +82,49 @@ export default function ReviewAnswersScreen() {
             }));
             setSubjectsList(subItems);
             setActiveSubject(prev => prev || analytics.subjects[0].section_name);
+          }
+        } else if (attemptData && attemptData.sections) {
+          // Derive summary stats and subjects from attempt data when detailed analytics is absent (e.g. guest mode)
+          let totalCount = 0;
+          let correctCount = 0;
+          let incorrectCount = 0;
+          let unattemptedCount = 0;
+          const icons = ['book-open-outline', 'function-variant', 'atom', 'flask-outline'];
+          const subItems: Array<{ name: string; icon: string; count: string }> = [];
+
+          attemptData.sections.forEach((sec, idx) => {
+            let secTotal = 0;
+            let secCorrect = 0;
+            sec.question_groups?.forEach((grp) => {
+              grp.responses?.forEach((resp) => {
+                secTotal++;
+                totalCount++;
+                if ((resp.score_awarded || 0) > 0) {
+                  secCorrect++;
+                  correctCount++;
+                } else if (resp.selected_choice || resp.written_response || resp.audio_response) {
+                  incorrectCount++;
+                } else {
+                  unattemptedCount++;
+                }
+              });
+            });
+            subItems.push({
+              name: sec.section_name,
+              icon: icons[idx % icons.length],
+              count: `${secCorrect} / ${secTotal}`,
+            });
+          });
+
+          setStats({
+            total: totalCount,
+            correct: correctCount,
+            incorrect: incorrectCount,
+            unattempted: unattemptedCount,
+          });
+          if (subItems.length > 0) {
+            setSubjectsList(subItems);
+            setActiveSubject((prev) => prev || subItems[0].name);
           }
         }
 
@@ -160,7 +204,7 @@ export default function ReviewAnswersScreen() {
                   status: qStatus,
                   userAnswer: userAnsText || undefined,
                   correctAnswer: correctAnsText,
-                  aiExplanation: resp.ai_feedback,
+                  aiExplanation: resp.ai_feedback || q.explanation,
                   isBookmarked: isBk,
                   questionType: q.question_type,
                   isSpeaking,
@@ -176,6 +220,79 @@ export default function ReviewAnswersScreen() {
           
           if (!activeSubject && Object.keys(grouped).length > 0) {
             setActiveSubject(Object.keys(grouped)[0]);
+          }
+        } else {
+          // Fallback: If attemptData could not be fetched over network, check local demo submit result
+          const demoResult = await guestService.getDemoTestReview(params.attempt_id);
+          if (demoResult && (demoResult.non_ai_results || demoResult.summary)) {
+            const grouped: Record<string, ReviewQuestion[]> = {};
+            let correctCount = 0;
+            let incorrectCount = 0;
+            let unattemptedCount = 0;
+            let totalCount = 0;
+            const secMap: Record<string, { total: number; correct: number }> = {};
+
+            const processItem = (item: any, isAi = false) => {
+              const secName = item.section || 'General';
+              if (!grouped[secName]) {
+                grouped[secName] = [];
+                secMap[secName] = { total: 0, correct: 0 };
+              }
+              const qNum = grouped[secName].length + 1;
+              totalCount++;
+              secMap[secName].total++;
+
+              let qStatus: 'correct' | 'incorrect' | 'unattempted' = 'unattempted';
+              if (item.is_correct || (item.score_awarded || 0) > 0) {
+                qStatus = 'correct';
+                correctCount++;
+                secMap[secName].correct++;
+              } else if (item.selected_choice || item.your_submission) {
+                qStatus = 'incorrect';
+                incorrectCount++;
+              } else {
+                unattemptedCount++;
+              }
+
+              grouped[secName].push({
+                id: item.question_id || totalCount,
+                questionNumber: qNum,
+                text: item.question_text || item.prompt,
+                status: qStatus,
+                userAnswer: item.selected_choice || item.your_submission || undefined,
+                correctAnswer: item.correct_choice || (isAi ? 'AI Assessment Locked' : 'Option A'),
+                aiExplanation: item.explanation || item.message,
+                isBookmarked: false,
+                questionType: item.question_type || 'MCQ',
+                isSpeaking: item.question_type === 'AUDIO',
+              });
+            };
+
+            if (Array.isArray(demoResult.non_ai_results)) {
+              demoResult.non_ai_results.forEach((it: any) => processItem(it, false));
+            }
+            if (Array.isArray(demoResult.ai_questions_preview?.questions)) {
+              demoResult.ai_questions_preview.questions.forEach((it: any) => processItem(it, true));
+            }
+
+            setQuestionsBySubject(grouped);
+            setStats({
+              total: totalCount,
+              correct: correctCount,
+              incorrect: incorrectCount,
+              unattempted: unattemptedCount,
+            });
+
+            const icons = ['book-open-outline', 'function-variant', 'atom', 'flask-outline'];
+            const subItems = Object.keys(grouped).map((sName, idx) => ({
+              name: sName,
+              icon: icons[idx % icons.length],
+              count: `${secMap[sName].correct} / ${secMap[sName].total}`,
+            }));
+            if (subItems.length > 0) {
+              setSubjectsList(subItems);
+              setActiveSubject((prev) => prev || subItems[0].name);
+            }
           }
         }
       } catch (err: any) {
@@ -400,6 +517,7 @@ export default function ReviewAnswersScreen() {
                               total_questions: String(questions.length),
                               subject_name: activeSubject,
                               status: q.status,
+                              is_guest: params.is_guest,
                             },
                           });
                         }}

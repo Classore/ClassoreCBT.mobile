@@ -207,6 +207,8 @@ export default function TestResultScreen() {
   const [examTitle, setExamTitle] = useState<string>(params.exam_name || (detectedIsIelts ? 'IELTS Academic Test' : 'JAMB Practice Test'));
   const [error, setError] = useState<string | null>(null);
   const [guestLimitModalVisible, setGuestLimitModalVisible] = useState(false);
+  const [guestAuthModalVisible, setGuestAuthModalVisible] = useState(false);
+  const isGuestMode = !user || params.is_guest === 'true';
 
   // IELTS Specific State
   const [scorePerSection, setScorePerSection] = useState<Record<string, number>>({});
@@ -556,6 +558,38 @@ export default function TestResultScreen() {
     }
 
     let foundAnalytics = false;
+
+    // 0. For guest mode, immediately hydrate from stored demo result if present
+    if (isGuestMode) {
+      try {
+        const demoResult = await guestService.getDemoSubmitResult(attemptId);
+        if (demoResult && demoResult.summary) {
+          const nonAiScore = demoResult.summary.non_ai_score ?? 0;
+          const nonAiTotal = demoResult.summary.non_ai_points_possible ?? 100;
+          const accuracy = demoResult.summary.accuracy_percentage ?? 0;
+          setScore(nonAiScore);
+          setTotalScore(nonAiTotal);
+          setPerformanceTag(accuracy >= 70 ? 'Excellent' : accuracy >= 50 ? 'Good Performance' : 'Needs Practice');
+          
+          let correct = 0;
+          let wrong = 0;
+          let skipped = 0;
+          if (Array.isArray(demoResult.non_ai_results)) {
+            demoResult.non_ai_results.forEach((r: any) => {
+              if (r.is_correct) correct++;
+              else if (r.selected_choice) wrong++;
+              else skipped++;
+            });
+            setCorrectAnswers(correct);
+            setWrongAnswers(wrong);
+            setSkippedQuestions(skipped);
+          }
+          foundAnalytics = true;
+        }
+      } catch (demoErr) {
+        console.warn('Demo submit result local load error:', demoErr);
+      }
+    }
 
     // 1. Fetch attempt responses (candidate audio, Deepgram transcript, rubric feedback)
     try {
@@ -1174,10 +1208,16 @@ export default function TestResultScreen() {
             {!isIelts && (
               <TouchableOpacity 
                 style={styles.rankCard}
-                onPress={() => router.push({
-                  pathname: '/(exam)/leaderboard',
-                  params: { from: '/(exam)/test-result' }
-                } as any)}
+                onPress={() => {
+                  if (isGuestMode) {
+                    setGuestAuthModalVisible(true);
+                    return;
+                  }
+                  router.push({
+                    pathname: '/(exam)/leaderboard',
+                    params: { from: '/(exam)/test-result' }
+                  } as any);
+                }}
                 activeOpacity={0.8}
               >
                 <View style={styles.rankIconBg}>
@@ -1196,14 +1236,20 @@ export default function TestResultScreen() {
             {!isIelts && (
               <TouchableOpacity 
                 style={styles.actionButton}
-                onPress={() => router.push({
-                  pathname: '/(exam)/subject-performance',
-                  params: { 
-                    attempt_id: params.attempt_id,
-                    exam_name: examTitle,
-                    is_ielts: 'false',
+                onPress={() => {
+                  if (isGuestMode) {
+                    setGuestAuthModalVisible(true);
+                    return;
                   }
-                })}
+                  router.push({
+                    pathname: '/(exam)/subject-performance',
+                    params: { 
+                      attempt_id: params.attempt_id,
+                      exam_name: examTitle,
+                      is_ielts: 'false',
+                    }
+                  });
+                }}
                 activeOpacity={0.85}
               >
                 <Ionicons name="bar-chart-outline" size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
@@ -1220,6 +1266,7 @@ export default function TestResultScreen() {
                   attempt_id: params.attempt_id,
                   exam_name: examTitle,
                   is_ielts: String(isIelts),
+                  is_guest: isGuestMode ? 'true' : undefined,
                 }
               })}
               activeOpacity={0.85}
@@ -1231,14 +1278,20 @@ export default function TestResultScreen() {
             {/* Topic & Skill Performance */}
             <TouchableOpacity 
               style={[styles.actionButton, { backgroundColor: '#FFFFFF', borderWidth: 1.5, borderColor: '#7C3AED', marginTop: 12 }]}
-              onPress={() => router.push({
-                pathname: '/(exam)/topic-performance',
-                params: { 
-                  attempt_id: params.attempt_id,
-                  exam_name: examTitle,
-                  is_ielts: String(isIelts),
+              onPress={() => {
+                if (isGuestMode) {
+                  setGuestAuthModalVisible(true);
+                  return;
                 }
-              })}
+                router.push({
+                  pathname: '/(exam)/topic-performance',
+                  params: { 
+                    attempt_id: params.attempt_id,
+                    exam_name: examTitle,
+                    is_ielts: String(isIelts),
+                  }
+                });
+              }}
               activeOpacity={0.85}
             >
               <Ionicons name="analytics-outline" size={18} color="#7C3AED" style={{ marginRight: 8 }} />
@@ -1268,6 +1321,15 @@ export default function TestResultScreen() {
           </ScrollView>
         )}
       </View>
+
+      {/* Guest Features Restricted Modal */}
+      <GuestAuthModal
+        visible={guestAuthModalVisible}
+        onClose={() => setGuestAuthModalVisible(false)}
+        title="Log in to experience the platform better"
+        subtitle="Get full access to personalized analytics, leaderboards, subject breakdowns, and topic mastery tracking."
+        showContinueAsGuest={true}
+      />
 
       {/* Guest Limit Exhausted Modal */}
       <GuestAuthModal
