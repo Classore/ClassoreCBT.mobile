@@ -230,6 +230,15 @@ api.interceptors.response.use(
     const isExamSubmission = url.includes('/submit');
 
     if (status === 401 && !isAuthAttemptEndpoint && originalRequest) {
+      // If the request was made without an Authorization header and there is no in-memory token,
+      // this is an unauthenticated guest request. Do NOT treat it as an expired session or trigger unauthorizedListener!
+      const hadAuthHeader = Boolean(originalRequest.headers?.Authorization);
+      const hasToken = Boolean(inMemoryAuthToken);
+
+      if (!hadAuthHeader && !hasToken) {
+        return Promise.reject(error);
+      }
+
       // 1. If already retried once, do not loop
       if (originalRequest._retry) {
         if (!isExamSubmission && !isHandlingUnauthorized) {

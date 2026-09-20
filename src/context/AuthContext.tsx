@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Platform, Alert } from 'react-native';
+import { Platform } from 'react-native';
 import { 
   api, 
   setUnauthorizedListener, 
@@ -162,22 +162,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     setUnauthorizedListener(() => {
-      setToken(null);
-      setUser(null);
-      saveCachedUser(null);
-      Alert.alert(
-        'Session Expired',
-        'Your session has expired or is invalid. Please sign in again to continue.',
-        [
-          {
-            text: 'Sign In',
-            onPress: () => {
-              router.replace('/(auth)/login' as any);
-            },
-          },
-        ],
-        { cancelable: false }
-      );
+      setToken((currentToken) => {
+        // If the user is in guest mode or already signed out, do not redirect or clear
+        if (!currentToken) {
+          return null;
+        }
+        setUser(null);
+        saveCachedUser(null);
+        // Seamlessly redirect to login without disruptive alert popups
+        router.replace('/auth/login' as any);
+        return null;
+      });
     });
 
     return () => {

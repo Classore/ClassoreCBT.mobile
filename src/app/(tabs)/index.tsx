@@ -42,6 +42,10 @@ export default function HomeScreen() {
 
   const checkActiveExam = useCallback(async () => {
     try {
+      if (!token) {
+        setActiveAttempt(null);
+        return;
+      }
       let attemptId: number | null = null;
       const cached = await storage.get<any>('@classore_active_attempt');
       if (cached?.id) {
@@ -169,6 +173,10 @@ export default function HomeScreen() {
 
   useEffect(() => {
     const fetchReport = async () => {
+      if (!token) {
+        setLoading(false);
+        return;
+      }
       try {
         // 1. Load cached report first for instant rendering
         const cached = await examService.getCachedAggregateReport();

@@ -142,7 +142,7 @@ export default function SecurityScreen() {
             }
             try {
               await logout();
-              router.replace('/(auth)/login' as any);
+              router.replace('/auth/login' as any);
             } catch (e) {
               console.error(e);
             }
