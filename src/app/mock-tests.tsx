@@ -132,8 +132,13 @@ export default function MockTestsScreen() {
       exam_name: item?.title || (examCode.toUpperCase() + ' Practice'),
       is_guest: 'true',
     };
-    if (item?.demoId) {
-      params.demoId = String(item.demoId);
+    let demoIdToPass = item?.demoId;
+    if (!demoIdToPass && demoTests.length > 0) {
+      const matchingDemo = demoTests.find(d => (d as any).exam_type === numericExamId);
+      demoIdToPass = matchingDemo ? matchingDemo.id : demoTests[0].id;
+    }
+    if (demoIdToPass) {
+      params.demoId = String(demoIdToPass);
     }
     router.push({
       pathname: '/(tabs)/practice/practice-setup',

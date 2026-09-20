@@ -18,7 +18,7 @@ import { Image } from 'expo-image';
 import { createAudioPlayer, AudioPlayer, setAudioModeAsync } from 'expo-audio';
 import { mediaCache } from '@/services/mediaCache';
 import { examService, UserAttempt, AttemptSection, QuestionGroupItem, UserResponseItem, resolveNumericExamId } from '@/services/exam';
-import { guestService } from '@/services/guest';
+import { guestService, buildAttemptFromDemoResponse } from '@/services/guest';
 import { storage } from '@/services/storage';
 import { 
   MultiSelectQuestion, 
@@ -37,6 +37,7 @@ import {
   getSubscriptionErrorMessage 
 } from '@/components/SubscriptionRequiredModal';
 import { ExamSupportModal } from '@/components/ExamSupportModal';
+import { GuestAuthModal } from '@/components/GuestAuthModal';
 import { formatQuestionText } from '@/utils/questionFormatter';
 import { navigateWithFrom } from '@/utils/helpNavigation';
 
@@ -70,9 +71,11 @@ export default function IELTSSessionScreen() {
     time_limit?: string;
     section_index?: string;
     is_guest?: string;
+    demoId?: string;
   }>();
   
   const [attempt, setAttempt] = useState<UserAttempt | null>(null);
+  const [guestLimitModalVisible, setGuestLimitModalVisible] = useState(false);
   const [loading, setLoading] = useState(true);
   
   const initialSectionIndex = params.section_index ? Math.max(0, parseInt(String(params.section_index), 10) || 0) : 0;
@@ -108,61 +111,115 @@ export default function IELTSSessionScreen() {
     const initIelts = async () => {
       try {
         let currentAttempt: UserAttempt | undefined;
-        const attemptId = examService.parseAttemptId(params.attempt_id) || (await examService.getActiveAttemptId());
-        if (attemptId) {
-          try {
-            const res = await examService.resumeExam(attemptId);
-            if (res.status === 'Completed' || res.timer_info?.is_expired) {
-              await storage.remove('@classore_active_attempt').catch(() => {});
-              examService.clearActiveAttemptId();
-              router.replace({
-                pathname: '/(exam)/test-result',
-                params: { attempt_id: String(attemptId) }
-              });
-              return;
+        const isGuest = params.is_guest === 'true' || params.mode === 'demo';
+
+        if (isGuest) {
+          const isExceeded = await guestService.hasExceededGuestAttempts();
+          if (isExceeded) {
+            setGuestLimitModalVisible(true);
+            setLoading(false);
+            return;
+          }
+
+          let resolvedDemoId = params.demoId ? Number(params.demoId) : undefined;
+          if (!resolvedDemoId) {
+            try {
+              const demoList = await guestService.getDemoTests();
+              if (Array.isArray(demoList) && demoList.length > 0) {
+                const targetExamId = resolveNumericExamId(params.exam || params.exam_type_id, 42);
+                const matched = demoList.find(d => (d as any).exam_type === targetExamId);
+                resolvedDemoId = matched ? matched.id : demoList[0].id;
+              }
+            } catch (e) {
+              console.warn('Could not list demo tests in IELTS session init:', e);
             }
+          }
+
+          if (resolvedDemoId) {
+            try {
+              const demoRes = await guestService.startDemoTest(resolvedDemoId);
+              currentAttempt = buildAttemptFromDemoResponse(demoRes);
+              if (demoRes.time_limit_seconds) {
+                setTimeLeft(demoRes.time_limit_seconds);
+              } else if (demoRes.time_limit_minutes) {
+                setTimeLeft(demoRes.time_limit_minutes * 60);
+              }
+            } catch (demoErr: any) {
+              if (demoErr?.response?.status === 403 || demoErr?.response?.data?.code === 'GUEST_LIMIT_REACHED') {
+                setGuestLimitModalVisible(true);
+                setLoading(false);
+                return;
+              }
+              console.warn('Could not start IELTS demo test via backend:', demoErr);
+            }
+          }
+
+          if (!currentAttempt) {
+            Alert.alert(
+              'Unable to Start Test',
+              'Could not load demo practice test questions. Please check your internet connection or try again.',
+              [{ text: 'Go Back', onPress: () => router.canGoBack() ? router.back() : router.replace('/mock-tests' as any) }]
+            );
+            setLoading(false);
+            return;
+          }
+        } else {
+          const attemptId = examService.parseAttemptId(params.attempt_id) || (await examService.getActiveAttemptId());
+          if (attemptId) {
+            try {
+              const res = await examService.resumeExam(attemptId);
+              if (res.status === 'Completed' || res.timer_info?.is_expired) {
+                await storage.remove('@classore_active_attempt').catch(() => {});
+                examService.clearActiveAttemptId();
+                router.replace({
+                  pathname: '/(exam)/test-result',
+                  params: { attempt_id: String(attemptId) }
+                });
+                return;
+              }
+              currentAttempt = res;
+              if (res.timer_info?.remaining_seconds !== undefined) {
+                setTimeLeft(res.timer_info.remaining_seconds);
+              }
+            } catch (e: any) {
+              console.warn('Failed to resume IELTS attempt:', e);
+              if (e?.response?.data?.is_completed || e?.response?.data?.status === 'Completed' || e?.response?.status === 400) {
+                await storage.remove('@classore_active_attempt').catch(() => {});
+                examService.clearActiveAttemptId();
+                router.replace({
+                  pathname: '/(exam)/test-result',
+                  params: { attempt_id: String(attemptId) }
+                });
+                return;
+              }
+            }
+          }
+          if (!currentAttempt) {
+            const examId = resolveNumericExamId(params.exam || params.exam_type_id, 42);
+            let order: number[] | undefined;
+            if (params.section_order) {
+              order = params.section_order.split(',').map(Number);
+            } else if (params.sections) {
+              try {
+                order = typeof params.sections === 'string' ? JSON.parse(params.sections) : params.sections;
+              } catch {
+                order = undefined;
+              }
+            }
+            const mode = (params.mode as any) || 'Standard';
+            const timeLimitOverride = params.time_limit ? Number(params.time_limit) : undefined;
+
+            const newAttempt = await examService.startExam({
+              exam_type_id: examId,
+              mode: mode,
+              selected_section_ids: order,
+              time_limit_override: mode === 'Practice' && timeLimitOverride ? timeLimitOverride : undefined,
+            });
+            const res = await examService.resumeExam(newAttempt.id);
             currentAttempt = res;
             if (res.timer_info?.remaining_seconds !== undefined) {
               setTimeLeft(res.timer_info.remaining_seconds);
             }
-          } catch (e: any) {
-            console.warn('Failed to resume IELTS attempt:', e);
-            if (e?.response?.data?.is_completed || e?.response?.data?.status === 'Completed' || e?.response?.status === 400) {
-              await storage.remove('@classore_active_attempt').catch(() => {});
-              examService.clearActiveAttemptId();
-              router.replace({
-                pathname: '/(exam)/test-result',
-                params: { attempt_id: String(attemptId) }
-              });
-              return;
-            }
-          }
-        }
-        if (!currentAttempt) {
-          const examId = resolveNumericExamId(params.exam || params.exam_type_id, 42);
-          let order: number[] | undefined;
-          if (params.section_order) {
-            order = params.section_order.split(',').map(Number);
-          } else if (params.sections) {
-            try {
-              order = typeof params.sections === 'string' ? JSON.parse(params.sections) : params.sections;
-            } catch {
-              order = undefined;
-            }
-          }
-          const mode = (params.mode as any) || 'Standard';
-          const timeLimitOverride = params.time_limit ? Number(params.time_limit) : undefined;
-
-          const newAttempt = await examService.startExam({
-            exam_type_id: examId,
-            mode: mode,
-            selected_section_ids: order,
-            time_limit_override: mode === 'Practice' && timeLimitOverride ? timeLimitOverride : undefined,
-          });
-          const res = await examService.resumeExam(newAttempt.id);
-          currentAttempt = res;
-          if (res.timer_info?.remaining_seconds !== undefined) {
-            setTimeLeft(res.timer_info.remaining_seconds);
           }
         }
 
@@ -1061,7 +1118,20 @@ export default function IELTSSessionScreen() {
         saved_at: Date.now(),
       });
 
-      const submitRes = await examService.submitExam(attempt.id, { responses: responsesPayload });
+      const isGuest = params.is_guest === 'true' || params.mode === 'demo';
+      let submitRes: any = null;
+
+      if (isGuest) {
+        try {
+          submitRes = await guestService.submitDemoTest(attempt.id, responsesPayload);
+          await guestService.incrementGuestAttemptsCount();
+        } catch (e) {
+          console.warn('Could not submit demo test to backend:', e);
+        }
+      } else {
+        submitRes = await examService.submitExam(attempt.id, { responses: responsesPayload });
+      }
+
       await storage.remove(pendingKey);
       await storage.remove('@classore_active_attempt');
 
@@ -1088,13 +1158,10 @@ export default function IELTSSessionScreen() {
         timestamp: Date.now(),
       }).catch(() => {});
       await storage.set('@classore_last_attempt_id', attempt.id);
-      if (params.is_guest === 'true') {
-        try {
-          await guestService.incrementGuestAttemptsCount();
-        } catch (e) {
-          console.warn('Could not increment guest attempts count:', e);
-        }
-      }
+
+      const resolvedScore = submitRes?.summary?.non_ai_score !== undefined
+        ? String(submitRes.summary.non_ai_score)
+        : (submitRes?.total_score !== undefined ? String(submitRes.total_score) : '');
 
       setShowSubmitModal(false);
       router.replace({
@@ -1104,12 +1171,12 @@ export default function IELTSSessionScreen() {
           exam_name: params.exam_name || 'IELTS Academic Test',
           is_ielts: 'true',
           section_names: params.section_names || params.section_order,
-          total_score: submitRes?.total_score !== undefined ? String(submitRes.total_score) : '',
+          total_score: resolvedScore,
           streak: submitRes?.streak !== undefined ? String(submitRes.streak) : '',
           ai_feedbacks: submitRes?.ai_feedbacks ? JSON.stringify(submitRes.ai_feedbacks) : '',
           ai_assessment_status: submitRes?.ai_assessment_status || '',
           ai_skip_reason: submitRes?.ai_skip_reason || '',
-          is_guest: params.is_guest || undefined,
+          is_guest: isGuest ? 'true' : undefined,
         }
       });
     } catch (err: any) {
@@ -1907,6 +1974,15 @@ export default function IELTSSessionScreen() {
         examTitle={attempt?.exam_name || 'IELTS Examination'}
         currentQuestionNumber={globalQuestionNumber}
         attemptId={attempt?.id}
+      />
+
+      <GuestAuthModal
+        visible={guestLimitModalVisible}
+        onClose={() => {
+          setGuestLimitModalVisible(false);
+          if (router.canGoBack()) router.back();
+          else router.replace('/mock-tests' as any);
+        }}
       />
     </SafeAreaView>
   );

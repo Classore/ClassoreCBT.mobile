@@ -484,6 +484,77 @@ export default function TestResultScreen() {
     setAnalyticsError(null);
     setError(null);
 
+    const isGuest = params.is_guest === 'true' || !user;
+    if (isGuest) {
+      let demoResult = await guestService.getDemoSubmitResult(attemptId);
+      if (!demoResult) {
+        const storedLast = await storage.get<number | string>('@classore_last_attempt_id');
+        if (storedLast) {
+          demoResult = await guestService.getDemoSubmitResult(storedLast);
+        }
+      }
+
+      if (demoResult) {
+        const nonAiScore = demoResult.summary?.non_ai_score ?? (initialScore !== null ? initialScore : 0);
+        const maxScore = demoResult.summary?.non_ai_points_possible || demoResult.summary?.total_questions || (detectedIsIelts ? 9.0 : 100);
+        const accuracy = demoResult.summary?.accuracy_percentage ?? (maxScore > 0 ? (nonAiScore / maxScore) * 100 : 0);
+
+        setScore(nonAiScore);
+        setTotalScore(maxScore);
+        if (accuracy >= 70) setPerformanceTag('Excellent Performance');
+        else if (accuracy >= 50) setPerformanceTag('Good Performance');
+        else setPerformanceTag('Needs Improvement');
+
+        const correctCount = (demoResult.non_ai_results || []).filter((r: any) => r.is_correct).length;
+        const totalNonAi = demoResult.summary?.non_ai_questions_count ?? (demoResult.non_ai_results || []).length;
+        setCorrectAnswers(correctCount);
+        setWrongAnswers(Math.max(0, totalNonAi - correctCount));
+        setSkippedQuestions(0);
+
+        if (demoResult.ai_questions_preview?.questions && Array.isArray(demoResult.ai_questions_preview.questions)) {
+          const aiLockedItems = demoResult.ai_questions_preview.questions.map((aiQ: any) => ({
+            question_id: aiQ.question_id,
+            question_text: aiQ.prompt,
+            written_response: aiQ.your_submission,
+            feedback: aiQ.message,
+            is_locked: true,
+          }));
+          setAiFeedbacks(aiLockedItems);
+        }
+
+        setAnalyticsData({
+          exam_name: demoResult.demo_title || demoResult.exam_type || params.exam_name,
+          total_score: nonAiScore,
+          max_total_score: maxScore,
+          accuracy_percentage: accuracy,
+          total_questions_attempted: demoResult.summary?.total_questions || totalNonAi,
+          correct_answers: correctCount,
+          wrong_answers: Math.max(0, totalNonAi - correctCount),
+          sections: demoResult.non_ai_results ? [
+            {
+              section_name: demoResult.exam_type || 'Practice Demo',
+              score: nonAiScore,
+              max_score: maxScore,
+            }
+          ] : [],
+          is_guest: true,
+          guest_demo_result: demoResult,
+        });
+
+        setLoading(false);
+        setAnalyticsLoading(false);
+        return;
+      }
+
+      if (initialScore !== null) {
+        setScore(initialScore);
+        setTotalScore(detectedIsIelts ? 9.0 : 100);
+      }
+      setLoading(false);
+      setAnalyticsLoading(false);
+      return;
+    }
+
     let foundAnalytics = false;
 
     // 1. Fetch attempt responses (candidate audio, Deepgram transcript, rubric feedback)

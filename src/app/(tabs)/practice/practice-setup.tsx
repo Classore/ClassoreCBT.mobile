@@ -796,30 +796,29 @@ export default function PracticeSetupScreen() {
           return;
         }
 
-        let attemptIdStr = 'guest-temp';
-        if (params.demoId) {
+        let resolvedDemoId = params.demoId ? String(params.demoId) : undefined;
+        if (!resolvedDemoId) {
           try {
-            const demoRes = await guestService.startDemoTest(Number(params.demoId));
-            attemptIdStr = String(demoRes.attempt_id);
-          } catch (e: any) {
-            if (e?.response?.status === 403 || e?.response?.data?.code === 'GUEST_LIMIT_REACHED') {
-              setIsStarting(false);
-              setGuestLimitModalVisible(true);
-              return;
+            const demoList = await guestService.getDemoTests();
+            if (Array.isArray(demoList) && demoList.length > 0) {
+              const matched = demoList.find(d => (d as any).exam_type === examId);
+              resolvedDemoId = String(matched ? matched.id : demoList[0].id);
             }
-            console.warn('Could not start demo test on backend, proceeding with local guest session:', e);
+          } catch (e) {
+            console.warn('Could not query demo tests list in practice-setup:', e);
           }
         }
 
+        setIsStarting(false);
         router.push({
           pathname: isSectionExam ? '/(exam)/ielts-session' : '/(exam)/session',
           params: {
-            attempt_id: attemptIdStr,
+            attempt_id: 'guest-temp',
             exam_type_id: String(examId),
             exam_name: currentExam?.name || (params.exam_name ? String(params.exam_name) : 'Mock Test'),
             mode: 'demo',
             is_guest: 'true',
-            demoId: params.demoId || undefined,
+            demoId: resolvedDemoId,
             sections: JSON.stringify(selectedSubjects),
             difficulty: difficulty,
             question_count: String(finalQuestionCount),

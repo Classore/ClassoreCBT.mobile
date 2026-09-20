@@ -17,7 +17,7 @@ import { Feather, Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import axios from 'axios';
 import { examService, UserAttempt, UserResponseItem, isSectionBasedExam, resolveNumericExamId } from '@/services/exam';
-import { guestService } from '@/services/guest';
+import { guestService, buildAttemptFromDemoResponse } from '@/services/guest';
 import { storage } from '@/services/storage';
 import { BASE_URL } from '@/services/api';
 import { useAuth } from '@/context/AuthContext';
@@ -28,6 +28,7 @@ import {
   getSubscriptionErrorMessage,
 } from '@/components/SubscriptionRequiredModal';
 import { ExamSupportModal } from '@/components/ExamSupportModal';
+import { GuestAuthModal } from '@/components/GuestAuthModal';
 import { navigateWithFrom } from '@/utils/helpNavigation';
 
 export default function ExamSessionScreen() {
@@ -40,10 +41,12 @@ export default function ExamSessionScreen() {
     time_limit?: string;
     exam_name?: string;
     is_guest?: string;
+    demoId?: string;
   }>();
 
   const { user, login } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
+  const [guestLimitModalVisible, setGuestLimitModalVisible] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [attempt, setAttempt] = useState<UserAttempt | null>(null);
   const [examName, setExamName] = useState<string>(params.exam_name || '');
@@ -84,96 +87,132 @@ export default function ExamSessionScreen() {
       try {
         setIsLoading(true);
         let currentAttempt: UserAttempt | null = null;
-
-        if (params.attempt_id) {
-          try {
-            const res = await examService.resumeExam(Number(params.attempt_id));
-            if (res.status === 'Completed' || res.timer_info?.is_expired) {
-              await storage.remove('@classore_active_attempt').catch(() => {});
-              examService.clearActiveAttemptId();
-              router.replace({
-                pathname: '/(exam)/test-result',
-                params: { attempt_id: String(params.attempt_id) }
-              });
-              return;
-            }
-            currentAttempt = res;
-            if (res.timer_info?.remaining_seconds !== undefined) {
-              setSecondsRemaining(res.timer_info.remaining_seconds);
-            }
-          } catch (e: any) {
-            console.warn('Failed to resume attempt:', e);
-            if (e?.response?.data?.is_completed || e?.response?.data?.status === 'Completed' || e?.response?.status === 400) {
-              await storage.remove('@classore_active_attempt').catch(() => {});
-              examService.clearActiveAttemptId();
-              router.replace({
-                pathname: '/(exam)/test-result',
-                params: { attempt_id: String(params.attempt_id) }
-              });
-              return;
-            }
-          }
-        }
-
-        // Check if this exam is a section/language proficiency exam (IELTS, TOEFL, etc.)
-        const allExams = await examService.getExams();
+        const allExams = await examService.getExams().catch(() => []);
         const fallbackDefaultExamId = (allExams && allExams.length > 0) ? allExams[0].id : 1;
-        let targetExamId = currentAttempt?.exam_type || resolveNumericExamId(params.exam_type_id || (params as any).exam, fallbackDefaultExamId);
+        const targetExamId = resolveNumericExamId(params.exam_type_id || (params as any).exam, fallbackDefaultExamId);
         const targetExamObj = allExams.find(e => e.id === targetExamId);
-        const isSectionExam = isSectionBasedExam(targetExamObj?.name, currentAttempt?.sections);
+        const isGuest = params.is_guest === 'true' || params.mode === 'demo' || !user;
 
-        if (isSectionExam) {
-          router.replace({
-            pathname: '/(exam)/ielts-session',
-            params: {
-              attempt_id: currentAttempt ? String(currentAttempt.id) : params.attempt_id,
-              exam: String(targetExamId || 42),
-              exam_type_id: String(targetExamId || 42),
-              mode: params.mode || 'Standard',
-              sections: params.sections,
-            }
-          });
-          return;
-        }
+        if (isGuest) {
+          const isExceeded = await guestService.hasExceededGuestAttempts();
+          if (isExceeded) {
+            setGuestLimitModalVisible(true);
+            setIsLoading(false);
+            return;
+          }
 
-        if (!currentAttempt) {
-          let selectedSectionIds: number[] | undefined;
-          if (params.sections) {
+          let resolvedDemoId = params.demoId ? Number(params.demoId) : undefined;
+          if (!resolvedDemoId) {
             try {
-              selectedSectionIds = typeof params.sections === 'string' ? JSON.parse(params.sections) : params.sections;
-            } catch {
-              selectedSectionIds = undefined;
+              const demoList = await guestService.getDemoTests();
+              if (Array.isArray(demoList) && demoList.length > 0) {
+                const targetExamId = resolveNumericExamId(params.exam_type_id || (params as any).exam, 1);
+                const matched = demoList.find(d => (d as any).exam_type === targetExamId);
+                resolvedDemoId = matched ? matched.id : demoList[0].id;
+              }
+            } catch (e) {
+              console.warn('Could not list demo tests in session init:', e);
             }
           }
-          const timeLimitOverride = params.time_limit ? Number(params.time_limit) : undefined;
 
-          try {
-            const newAttempt = await examService.startExam({
-              exam_type_id: targetExamId || 41,
-              mode: (params.mode as any) || 'Standard',
-              selected_section_ids: selectedSectionIds,
-              time_limit_override: params.mode === 'Practice' && timeLimitOverride ? timeLimitOverride : undefined,
-            });
-            const res = await examService.resumeExam(newAttempt.id);
-            currentAttempt = res;
-            if (res.timer_info?.remaining_seconds !== undefined) {
-              setSecondsRemaining(res.timer_info.remaining_seconds);
+          if (resolvedDemoId) {
+            try {
+              const demoRes = await guestService.startDemoTest(resolvedDemoId);
+              currentAttempt = buildAttemptFromDemoResponse(demoRes);
+              if (demoRes.time_limit_seconds) {
+                setSecondsRemaining(demoRes.time_limit_seconds);
+              } else if (demoRes.time_limit_minutes) {
+                setSecondsRemaining(demoRes.time_limit_minutes * 60);
+              }
+            } catch (demoErr: any) {
+              if (demoErr?.response?.status === 403 || demoErr?.response?.data?.code === 'GUEST_LIMIT_REACHED') {
+                setGuestLimitModalVisible(true);
+                setIsLoading(false);
+                return;
+              }
+              console.warn('Could not start demo test via backend:', demoErr);
             }
-          } catch (err: any) {
-            console.error('Backend start exam call failed:', err);
-            const errorMsg = getSubscriptionErrorMessage(
-              err,
-              'Failed to start exam session.'
+          }
+
+          if (!currentAttempt) {
+            Alert.alert(
+              'Unable to Start Test',
+              'Could not load demo practice test questions. Please check your internet connection or try again.',
+              [{ text: 'Go Back', onPress: () => router.canGoBack() ? router.back() : router.replace('/mock-tests' as any) }]
             );
-            if (isSubscriptionError(err)) {
-              setSubscriptionMessage(errorMsg);
-              setShowSubscriptionModal(true);
+            setIsLoading(false);
+            return;
+          }
+        } else {
+          if (params.attempt_id && params.attempt_id !== 'guest-temp') {
+            try {
+              const res = await examService.resumeExam(Number(params.attempt_id));
+              if (res.status === 'Completed' || res.timer_info?.is_expired) {
+                await storage.remove('@classore_active_attempt').catch(() => {});
+                examService.clearActiveAttemptId();
+                router.replace({
+                  pathname: '/(exam)/test-result',
+                  params: { attempt_id: String(params.attempt_id) }
+                });
+                return;
+              }
+              currentAttempt = res;
+              if (res.timer_info?.remaining_seconds !== undefined) {
+                setSecondsRemaining(res.timer_info.remaining_seconds);
+              }
+            } catch (e: any) {
+              console.warn('Failed to resume attempt:', e);
+              if (e?.response?.data?.is_completed || e?.response?.data?.status === 'Completed' || e?.response?.status === 400) {
+                await storage.remove('@classore_active_attempt').catch(() => {});
+                examService.clearActiveAttemptId();
+                router.replace({
+                  pathname: '/(exam)/test-result',
+                  params: { attempt_id: String(params.attempt_id) }
+                });
+                return;
+              }
+            }
+          }
+
+          if (!currentAttempt) {
+            let selectedSectionIds: number[] | undefined;
+            if (params.sections) {
+              try {
+                selectedSectionIds = typeof params.sections === 'string' ? JSON.parse(params.sections) : params.sections;
+              } catch {
+                selectedSectionIds = undefined;
+              }
+            }
+            const timeLimitOverride = params.time_limit ? Number(params.time_limit) : undefined;
+
+            try {
+              const newAttempt = await examService.startExam({
+                exam_type_id: targetExamId || 41,
+                mode: (params.mode as any) || 'Standard',
+                selected_section_ids: selectedSectionIds,
+                time_limit_override: params.mode === 'Practice' && timeLimitOverride ? timeLimitOverride : undefined,
+              });
+              const res = await examService.resumeExam(newAttempt.id);
+              currentAttempt = res;
+              if (res.timer_info?.remaining_seconds !== undefined) {
+                setSecondsRemaining(res.timer_info.remaining_seconds);
+              }
+            } catch (err: any) {
+              console.error('Backend start exam call failed:', err);
+              const errorMsg = getSubscriptionErrorMessage(
+                err,
+                'Failed to start exam session.'
+              );
+              if (isSubscriptionError(err)) {
+                setSubscriptionMessage(errorMsg);
+                setShowSubscriptionModal(true);
+                return;
+              }
+              Alert.alert('Unable to Start Exam', errorMsg, [
+                { text: 'Go Back', onPress: () => router.canGoBack() ? router.back() : router.replace('/') }
+              ]);
               return;
             }
-            Alert.alert('Unable to Start Exam', errorMsg, [
-              { text: 'Go Back', onPress: () => router.canGoBack() ? router.back() : router.replace('/') }
-            ]);
-            return;
           }
         }
 
@@ -486,7 +525,20 @@ export default function ExamSessionScreen() {
           saved_at: Date.now(),
         });
 
-        const submitRes = await examService.submitExam(attempt.id, { responses: responsesPayload });
+        const isGuest = params.is_guest === 'true' || params.mode === 'demo' || !user;
+        let submitRes: any = null;
+
+        if (isGuest) {
+          try {
+            submitRes = await guestService.submitDemoTest(attempt.id, responsesPayload);
+            await guestService.incrementGuestAttemptsCount();
+          } catch (e) {
+            console.warn('Could not submit demo test to backend:', e);
+          }
+        } else {
+          submitRes = await examService.submitExam(attempt.id, { responses: responsesPayload });
+        }
+
         await storage.set('@classore_last_attempt_id', attempt.id);
         await storage.remove(pendingKey);
         await storage.remove('@classore_active_attempt');
@@ -500,14 +552,10 @@ export default function ExamSessionScreen() {
           is_section_based: false,
           timestamp: Date.now(),
         }).catch(() => {});
-        const isGuest = params.is_guest === 'true' || !user;
-        if (isGuest) {
-          try {
-            await guestService.incrementGuestAttemptsCount();
-          } catch (e) {
-            console.warn('Could not increment guest attempts count:', e);
-          }
-        }
+
+        const resolvedScore = submitRes?.summary?.non_ai_score !== undefined
+          ? String(submitRes.summary.non_ai_score)
+          : (submitRes?.total_score !== undefined ? String(submitRes.total_score) : '');
 
         setShowSubmitModal(false);
         setShowReauthModal(false);
@@ -517,7 +565,7 @@ export default function ExamSessionScreen() {
             attempt_id: attempt?.id ? String(attempt.id) : undefined,
             exam_name: (attempt as any)?.exam_name || params.exam_name || examName || 'Practice Test',
             is_ielts: 'false',
-            total_score: submitRes?.total_score !== undefined ? String(submitRes.total_score) : '',
+            total_score: resolvedScore,
             is_guest: isGuest ? 'true' : undefined,
           }
         });
@@ -1106,6 +1154,15 @@ export default function ExamSessionScreen() {
         examTitle={examName || 'Exam Session'}
         currentQuestionNumber={activeQuestionIndex + 1}
         attemptId={attempt?.id}
+      />
+
+      <GuestAuthModal
+        visible={guestLimitModalVisible}
+        onClose={() => {
+          setGuestLimitModalVisible(false);
+          if (router.canGoBack()) router.back();
+          else router.replace('/mock-tests' as any);
+        }}
       />
     </SafeAreaView>
   );
