@@ -1,7 +1,15 @@
-import { AppText } from '@/components/AppText';
-import React, { useState } from 'react';
-import { View, StyleSheet, SafeAreaView, TouchableOpacity, Platform, TextInput } from 'react-native';
+import {
+  AppText } from '@/components/AppText';
+import React,
+  { useState } from 'react';
+import { View,
+  StyleSheet,
+  TouchableOpacity,
+  Platform,
+  TextInput,
+} from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import { AppSafeArea } from '@/components/AppSafeArea';
 import { useRouter } from 'expo-router';
 import { useNotifications } from '@/context/NotificationContext';
 
@@ -11,7 +19,7 @@ export default function WithdrawAmountScreen() {
   const [amount, setAmount] = useState('2,450.00');
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <AppSafeArea style={styles.safeArea}>
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))} style={styles.iconButton}>
@@ -66,12 +74,12 @@ export default function WithdrawAmountScreen() {
           <AppText style={styles.primaryBtnText}>Continue <Feather name="arrow-right" size={16} color="#FFF" style={{ marginLeft: 4 }} /></AppText>
         </TouchableOpacity>
       </View>
-    </SafeAreaView>
+    </AppSafeArea>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#FFF', paddingTop: Platform.OS === 'android' ? 40 : 16 },
+  safeArea: { flex: 1, backgroundColor: '#FFF', paddingTop: 16 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, marginBottom: 24 },
   iconButton: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: '#F3F4F6', justifyContent: 'center', alignItems: 'center' },
   headerTitle: { fontSize: 18, fontWeight: 'bold', color: '#111827' },

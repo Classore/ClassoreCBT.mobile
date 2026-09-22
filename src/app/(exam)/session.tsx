@@ -1,19 +1,24 @@
-import { AppText } from '@/components/AppText';
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import {
+  AppText } from '@/components/AppText';
+import React,
+  { useState,
+  useEffect,
+  useMemo,
+  useRef } from 'react';
 import { 
-  View, 
-  Text, 
+  View,
+  Text,
   TextInput,
-  StyleSheet, 
-  SafeAreaView, 
-  ScrollView, 
-  TouchableOpacity, 
-  Modal, 
-  Platform, 
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  Modal,
+  Platform,
   Alert,
-  ActivityIndicator 
+  ActivityIndicator,
 } from 'react-native';
 import { Feather, Ionicons } from '@expo/vector-icons';
+import { AppSafeArea } from '@/components/AppSafeArea';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import axios from 'axios';
 import { examService, UserAttempt, UserResponseItem, isSectionBasedExam, resolveNumericExamId } from '@/services/exam';
@@ -30,6 +35,7 @@ import {
 import { ExamSupportModal } from '@/components/ExamSupportModal';
 import { GuestAuthModal } from '@/components/GuestAuthModal';
 import { navigateWithFrom } from '@/utils/helpNavigation';
+import { useBackgroundAwareTimer } from '@/hooks/useBackgroundAwareTimer';
 
 export default function ExamSessionScreen() {
   const router = useRouter();
@@ -120,9 +126,9 @@ export default function ExamSessionScreen() {
               const demoRes = await guestService.startDemoTest(resolvedDemoId);
               currentAttempt = buildAttemptFromDemoResponse(demoRes);
               if (demoRes.time_limit_seconds) {
-                setSecondsRemaining(demoRes.time_limit_seconds);
+                syncSessionTimer(demoRes.time_limit_seconds);
               } else if (demoRes.time_limit_minutes) {
-                setSecondsRemaining(demoRes.time_limit_minutes * 60);
+                syncSessionTimer(demoRes.time_limit_minutes * 60);
               }
             } catch (demoErr: any) {
               if (demoErr?.response?.status === 403 || demoErr?.response?.data?.code === 'GUEST_LIMIT_REACHED') {
@@ -158,7 +164,7 @@ export default function ExamSessionScreen() {
               }
               currentAttempt = res;
               if (res.timer_info?.remaining_seconds !== undefined) {
-                setSecondsRemaining(res.timer_info.remaining_seconds);
+                syncSessionTimer(res.timer_info.remaining_seconds);
               }
             } catch (e: any) {
               console.warn('Failed to resume attempt:', e);
@@ -195,7 +201,7 @@ export default function ExamSessionScreen() {
               const res = await examService.resumeExam(newAttempt.id);
               currentAttempt = res;
               if (res.timer_info?.remaining_seconds !== undefined) {
-                setSecondsRemaining(res.timer_info.remaining_seconds);
+                syncSessionTimer(res.timer_info.remaining_seconds);
               }
             } catch (err: any) {
               console.error('Backend start exam call failed:', err);
@@ -252,8 +258,8 @@ export default function ExamSessionScreen() {
           setBookmarkedQuestions(initialBookmarks);
 
           // Time limit fallback if not set by resume timer_info
-          if (!currentAttempt.time_limit_override && currentAttempt.time_limit_override) {
-            setSecondsRemaining(currentAttempt.time_limit_override * 60);
+          if (currentAttempt.time_limit_override) {
+            syncSessionTimer(currentAttempt.time_limit_override * 60);
           }
         }
       } catch (error) {
@@ -270,17 +276,18 @@ export default function ExamSessionScreen() {
     };
   }, [params.attempt_id, params.exam_type_id]);
 
-  // Countdown timer interval
-  useEffect(() => {
-    if (secondsRemaining <= 0) {
-      handleTimeExpired();
-      return;
-    }
-    const interval = setInterval(() => {
-      setSecondsRemaining(prev => prev - 1);
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [secondsRemaining]);
+  // Forwarding ref to break the TDZ: handleTimeExpired is defined later in
+  // the component (as a const), so we can't reference it directly here.
+  const handleTimeExpiredRef = useRef<() => void>(() => {});
+
+  // Background-aware countdown. The hook records the wall-clock end time and
+  // corrects secondsRemaining the moment the app returns to the foreground.
+  // Call syncTimer() whenever the server provides an authoritative value.
+  const { syncTimer: syncSessionTimer } = useBackgroundAwareTimer(
+    setSecondsRemaining,
+    () => handleTimeExpiredRef.current(),
+    !isLoading && !!attempt,
+  );
 
   const timeString = useMemo(() => {
     const h = Math.floor(secondsRemaining / 3600).toString().padStart(2, '0');
@@ -463,6 +470,7 @@ export default function ExamSessionScreen() {
   }, [attempt?.id, userAnswers, bookmarkedQuestions]);
 
   const handleTimeExpired = () => {
+    handleTimeExpiredRef.current = handleTimeExpired; // keep ref current
     Alert.alert('Time Up!', 'Your examination time has elapsed. Your answers will now be submitted.', [
       { text: 'OK', onPress: executeSubmit }
     ]);
@@ -639,15 +647,15 @@ export default function ExamSessionScreen() {
 
   if (isLoading) {
     return (
-      <SafeAreaView style={[styles.safeArea, styles.center]}>
+      <AppSafeArea style={[styles.safeArea, styles.center]}>
         <ActivityIndicator size="large" color="#6D28D9" />
         <AppText style={{ marginTop: 12, color: '#6B7280' }}>Loading Exam Session...</AppText>
-      </SafeAreaView>
+      </AppSafeArea>
     );
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <AppSafeArea style={styles.safeArea}>
       <View style={styles.container}>
         
         {/* Header */}
@@ -1164,7 +1172,7 @@ export default function ExamSessionScreen() {
           else router.replace('/mock-tests' as any);
         }}
       />
-    </SafeAreaView>
+    </AppSafeArea>
   );
 }
 
@@ -1186,7 +1194,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'android' ? 40 : 12,
+    paddingTop: 12,
     paddingBottom: 12,
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,

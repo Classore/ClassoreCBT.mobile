@@ -1,8 +1,20 @@
-import { AppText } from '@/components/AppText';
+import {
+  AppText } from '@/components/AppText';
 import { useAuth } from '@/context/AuthContext';
+import { AppSafeArea } from '@/components/AppSafeArea';
 import { useNotifications } from '@/context/NotificationContext';
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, ScrollView, Dimensions, Platform } from 'react-native';
+import { useTabBarHeight } from '@/hooks/use-tab-bar-height';
+import React,
+  { useState,
+  useEffect } from 'react';
+import { View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  Dimensions,
+  Platform,
+} from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Image } from 'expo-image';
 import { Feather } from '@expo/vector-icons';
@@ -18,6 +30,7 @@ export default function ExamSetupScreen() {
   const isGuest = !token;
   const { hasUnread } = useNotifications();
   const router = useRouter();
+  const { totalHeight: tabBarHeight } = useTabBarHeight();
   const params = useLocalSearchParams<{ exam?: string }>();
   
   // Instant synchronous memory cache
@@ -128,7 +141,7 @@ export default function ExamSetupScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <AppSafeArea style={styles.container}>
       {/* Header Bar */}
       <View style={styles.topHeader}>
         <TouchableOpacity style={styles.backButton} onPress={() => router.canGoBack() ? router.back() : router.replace('/')}>
@@ -391,11 +404,11 @@ export default function ExamSetupScreen() {
         </View>
         
         {/* Extra padding for absolute footer + tab bar */}
-        <View style={{ height: Platform.OS === 'ios' ? 170 : 150 }} />
+        <View style={{ height: tabBarHeight + 90 }} />
       </ScrollView>
 
       {/* Footer Action */}
-      <View style={styles.footer}>
+      <View style={[styles.footer, { bottom: tabBarHeight }]}>
         <TouchableOpacity 
           style={styles.continueButton}
           onPress={handleContinue}
@@ -406,7 +419,7 @@ export default function ExamSetupScreen() {
           <Feather name="arrow-right" size={20} color="#FFF" style={{ marginLeft: 8 }} />
         </TouchableOpacity>
       </View>
-    </SafeAreaView>
+    </AppSafeArea>
   );
 }
 
@@ -424,7 +437,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'android' ? 40 : 12,
+    paddingTop: 12,
     marginBottom: 16,
   },
   backButton: {
@@ -852,7 +865,6 @@ const styles = StyleSheet.create({
   },
   footer: {
     position: 'absolute',
-    bottom: Platform.OS === 'ios' ? 84 : 64,
     left: 0,
     right: 0,
     backgroundColor: '#FFF',

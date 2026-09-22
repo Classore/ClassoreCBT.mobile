@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
+import { AppSafeArea } from '@/components/AppSafeArea';
 import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   ScrollView,
   TouchableOpacity,
   Platform,
-  ActivityIndicator
+  ActivityIndicator,
 } from 'react-native';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
@@ -94,7 +94,7 @@ export default function BundlesDirectoryScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <AppSafeArea style={styles.safeArea}>
       <View style={styles.container}>
         {/* Top Header */}
         <View style={styles.header}>
@@ -265,7 +265,7 @@ export default function BundlesDirectoryScreen() {
           </TouchableOpacity>
         </View>
       </View>
-    </SafeAreaView>
+    </AppSafeArea>
   );
 }
 
@@ -283,7 +283,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'android' ? 40 : 12,
+    paddingTop: 12,
     paddingBottom: 12,
   },
   backButton: {

@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { AppSafeArea } from '@/components/AppSafeArea';
 import {
   View,
   Text,
   TextInput,
   StyleSheet,
-  SafeAreaView,
   ScrollView,
   TouchableOpacity,
   Platform,
@@ -35,6 +35,7 @@ import {
   DiagramLabelingQuestion,
 } from '@/components/ielts';
 import { mediaCache, resolveMediaUrl } from '@/services/mediaCache';
+import { useBackgroundAwareTimer } from '@/hooks/useBackgroundAwareTimer';
 
 export default function IELTSListeningSessionScreen() {
   const router = useRouter();
@@ -120,7 +121,7 @@ export default function IELTSListeningSessionScreen() {
         if (attemptId) {
           const res = await examService.resumeExam(attemptId);
           setAttempt(res);
-          setTotalTimeLeft(res.timer_info?.remaining_seconds ?? 1920);
+          syncListeningTimer(res.timer_info?.remaining_seconds ?? 1920);
 
           const listSec = res.sections.find(s =>
             s.section_name.toLowerCase().includes('listening')
@@ -262,14 +263,15 @@ export default function IELTSListeningSessionScreen() {
     initListening();
   }, [params.attempt_id]);
 
-  // Overall Timer countdown
-  useEffect(() => {
-    if (loading) return;
-    const timer = setInterval(() => {
-      setTotalTimeLeft(prev => (prev > 0 ? prev - 1 : 0));
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [loading]);
+  // Forwarding ref to break the TDZ: executeSubmit is a const defined later.
+  const executeSubmitRef = useRef<() => void>(() => {});
+
+  // Background-aware countdown — corrects totalTimeLeft on foreground resume.
+  const { syncTimer: syncListeningTimer } = useBackgroundAwareTimer(
+    setTotalTimeLeft,
+    () => executeSubmitRef.current(),
+    !loading,
+  );
 
   // Continuous Real Audio Playback (expo-audio & mediaCache)
   // Audio plays once continuously per part; scrubber, rewind, and pause are strictly disabled
@@ -652,6 +654,7 @@ export default function IELTSListeningSessionScreen() {
   };
 
   const executeSubmit = async () => {
+    executeSubmitRef.current = executeSubmit; // keep forwarding ref current
     try {
       setIsSubmitting(true);
 
@@ -906,12 +909,12 @@ export default function IELTSListeningSessionScreen() {
 
   if (loading || !listeningSection) {
     return (
-      <SafeAreaView style={styles.safeArea}>
+      <AppSafeArea style={styles.safeArea}>
         <View style={styles.centerLoading}>
           <ActivityIndicator size="large" color="#4C1D95" />
           <Text style={styles.loadingText}>Setting up Listening Assessment...</Text>
         </View>
-      </SafeAreaView>
+      </AppSafeArea>
     );
   }
 
@@ -919,7 +922,7 @@ export default function IELTSListeningSessionScreen() {
   const progressPercent = audioDuration > 0 ? Math.min(100, Math.max(0, (audioPosition / audioDuration) * 100)) : 0;
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <AppSafeArea style={styles.safeArea}>
       <View style={styles.container}>
 
         {/* Top Header */}
@@ -1477,7 +1480,7 @@ export default function IELTSListeningSessionScreen() {
           router.replace('/(tabs)/bundles' as any);
         }}
       />
-    </SafeAreaView>
+    </AppSafeArea>
   );
 }
 
@@ -1508,7 +1511,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'android' ? 42 : 12,
+    paddingTop: 12,
     paddingBottom: 14,
     backgroundColor: '#FFFFFF',
   },

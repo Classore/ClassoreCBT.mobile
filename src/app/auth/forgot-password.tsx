@@ -1,7 +1,18 @@
-import { AppText } from '@/components/AppText';
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, KeyboardAvoidingView, Platform, ScrollView, Alert } from 'react-native';
+import {
+  AppText } from '@/components/AppText';
+import React,
+  { useState } from 'react';
+import { View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  Alert,
+} from 'react-native';
 import { useRouter } from 'expo-router';
+import { AppSafeArea } from '@/components/AppSafeArea';
 import { Image } from 'expo-image';
 import { SymbolView } from 'expo-symbols';
 import { CustomInput } from '@/components/CustomInput';
@@ -14,9 +25,9 @@ export default function ForgotPasswordScreen() {
   const [isLoading, setIsLoading] = useState(false);
 
   return (
-    <SafeAreaView style={styles.container}>
+    <AppSafeArea style={styles.container}>
       <KeyboardAvoidingView 
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.keyboardView}
       >
         <ScrollView contentContainerStyle={styles.scrollContent}>
@@ -68,7 +79,7 @@ export default function ForgotPasswordScreen() {
           />
         </ScrollView>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </AppSafeArea>
   );
 }
 

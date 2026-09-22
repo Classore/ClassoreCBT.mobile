@@ -4,7 +4,7 @@ const GOOGLE_WEB_CLIENT_ID =
   process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ||
   '224829194037-d80b2mbsnku9r93m2r3283o7o6anrk31.apps.googleusercontent.com';
 
-const GOOGLE_IOS_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || undefined;
+const GOOGLE_IOS_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || '224829194037-drki62frc9ne0khasfeidb2t5k7skfbl.apps.googleusercontent.com';
 
 let isNativeConfigured = false;
 let gsiScriptPromise: Promise<void> | null = null;

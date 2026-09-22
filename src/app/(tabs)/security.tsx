@@ -1,15 +1,23 @@
-import { AppText } from '@/components/AppText';
+import {
+  AppText } from '@/components/AppText';
 import { useAuth } from '@/context/AuthContext';
-import { api, registerCurrentDeviceSession } from '@/services/api';
+import { AppSafeArea } from '@/components/AppSafeArea';
+import { api,
+  registerCurrentDeviceSession } from '@/services/api';
 import { getCurrentDevicePayload } from '@/utils/deviceInfo';
-import { handleHelpBack, navigateWithFrom } from '@/utils/helpNavigation';
-import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useState, useCallback } from 'react';
+import { handleHelpBack,
+  navigateWithFrom } from '@/utils/helpNavigation';
+import { Feather,
+  MaterialCommunityIcons } from '@expo/vector-icons';
+import { useLocalSearchParams,
+  useRouter } from 'expo-router';
+import React,
+  { useEffect,
+  useState,
+  useCallback } from 'react';
 import {
   Alert,
   Platform,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
@@ -167,7 +175,7 @@ export default function SecurityScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <AppSafeArea style={styles.safeArea}>
       <View style={styles.container}>
         {/* Header */}
         <View style={styles.header}>
@@ -297,7 +305,7 @@ export default function SecurityScreen() {
           <View style={{ height: 100 }} />
         </ScrollView>
       </View>
-    </SafeAreaView>
+    </AppSafeArea>
   );
 }
 
@@ -315,7 +323,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'android' ? 12 : 8,
+    paddingTop: 12,
     paddingBottom: 14,
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,

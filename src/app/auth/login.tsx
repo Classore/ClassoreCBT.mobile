@@ -1,13 +1,25 @@
-import { AppText } from '@/components/AppText';
+import {
+  AppText } from '@/components/AppText';
 import { CustomButton } from '@/components/CustomButton';
+import { AppSafeArea } from '@/components/AppSafeArea';
 import { CustomCheckbox } from '@/components/CustomCheckbox';
 import { CustomInput } from '@/components/CustomInput';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'expo-router';
 import { Image } from 'expo-image';
-import { useState, useEffect } from 'react';
+import { useState,
+  useEffect } from 'react';
 
-import { Alert, KeyboardAvoidingView, Platform, SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View, ActivityIndicator } from 'react-native';
+import { Alert,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+  ActivityIndicator,
+} from 'react-native';
 
 import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -106,9 +118,9 @@ export default function LoginScreen() {
   }, []);
 
   return (
-    <SafeAreaView style={styles.container}>
+    <AppSafeArea style={styles.container}>
       <KeyboardAvoidingView 
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.keyboardView}
       >
         <ScrollView contentContainerStyle={styles.scrollContent}>
@@ -276,7 +288,7 @@ export default function LoginScreen() {
 
         </ScrollView>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </AppSafeArea>
   );
 }
 

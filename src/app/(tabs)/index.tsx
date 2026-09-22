@@ -1,13 +1,27 @@
-import { AppText } from '@/components/AppText';
-import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, SafeAreaView, Platform, ActivityIndicator, Alert } from 'react-native';
+import {
+  AppText } from '@/components/AppText';
+import React,
+  { useState,
+  useEffect,
+  useCallback } from 'react';
+import { View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  Platform,
+  ActivityIndicator,
+  Alert,
+} from 'react-native';
 import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
+import { AppSafeArea } from '@/components/AppSafeArea';
 import { Image } from 'expo-image';
 
 import { useAuth } from '@/context/AuthContext';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNotifications } from '@/context/NotificationContext';
+import { useTabBarHeight } from '@/hooks/use-tab-bar-height';
 import { examService, isSectionBasedExam } from '@/services/exam';
 import { contestService, Contest } from '@/services/contest';
 import { storage } from '@/services/storage';
@@ -16,6 +30,7 @@ export default function HomeScreen() {
   const router = useRouter();
   const { user, token } = useAuth();
   const { hasUnread } = useNotifications();
+  const { totalHeight: tabBarHeight } = useTabBarHeight();
   const [isDarkMode, setIsDarkMode] = useState(true);
   
   const userName = user?.first_name || user?.username || "Guest";
@@ -244,8 +259,8 @@ export default function HomeScreen() {
 
   if (isGuest) {
     return (
-      <SafeAreaView style={styles.guestSafeArea}>
-        <ScrollView contentContainerStyle={styles.guestScrollContent} showsVerticalScrollIndicator={false}>
+      <AppSafeArea style={styles.guestSafeArea}>
+        <ScrollView contentContainerStyle={[styles.guestScrollContent, { paddingBottom: tabBarHeight + 24 }]} showsVerticalScrollIndicator={false}>
           {/* Guest Header */}
           <View style={styles.guestHeader}>
             <View style={styles.guestHeaderLeft}>
@@ -392,13 +407,13 @@ export default function HomeScreen() {
 
           <View style={{ height: 100 }} />
         </ScrollView>
-      </SafeAreaView>
+      </AppSafeArea>
     );
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+    <AppSafeArea style={styles.safeArea}>
+      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: tabBarHeight + 24 }]} showsVerticalScrollIndicator={false}>
         
         {/* Header */}
         <View style={styles.header}>
@@ -787,7 +802,7 @@ export default function HomeScreen() {
         
         <View style={{ height: 90 }} />
       </ScrollView>
-    </SafeAreaView>
+    </AppSafeArea>
   );
 }
 
@@ -801,7 +816,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between', 
     alignItems: 'center', 
     marginBottom: 20, 
-    marginTop: Platform.OS === 'android' ? 12 : 4 
+    marginTop: 8 
   },
   greeting: { fontSize: 22, fontWeight: '800', color: '#111827' },
   subGreeting: { fontSize: 13, color: '#6B7280', marginTop: 4 },

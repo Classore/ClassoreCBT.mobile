@@ -1,15 +1,15 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { 
-  View, 
-  StyleSheet, 
-  SafeAreaView, 
-  ScrollView, 
-  TouchableOpacity, 
-  TextInput, 
+import { AppSafeArea } from '@/components/AppSafeArea';
+import {
+  View,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  TextInput,
   Platform,
   ActivityIndicator,
   Modal,
-  FlatList
+  FlatList,
 } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -187,7 +187,7 @@ export default function SavedQuestionsScreen() {
   }, [questions, searchQuery, selectedExam, selectedSubject, selectedSort]);
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <AppSafeArea style={styles.safeArea}>
       <View style={styles.container}>
         
         {/* Top Header */}
@@ -478,7 +478,7 @@ export default function SavedQuestionsScreen() {
           </TouchableOpacity>
         </Modal>
       </View>
-    </SafeAreaView>
+    </AppSafeArea>
   );
 }
 
@@ -496,7 +496,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'android' ? 40 : 12,
+    paddingTop: 12,
     paddingBottom: 12,
     backgroundColor: '#FFFFFF',
   },

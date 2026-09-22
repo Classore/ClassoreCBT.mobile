@@ -1,8 +1,14 @@
-import { AppText } from '@/components/AppText';
+import {
+  AppText } from '@/components/AppText';
 import { CustomButton } from '@/components/CustomButton';
+import { AppSafeArea } from '@/components/AppSafeArea';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import { SafeAreaView, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 
 export default function SuccessScreen() {
   const router = useRouter();
@@ -14,7 +20,7 @@ export default function SuccessScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <AppSafeArea style={styles.container}>
       <View style={styles.content}>
         <View style={styles.iconContainer}>
           <Image source={require('../../../assets/images/success-check-icon.png')} style={styles.checkIcon} contentFit="contain" />
@@ -35,7 +41,7 @@ export default function SuccessScreen() {
           onPress={handleConfirm} 
         />
       </View>
-    </SafeAreaView>
+    </AppSafeArea>
   );
 }
 

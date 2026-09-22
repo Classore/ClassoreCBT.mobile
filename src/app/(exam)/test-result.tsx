@@ -1,16 +1,22 @@
-import { useAuth } from '@/context/AuthContext';
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import {
+  useAuth } from '@/context/AuthContext';
+import React,
+  { useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo } from 'react';
 import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  SafeAreaView, 
-  ScrollView, 
-  TouchableOpacity, 
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
   Platform,
-  ActivityIndicator
+  ActivityIndicator,
 } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { AppSafeArea } from '@/components/AppSafeArea';
 import Svg, { Circle } from 'react-native-svg';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { examService, isSectionBasedExam } from '@/services/exam';
@@ -822,7 +828,7 @@ export default function TestResultScreen() {
   const strokeDashoffset = circumference - (circumference * percentage) / 100;
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <AppSafeArea style={styles.safeArea}>
       <View style={styles.container}>
         
         {/* Header */}
@@ -1342,7 +1348,7 @@ export default function TestResultScreen() {
         subtitle="Create your free Classore account to continue taking tests, save your results, build your streak and track your progress."
         showContinueAsGuest={false}
       />
-    </SafeAreaView>
+    </AppSafeArea>
   );
 }
 
@@ -1360,7 +1366,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'android' ? 40 : 12,
+    paddingTop: 12,
     paddingBottom: 12,
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,

@@ -1,5 +1,7 @@
-import { AppText } from '@/components/AppText';
+import {
+  AppText } from '@/components/AppText';
 import { CustomInput } from '@/components/CustomInput';
+import { AppSafeArea } from '@/components/AppSafeArea';
 import { GoogleSignInButton } from '@/components/GoogleSignInButton';
 import { api } from '@/services/api';
 import { useAuth } from '@/context/AuthContext';
@@ -11,12 +13,11 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   TextInput,
   TouchableOpacity,
-  View
+  View,
 } from 'react-native';
 
 export default function SignupScreen() {
@@ -76,7 +77,7 @@ export default function SignupScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <AppSafeArea style={styles.safeArea}>
       <KeyboardAvoidingView
         style={styles.container}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -108,6 +109,7 @@ export default function SignupScreen() {
                 value={firstName}
                 onChangeText={setFirstName}
                 placeholderTextColor="#A0A0A0"
+                importantForAutofill="no"
               />
             </View>
             <View style={styles.inputContainerHalf}>
@@ -118,6 +120,7 @@ export default function SignupScreen() {
                 value={lastName}
                 onChangeText={setLastName}
                 placeholderTextColor="#A0A0A0"
+                importantForAutofill="no"
               />
             </View>
           </View>
@@ -132,6 +135,7 @@ export default function SignupScreen() {
               value={email}
               onChangeText={setEmail}
               placeholderTextColor="#D0D0D0"
+              importantForAutofill="no"
             />
           </View>
 
@@ -151,6 +155,7 @@ export default function SignupScreen() {
               value={referralId}
               onChangeText={setReferralId}
               placeholderTextColor="#D0D0D0"
+              importantForAutofill="no"
             />
           </View>
 
@@ -207,7 +212,7 @@ export default function SignupScreen() {
 
         </ScrollView>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </AppSafeArea>
   );
 }
 

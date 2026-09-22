@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
+import { AppSafeArea } from '@/components/AppSafeArea';
 import {
   View,
   StyleSheet,
-  SafeAreaView,
   ScrollView,
   TouchableOpacity,
   Platform,
@@ -82,16 +82,16 @@ export default function ContestDetailsScreen() {
 
   if (loading || !contest) {
     return (
-      <SafeAreaView style={styles.safeArea}>
+      <AppSafeArea style={styles.safeArea}>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#6D28D9" />
         </View>
-      </SafeAreaView>
+      </AppSafeArea>
     );
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <AppSafeArea style={styles.safeArea}>
       <View style={styles.container}>
         {/* Header */}
         <View style={styles.header}>
@@ -311,7 +311,7 @@ export default function ContestDetailsScreen() {
           <View style={{ height: 110 }} />
         </ScrollView>
       </View>
-    </SafeAreaView>
+    </AppSafeArea>
   );
 }
 
@@ -334,7 +334,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'android' ? 40 : 12,
+    paddingTop: 12,
     paddingBottom: 12,
   },
   iconButton: {

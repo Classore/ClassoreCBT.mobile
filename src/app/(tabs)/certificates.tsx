@@ -1,20 +1,26 @@
-import { AppText } from '@/components/AppText';
+import {
+  AppText } from '@/components/AppText';
 import { useAuth } from '@/context/AuthContext';
+import { AppSafeArea } from '@/components/AppSafeArea';
 import { api } from '@/services/api';
 import { downloadCertificate } from '@/services/certificateService';
-import { handleHelpBack, navigateWithFrom } from '@/utils/helpNavigation';
-import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { handleHelpBack,
+  navigateWithFrom } from '@/utils/helpNavigation';
+import { Feather,
+  Ionicons,
+  MaterialCommunityIcons } from '@expo/vector-icons';
+import { useLocalSearchParams,
+  useRouter } from 'expo-router';
+import { useEffect,
+  useState } from 'react';
 import {
   ActivityIndicator,
   Platform,
   RefreshControl,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
-  View
+  View,
 } from 'react-native';
 
 interface CertificateItem {
@@ -199,7 +205,7 @@ export default function CertificatesScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <AppSafeArea style={styles.safeArea}>
       <View style={styles.container}>
         {/* Top Header */}
         <View style={styles.header}>
@@ -322,7 +328,7 @@ export default function CertificatesScreen() {
           <View style={{ height: 110 }} />
         </ScrollView>
       </View>
-    </SafeAreaView>
+    </AppSafeArea>
   );
 }
 
@@ -340,7 +346,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'android' ? 40 : 12,
+    paddingTop: 12,
     paddingBottom: 12,
     backgroundColor: '#FFFFFF',
   },

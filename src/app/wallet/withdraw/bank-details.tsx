@@ -1,7 +1,21 @@
-import { AppText } from '@/components/AppText';
-import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, SafeAreaView, TouchableOpacity, Platform, TextInput, ScrollView, ActivityIndicator, Alert, Modal, FlatList } from 'react-native';
+import {
+  AppText } from '@/components/AppText';
+import React,
+  { useState,
+  useEffect } from 'react';
+import { View,
+  StyleSheet,
+  TouchableOpacity,
+  Platform,
+  TextInput,
+  ScrollView,
+  ActivityIndicator,
+  Alert,
+  Modal,
+  FlatList,
+} from 'react-native';
 import { Feather, FontAwesome5 } from '@expo/vector-icons';
+import { AppSafeArea } from '@/components/AppSafeArea';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { walletService, BankAccount, SupportedBank } from '@/services/wallet';
 import { useNotifications } from '@/context/NotificationContext';
@@ -108,7 +122,7 @@ export default function BankDetailsScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <AppSafeArea style={styles.safeArea}>
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => {
@@ -286,12 +300,12 @@ export default function BankDetailsScreen() {
           </View>
         </View>
       </Modal>
-    </SafeAreaView>
+    </AppSafeArea>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#FFF', paddingTop: Platform.OS === 'android' ? 40 : 16 },
+  safeArea: { flex: 1, backgroundColor: '#FFF', paddingTop: 16 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, marginBottom: 24 },
   iconButton: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: '#F3F4F6', justifyContent: 'center', alignItems: 'center' },
   headerTitle: { fontSize: 18, fontWeight: 'bold', color: '#111827' },

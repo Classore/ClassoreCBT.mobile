@@ -1,16 +1,16 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  SafeAreaView, 
-  ScrollView, 
-  TouchableOpacity, 
+import { AppSafeArea } from '@/components/AppSafeArea';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
   Platform,
   Modal,
   Alert,
   TextInput,
-  ActivityIndicator
+  ActivityIndicator,
 } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -40,6 +40,7 @@ import { ExamSupportModal } from '@/components/ExamSupportModal';
 import { GuestAuthModal } from '@/components/GuestAuthModal';
 import { formatQuestionText } from '@/utils/questionFormatter';
 import { navigateWithFrom } from '@/utils/helpNavigation';
+import { useBackgroundAwareTimer } from '@/hooks/useBackgroundAwareTimer';
 
 export const isResponseAnswered = (r?: UserResponseItem | null): boolean => {
   if (!r) return false;
@@ -140,9 +141,9 @@ export default function IELTSSessionScreen() {
               const demoRes = await guestService.startDemoTest(resolvedDemoId);
               currentAttempt = buildAttemptFromDemoResponse(demoRes);
               if (demoRes.time_limit_seconds) {
-                setTimeLeft(demoRes.time_limit_seconds);
+                syncIeltsTimer(demoRes.time_limit_seconds);
               } else if (demoRes.time_limit_minutes) {
-                setTimeLeft(demoRes.time_limit_minutes * 60);
+                syncIeltsTimer(demoRes.time_limit_minutes * 60);
               }
             } catch (demoErr: any) {
               if (demoErr?.response?.status === 403 || demoErr?.response?.data?.code === 'GUEST_LIMIT_REACHED') {
@@ -179,7 +180,7 @@ export default function IELTSSessionScreen() {
               }
               currentAttempt = res;
               if (res.timer_info?.remaining_seconds !== undefined) {
-                setTimeLeft(res.timer_info.remaining_seconds);
+                syncIeltsTimer(res.timer_info.remaining_seconds);
               }
             } catch (e: any) {
               console.warn('Failed to resume IELTS attempt:', e);
@@ -218,7 +219,7 @@ export default function IELTSSessionScreen() {
             const res = await examService.resumeExam(newAttempt.id);
             currentAttempt = res;
             if (res.timer_info?.remaining_seconds !== undefined) {
-              setTimeLeft(res.timer_info.remaining_seconds);
+              syncIeltsTimer(res.timer_info.remaining_seconds);
             }
           }
         }
@@ -380,22 +381,18 @@ export default function IELTSSessionScreen() {
     }
   }, [loading, attempt, activeSectionIndex]);
 
-  // Timer Countdown Effect
-  useEffect(() => {
-    if (!loading && attempt) {
-      const timer = setInterval(() => {
-        setTimeLeft((prev) => {
-          if (prev <= 1) {
-            clearInterval(timer);
-            executeSubmit();
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-      return () => clearInterval(timer);
-    }
-  }, [loading, attempt]);
+  // Forwarding ref so we can pass onExpire to the hook before executeSubmit is defined.
+  // executeSubmit is a const declared later in the component; referencing it here
+  // directly would cause a "Cannot access before initialization" TDZ error.
+  const executeSubmitRef = useRef<() => void>(() => {});
+
+  // Background-aware countdown — corrects timeLeft on foreground resume.
+  // Call syncTimer() whenever the server provides an authoritative value.
+  const { syncTimer: syncIeltsTimer } = useBackgroundAwareTimer(
+    setTimeLeft,
+    () => executeSubmitRef.current(),
+    !loading && !!attempt,
+  );
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -1076,6 +1073,8 @@ export default function IELTSSessionScreen() {
   };
 
   const executeSubmit = async () => {
+    // Keep the forwarding ref current so the timer hook always calls the latest version
+    executeSubmitRef.current = executeSubmit;
     if (!attempt) return;
     try {
       setIsSubmitting(true);
@@ -1194,25 +1193,25 @@ export default function IELTSSessionScreen() {
 
   if (loading || !attempt) {
     return (
-      <SafeAreaView style={styles.safeArea}>
+      <AppSafeArea style={styles.safeArea}>
         <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
           <ActivityIndicator size="large" color="#6D28D9" />
           <Text style={{ marginTop: 12, color: '#6B7280' }}>Loading Exam Session...</Text>
         </View>
-      </SafeAreaView>
+      </AppSafeArea>
     );
   }
 
   if (!activeSection || !activeGroup || !currentResponse) {
      return (
-      <SafeAreaView style={styles.safeArea}>
+      <AppSafeArea style={styles.safeArea}>
         <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
           <Text style={{ color: '#6B7280' }}>No content available for this section.</Text>
           <TouchableOpacity onPress={handleNext} style={[styles.nextButton, { marginTop: 20 }]}>
             <Text style={styles.nextButtonText}>Next Section</Text>
           </TouchableOpacity>
         </View>
-      </SafeAreaView>
+      </AppSafeArea>
      );
   }
 
@@ -1296,7 +1295,7 @@ export default function IELTSSessionScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <AppSafeArea style={styles.safeArea}>
       <View style={styles.container}>
         
         {/* Top Header */}
@@ -1984,7 +1983,7 @@ export default function IELTSSessionScreen() {
           else router.replace('/mock-tests' as any);
         }}
       />
-    </SafeAreaView>
+    </AppSafeArea>
   );
 }
 
@@ -2002,7 +2001,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'android' ? 40 : 12,
+    paddingTop: 12,
     paddingBottom: 12,
     backgroundColor: '#FFFFFF',
   },

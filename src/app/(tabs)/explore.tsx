@@ -1,21 +1,26 @@
-import { AppText } from '@/components/AppText';
-import React, { useState, useEffect, useCallback } from 'react';
+import {
+  AppText } from '@/components/AppText';
+import React,
+  { useState,
+  useEffect,
+  useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   ScrollView,
   TouchableOpacity,
   Platform,
 } from 'react-native';
 import { Image } from 'expo-image';
+import { AppSafeArea } from '@/components/AppSafeArea';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
 import { examService, isSectionBasedExam } from '@/services/exam';
 import { storage } from '@/services/storage';
 import { paymentService, ServiceBundle } from '@/services/payment';
+import { useTabBarHeight } from '@/hooks/use-tab-bar-height';
 
 interface PracticeItem {
   id: string | number;
@@ -87,6 +92,7 @@ const isIeltsAttempt = (item: any, examsList?: any[]): boolean => {
 export default function PracticeHubScreen() {
   const router = useRouter();
   const { user } = useAuth();
+  const { totalHeight: tabBarHeight } = useTabBarHeight();
 
   const userStreak = user?.streak ?? 120;
 
@@ -374,7 +380,7 @@ export default function PracticeHubScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <AppSafeArea style={styles.safeArea}>
       {/* Top Header */}
       <View style={styles.header}>
         <TouchableOpacity
@@ -395,7 +401,7 @@ export default function PracticeHubScreen() {
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: tabBarHeight + 24 }]}
       >
         {/* Section 1: Continue Practicing */}
         <View style={styles.sectionHeader}>
@@ -570,7 +576,7 @@ export default function PracticeHubScreen() {
         {/* Bottom space for tab bar */}
         <View style={{ height: 100 }} />
       </ScrollView>
-    </SafeAreaView>
+    </AppSafeArea>
   );
 }
 
@@ -578,7 +584,7 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: '#FFFFFF',
-    paddingTop: Platform.OS === 'android' ? 24 : 0,
+    paddingTop: 0,
   },
   header: {
     flexDirection: 'row',

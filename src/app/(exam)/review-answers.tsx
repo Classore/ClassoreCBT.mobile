@@ -1,19 +1,23 @@
-import { useAuth } from '@/context/AuthContext';
+import {
+  useAuth } from '@/context/AuthContext';
 import { examService } from '@/services/exam';
+import { AppSafeArea } from '@/components/AppSafeArea';
 import { guestService } from '@/services/guest';
-import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import { Feather,
+  MaterialCommunityIcons } from '@expo/vector-icons';
+import { useLocalSearchParams,
+  useRouter } from 'expo-router';
+import React,
+  { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Platform,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
-  View
+  View,
 } from 'react-native';
 
 interface ReviewQuestion {
@@ -343,7 +347,7 @@ export default function ReviewAnswersScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <AppSafeArea style={styles.safeArea}>
       <View style={styles.container}>
         
         {/* Header */}
@@ -610,7 +614,7 @@ export default function ReviewAnswersScreen() {
           </ScrollView>
         )}
       </View>
-    </SafeAreaView>
+    </AppSafeArea>
   );
 }
 
@@ -628,7 +632,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'android' ? 40 : 12,
+    paddingTop: 12,
     paddingBottom: 12,
     backgroundColor: '#FFFFFF',
   },

@@ -1,7 +1,16 @@
 import { AppText } from '@/components/AppText';
-import React, { useState } from 'react';
-import { View, TextInput, Text, StyleSheet, TouchableOpacity, TextInputProps, StyleProp, ViewStyle } from 'react-native';
-import { SymbolView } from 'expo-symbols';
+import React, { useRef, useState } from 'react';
+import {
+  Animated,
+  Platform,
+  Pressable,
+  StyleProp,
+  StyleSheet,
+  TextInput,
+  TextInputProps,
+  View,
+  ViewStyle,
+} from 'react-native';
 import { Image } from 'expo-image';
 
 interface CustomInputProps extends TextInputProps {
@@ -10,38 +19,83 @@ interface CustomInputProps extends TextInputProps {
   containerStyle?: StyleProp<ViewStyle>;
 }
 
-export function CustomInput({ label, isPassword, style, containerStyle, ...props }: CustomInputProps) {
-  const [isFocused, setIsFocused] = useState(false);
+export function CustomInput({ label, isPassword, style, containerStyle, onFocus, onBlur, ...props }: CustomInputProps) {
+  // Use Animated.Value instead of useState so the border-color/background change
+  // does NOT trigger a React re-render. On Android, a re-render caused by setState
+  // during onFocus triggers a layout recalculation that makes Android's focus manager
+  // move focus to the next focusable view in the hierarchy.
+  const focusAnim = useRef(new Animated.Value(0)).current;
   const [secureTextEntry, setSecureTextEntry] = useState(isPassword);
+
+  const handleFocus: TextInputProps['onFocus'] = (e) => {
+    Animated.timing(focusAnim, {
+      toValue: 1,
+      duration: 150,
+      useNativeDriver: false, // border/background color can't use native driver
+    }).start();
+    onFocus?.(e);
+  };
+
+  const handleBlur: TextInputProps['onBlur'] = (e) => {
+    Animated.timing(focusAnim, {
+      toValue: 0,
+      duration: 150,
+      useNativeDriver: false,
+    }).start();
+    onBlur?.(e);
+  };
+
+  const animatedBorderColor = focusAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['#E5E7EB', '#7C3AED'],
+  });
+
+  const animatedBackground = focusAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['#F9FAFB', '#FAF5FF'],
+  });
 
   return (
     <View style={[styles.container, containerStyle]}>
       <AppText style={styles.label}>{label}</AppText>
-      <View style={[
-        styles.inputContainer,
-        isFocused && styles.inputContainerFocused
-      ]}>
+      <Animated.View
+        style={[
+          styles.inputContainer,
+          {
+            borderColor: animatedBorderColor,
+            backgroundColor: animatedBackground,
+          },
+        ]}
+      >
         <TextInput
           style={[styles.input, style]}
-          onFocus={() => setIsFocused(true)}
-          onBlur={() => setIsFocused(false)}
+          onFocus={handleFocus}
+          onBlur={handleBlur}
           secureTextEntry={secureTextEntry}
           placeholderTextColor="#B0B0B0"
+          importantForAutofill="no"
           {...props}
         />
         {isPassword && (
-          <TouchableOpacity 
-            style={styles.eyeIcon} 
-            onPress={() => setSecureTextEntry(!secureTextEntry)}
+          <Pressable
+            style={styles.eyeIcon}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            onPressIn={(e) => {
+              // Prevent the Pressable from stealing focus away from the TextInput on Android.
+              if (Platform.OS === 'android') {
+                e.preventDefault();
+              }
+            }}
+            onPress={() => setSecureTextEntry(prev => !prev)}
           >
-            <Image 
-              source={require('../../assets/images/eye-icon.png')} 
-              style={[styles.eyeImage, { opacity: secureTextEntry ? 0.5 : 1 }]} 
-              contentFit="contain" 
+            <Image
+              source={require('../../assets/images/eye-icon.png')}
+              style={[styles.eyeImage, { opacity: secureTextEntry ? 0.5 : 1 }]}
+              contentFit="contain"
             />
-          </TouchableOpacity>
+          </Pressable>
         )}
-      </View>
+      </Animated.View>
     </View>
   );
 }
@@ -61,19 +115,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1.5,
-    borderColor: '#E5E7EB',
     borderRadius: 12,
     height: 52,
-    backgroundColor: '#F9FAFB',
-  },
-  inputContainerFocused: {
-    borderColor: '#7C3AED',
-    backgroundColor: '#FAF5FF',
-    elevation: 2,
-    shadowColor: '#7C3AED',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.10,
-    shadowRadius: 6,
   },
   input: {
     flex: 1,
@@ -92,4 +135,3 @@ const styles = StyleSheet.create({
     height: 20,
   },
 });
-

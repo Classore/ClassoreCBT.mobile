@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
+import { AppSafeArea } from '@/components/AppSafeArea';
 import {
   View,
   StyleSheet,
-  SafeAreaView,
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
@@ -289,7 +289,7 @@ export default function TopicSelectionScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <AppSafeArea style={styles.safeArea}>
       <View style={styles.container}>
         {/* Header */}
         <View style={styles.header}>
@@ -440,7 +440,7 @@ export default function TopicSelectionScreen() {
           }}
         />
       </View>
-    </SafeAreaView>
+    </AppSafeArea>
   );
 }
 

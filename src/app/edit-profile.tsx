@@ -1,13 +1,14 @@
 import { useAuth } from '@/context/AuthContext';
 import { Feather } from '@expo/vector-icons';
+import { AppSafeArea } from '@/components/AppSafeArea';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { navigateWithFrom } from '@/utils/helpNavigation';
 import {
   Alert,
+  Animated,
   Platform,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -15,7 +16,7 @@ import {
   TouchableOpacity,
   View,
   Modal,
-  FlatList
+  FlatList,
 } from 'react-native';
 
 export default function EditProfileScreen() {
@@ -40,13 +41,46 @@ export default function EditProfileScreen() {
     : require('@/assets/images/default-avatar.png');
 
   const [isSaving, setIsSaving] = useState(false);
-  const [focusedField, setFocusedField] = useState<string | null>(null);
+
+  // Per-field Animated.Value for focus indicator.
+  // Using useState here would trigger a full-screen re-render on every focus/blur event,
+  // which on Android causes a layout recalculation that moves focus to the next TextInput.
+  // Animated.Value updates bypass React's render cycle entirely.
+  const focusAnims = useRef<Record<string, Animated.Value>>({
+    fullName: new Animated.Value(0),
+    email: new Animated.Value(0),
+    phone: new Animated.Value(0),
+    dob: new Animated.Value(0),
+    school: new Animated.Value(0),
+  }).current;
+
+  const animateFocus = useCallback((field: string, focused: boolean) => {
+    Animated.timing(focusAnims[field], {
+      toValue: focused ? 1 : 0,
+      duration: 150,
+      useNativeDriver: false,
+    }).start();
+  }, [focusAnims]);
 
   const focusProps = useCallback((fieldName: string) => ({
-    onFocus: () => setFocusedField(fieldName),
-    onBlur: () => setFocusedField(null),
-  }), []);
+    onFocus: () => animateFocus(fieldName, true),
+    onBlur: () => animateFocus(fieldName, false),
+    importantForAutofill: 'no' as const,
+  }), [animateFocus]);
 
+  // Animated interpolators
+  const animBorder = (f: string) => focusAnims[f].interpolate({
+    inputRange: [0, 1], outputRange: ['#E8EDF2', '#7C3AED'],
+  });
+  const animBg = (f: string) => focusAnims[f].interpolate({
+    inputRange: [0, 1], outputRange: ['#F8FAFC', '#FAF5FF'],
+  });
+  const animLabel = (f: string) => focusAnims[f].interpolate({
+    inputRange: [0, 1], outputRange: ['#111827', '#7C3AED'],
+  });
+  const animIcon = (f: string) => focusAnims[f].interpolate({
+    inputRange: [0, 1], outputRange: ['#9CA3AF', '#6D28D9'],
+  });
 
   const [modalVisible, setModalVisible] = useState(false);
   const [modalType, setModalType] = useState<'gender' | 'state' | 'classLevel' | null>(null);
@@ -125,7 +159,7 @@ export default function EditProfileScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <AppSafeArea style={styles.safeArea}>
       <View style={styles.container}>
         
         {/* Top Header */}
@@ -169,8 +203,8 @@ export default function EditProfileScreen() {
           <View style={styles.form}>
             {/* Full Name */}
             <View style={styles.fieldGroup}>
-              <Text style={[styles.fieldLabel, focusedField === 'fullName' && styles.fieldLabelFocused]}>Full Name</Text>
-              <View style={[styles.inputContainer, focusedField === 'fullName' && styles.inputContainerFocused]}>
+              <Animated.Text style={[styles.fieldLabel, { color: animLabel('fullName') }]}>Full Name</Animated.Text>
+              <Animated.View style={[styles.inputContainer, { borderColor: animBorder('fullName'), backgroundColor: animBg('fullName') }]}>
                 <TextInput
                   style={styles.textInput}
                   value={fullName}
@@ -180,13 +214,13 @@ export default function EditProfileScreen() {
                   underlineColorAndroid="transparent"
                   {...focusProps('fullName')}
                 />
-              </View>
+              </Animated.View>
             </View>
 
             {/* Email Address */}
             <View style={styles.fieldGroup}>
-              <Text style={[styles.fieldLabel, focusedField === 'email' && styles.fieldLabelFocused]}>Email Address</Text>
-              <View style={[styles.inputContainer, focusedField === 'email' && styles.inputContainerFocused]}>
+              <Animated.Text style={[styles.fieldLabel, { color: animLabel('email') }]}>Email Address</Animated.Text>
+              <Animated.View style={[styles.inputContainer, { borderColor: animBorder('email'), backgroundColor: animBg('email') }]}>
                 <TextInput
                   style={styles.textInput}
                   value={email}
@@ -198,13 +232,13 @@ export default function EditProfileScreen() {
                   underlineColorAndroid="transparent"
                   {...focusProps('email')}
                 />
-              </View>
+              </Animated.View>
             </View>
 
             {/* Phone Number with Flag */}
             <View style={styles.fieldGroup}>
-              <Text style={[styles.fieldLabel, focusedField === 'phone' && styles.fieldLabelFocused]}>Phone Number</Text>
-              <View style={[styles.inputContainer, styles.phoneInputContainer, focusedField === 'phone' && styles.inputContainerFocused]}>
+              <Animated.Text style={[styles.fieldLabel, { color: animLabel('phone') }]}>Phone Number</Animated.Text>
+              <Animated.View style={[styles.inputContainer, styles.phoneInputContainer, { borderColor: animBorder('phone'), backgroundColor: animBg('phone') }]}>
                 <View style={styles.flagContainer}>
                   <Text style={{ fontSize: 18, marginRight: 6 }}>🇳🇬</Text>
                   <Feather name="chevron-down" size={12} color="#6B7280" />
@@ -219,13 +253,13 @@ export default function EditProfileScreen() {
                   underlineColorAndroid="transparent"
                   {...focusProps('phone')}
                 />
-              </View>
+              </Animated.View>
             </View>
 
             {/* Date of Birth */}
             <View style={styles.fieldGroup}>
-              <Text style={[styles.fieldLabel, focusedField === 'dob' && styles.fieldLabelFocused]}>Date of Birth</Text>
-              <View style={[styles.inputContainer, styles.dropdownContainer, focusedField === 'dob' && styles.inputContainerFocused]}>
+              <Animated.Text style={[styles.fieldLabel, { color: animLabel('dob') }]}>Date of Birth</Animated.Text>
+              <Animated.View style={[styles.inputContainer, styles.dropdownContainer, { borderColor: animBorder('dob'), backgroundColor: animBg('dob') }]}>
                 <TextInput
                   style={styles.textInput}
                   value={dateOfBirth}
@@ -235,8 +269,10 @@ export default function EditProfileScreen() {
                   underlineColorAndroid="transparent"
                   {...focusProps('dob')}
                 />
-                <Feather name="calendar" size={16} color={focusedField === 'dob' ? '#6D28D9' : '#9CA3AF'} />
-              </View>
+                <Animated.Text style={{ color: animIcon('dob') }}>
+                  <Feather name="calendar" size={16} />
+                </Animated.Text>
+              </Animated.View>
             </View>
 
             {/* Gender */}
@@ -259,8 +295,8 @@ export default function EditProfileScreen() {
 
             {/* School (Optional) */}
             <View style={styles.fieldGroup}>
-              <Text style={[styles.fieldLabel, focusedField === 'school' && styles.fieldLabelFocused]}>School <Text style={styles.optionalTag}>(Optional)</Text></Text>
-              <View style={[styles.inputContainer, focusedField === 'school' && styles.inputContainerFocused]}>
+              <Animated.Text style={[styles.fieldLabel, { color: animLabel('school') }]}>School <Text style={styles.optionalTag}>(Optional)</Text></Animated.Text>
+              <Animated.View style={[styles.inputContainer, { borderColor: animBorder('school'), backgroundColor: animBg('school') }]}>
                 <TextInput
                   style={styles.textInput}
                   value={school}
@@ -270,7 +306,7 @@ export default function EditProfileScreen() {
                   underlineColorAndroid="transparent"
                   {...focusProps('school')}
                 />
-              </View>
+              </Animated.View>
             </View>
 
             {/* Class / Level */}
@@ -354,7 +390,7 @@ export default function EditProfileScreen() {
           </TouchableOpacity>
         </Modal>
       </View>
-    </SafeAreaView>
+    </AppSafeArea>
 
   );
 }
@@ -373,7 +409,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'android' ? 40 : 12,
+    paddingTop: 12,
     paddingBottom: 12,
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
@@ -455,19 +491,6 @@ const styles = StyleSheet.create({
     paddingVertical: Platform.OS === 'ios' ? 14 : 10,
     borderWidth: 1.5,
     borderColor: '#E8EDF2',
-  },
-  inputContainerFocused: {
-    borderColor: '#7C3AED',
-    backgroundColor: '#FAF5FF',
-    // subtle elevation on Android for depth
-    elevation: 2,
-    shadowColor: '#7C3AED',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-  },
-  fieldLabelFocused: {
-    color: '#7C3AED',
   },
   optionalTag: {
     fontSize: 12,

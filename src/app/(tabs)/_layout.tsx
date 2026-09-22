@@ -1,11 +1,12 @@
 import { Tabs, usePathname } from 'expo-router';
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { SymbolView } from 'expo-symbols';
 import { Image } from 'expo-image';
 import { useAuth } from '@/context/AuthContext';
 import { GuestAuthModal } from '@/components/GuestAuthModal';
+import { useTabBarHeight } from '@/hooks/use-tab-bar-height';
 
 // Custom tab bar button for the center action
 const CustomTabBarButton = ({ children, onPress }: any) => (
@@ -25,6 +26,7 @@ export default function TabsLayout() {
   const { token } = useAuth();
   const isGuest = !token;
   const [guestModalVisible, setGuestModalVisible] = useState(false);
+  const { totalHeight, bottomInset } = useTabBarHeight();
 
   const isProfileActive =
     pathname === '/profile' ||
@@ -59,7 +61,13 @@ export default function TabsLayout() {
         screenOptions={{
           headerShown: false,
           tabBarShowLabel: true,
-          tabBarStyle: styles.tabBar,
+          tabBarStyle: [
+            styles.tabBar,
+            {
+              height: totalHeight,
+              paddingBottom: bottomInset,
+            },
+          ],
           tabBarActiveTintColor: '#6D28D9',
           tabBarInactiveTintColor: '#9CA3AF',
           tabBarLabelStyle: styles.tabBarLabel,
@@ -315,8 +323,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderTopWidth: 1,
     borderTopColor: '#F1F5F9',
-    height: Platform.OS === 'ios' ? 84 : 64,
-    paddingBottom: Platform.OS === 'ios' ? 22 : 6,
     paddingTop: 6,
   },
   tabBarLabel: {

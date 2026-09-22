@@ -392,12 +392,19 @@ export const examService = {
       const response = await api.get(`/api/user/sections/${sectionId}/topics/`);
       const raw = response.data?.topics || response.data?.results || response.data || [];
       if (Array.isArray(raw) && raw.length > 0) {
+        const seen = new Set<string>();
         return raw
           .map((t: any) => {
-            if (typeof t === 'string') return t;
-            return t.topic_tag || t.name || t.title || '';
+            const name = typeof t === 'string' ? t : (t.topic_tag || t.name || t.title || '');
+            return name.trim();
           })
-          .filter((t: string) => Boolean(t) && t !== '[object Object]');
+          .filter((t: string) => {
+            if (!t || t === '[object Object]') return false;
+            const key = t.toLowerCase();
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
       }
       return [];
     } catch (error) {

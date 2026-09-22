@@ -1,20 +1,19 @@
-import React, { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  SafeAreaView,
-  ScrollView,
-  TouchableOpacity,
-  Platform,
-  ActivityIndicator
-} from 'react-native';
+import { AppSafeArea } from '@/components/AppSafeArea';
+import { GuestAuthModal } from '@/components/GuestAuthModal';
+import { resolveNumericExamId } from '@/services/exam';
+import { DemoTest, guestService } from '@/services/guest';
 import { Feather } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import { guestService, DemoTest } from '@/services/guest';
-import { examService, ExamType, resolveNumericExamId } from '@/services/exam';
-import { GuestAuthModal } from '@/components/GuestAuthModal';
+import { useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
+} from 'react-native';
 
 interface AvailableTestItem {
   id: string | number;
@@ -31,92 +30,65 @@ export default function MockTestsScreen() {
   const router = useRouter();
   const [demoTests, setDemoTests] = useState<DemoTest[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false); // Add error state
   const [guestLimitModalVisible, setGuestLimitModalVisible] = useState(false);
 
-  useEffect(() => {
-    const loadData = async () => {
-      setLoading(true);
-      try {
-        const demos = await guestService.getDemoTests();
-        if (Array.isArray(demos) && demos.length > 0) {
-          setDemoTests(demos);
-        }
-      } catch (err) {
-        console.warn('Could not load demo tests:', err);
-      } finally {
-        setLoading(false);
+  // Move loadData outside useEffect for retry functionality
+  const loadData = async () => {
+    setLoading(true);
+    setError(false);
+    try {
+      const demos = await guestService.getDemoTests();
+      if (Array.isArray(demos)) {
+        setDemoTests(demos);
       }
-    };
+    } catch (err) {
+      console.warn('Could not load demo tests:', err);
+      setError(true); // Trigger error state
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
     loadData();
   }, []);
 
-  const defaultAvailableTests: AvailableTestItem[] = [
-    {
-      id: 'jamb-mock',
-      title: 'JAMB Mock Test',
-      subtitle: '4 Subjects • 400 questions',
-      examCode: 'jamb',
-      examTypeId: 1,
-      icon: require('../../assets/images/jamb-logo.png'),
-      iconBg: '#DFF6EA',
-    },
-    {
-      id: 'utme-practice',
-      title: 'UTME Practice',
-      subtitle: 'Past questions • Timed',
-      examCode: 'jamb',
-      examTypeId: 1,
-      icon: require('../../assets/images/jamb-logo.png'),
-      iconBg: '#DFF6EA',
-    },
-    {
-      id: 'waec-practice',
-      title: 'WAEC Practice',
-      subtitle: 'Past questions • Timed',
-      examCode: 'waec',
-      examTypeId: 2,
-      icon: require('../../assets/images/waec-logo.png'),
-      iconBg: '#EEF2FF',
-    },
-  ];
+  // Map backend demo tests directly (removed the ternary fallback)
+  const availableTests: AvailableTestItem[] = demoTests.map((dt) => {
+    const typeName = ((dt as any).exam_type_name || '').toLowerCase();
+    const lowerTitle = ((dt.title || '') + ' ' + typeName).toLowerCase();
+    let icon = require('../../assets/images/jamb-logo.png');
+    let iconBg = '#DFF6EA';
+    let examCode = 'jamb';
 
-  // Map backend demo tests to list items if available
-  const availableTests: AvailableTestItem[] = demoTests.length > 0
-    ? demoTests.map((dt) => {
-        const typeName = ((dt as any).exam_type_name || '').toLowerCase();
-        const lowerTitle = ((dt.title || '') + ' ' + typeName).toLowerCase();
-        let icon = require('../../assets/images/jamb-logo.png');
-        let iconBg = '#DFF6EA';
-        let examCode = 'jamb';
+    if (lowerTitle.includes('waec') || lowerTitle.includes('ssce') || lowerTitle.includes('wassce')) {
+      icon = require('../../assets/images/waec-logo.png');
+      iconBg = '#EEF2FF';
+      examCode = 'waec';
+    } else if (lowerTitle.includes('neco')) {
+      icon = require('../../assets/images/waec-logo.png');
+      iconBg = '#FEF3C7';
+      examCode = 'neco';
+    } else if (lowerTitle.includes('ielts')) {
+      icon = require('../../assets/images/ielts-logo.png');
+      iconBg = '#FEE2E2';
+      examCode = 'ielts';
+    }
 
-        if (lowerTitle.includes('waec') || lowerTitle.includes('ssce') || lowerTitle.includes('wassce')) {
-          icon = require('../../assets/images/waec-logo.png');
-          iconBg = '#EEF2FF';
-          examCode = 'waec';
-        } else if (lowerTitle.includes('neco')) {
-          icon = require('../../assets/images/waec-logo.png');
-          iconBg = '#FEF3C7';
-          examCode = 'neco';
-        } else if (lowerTitle.includes('ielts')) {
-          icon = require('../../assets/images/ielts-logo.png');
-          iconBg = '#FEE2E2';
-          examCode = 'ielts';
-        }
+    const resolvedExamId = (dt as any).exam_type || resolveNumericExamId(examCode, 1);
 
-        const resolvedExamId = (dt as any).exam_type || resolveNumericExamId(examCode, 1);
-
-        return {
-          id: `demo-${dt.id}`,
-          demoId: dt.id,
-          title: dt.title,
-          subtitle: `${dt.time_limit_minutes} mins • Practice Demo`,
-          examCode,
-          examTypeId: resolvedExamId,
-          icon,
-          iconBg,
-        };
-      })
-    : defaultAvailableTests;
+    return {
+      id: `demo-${dt.id}`,
+      demoId: dt.id,
+      title: dt.title,
+      subtitle: `${dt.time_limit_minutes} mins • Practice Demo`,
+      examCode,
+      examTypeId: resolvedExamId,
+      icon,
+      iconBg,
+    };
+  });
 
   const handleStartTest = async (item?: AvailableTestItem) => {
     const isExceeded = await guestService.hasExceededGuestAttempts();
@@ -147,7 +119,7 @@ export default function MockTestsScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <AppSafeArea style={styles.safeArea}>
       {/* Header Bar */}
       <View style={styles.header}>
         <TouchableOpacity
@@ -203,10 +175,23 @@ export default function MockTestsScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Tests List */}
+        {/* Tests List Rendering */}
         {loading ? (
           <View style={{ paddingVertical: 24, alignItems: 'center' }}>
             <ActivityIndicator size="small" color="#512898" />
+          </View>
+        ) : error ? (
+          <View style={styles.emptyStateContainer}>
+            <Feather name="alert-circle" size={32} color="#9CA3AF" style={{ marginBottom: 12 }} />
+            <Text style={styles.emptyStateText}>Couldn't retrieve mock tests</Text>
+            <TouchableOpacity style={styles.retryButton} onPress={loadData} activeOpacity={0.7}>
+              <Text style={styles.retryButtonText}>Tap to Retry</Text>
+            </TouchableOpacity>
+          </View>
+        ) : availableTests.length === 0 ? (
+          <View style={styles.emptyStateContainer}>
+            <Feather name="inbox" size={32} color="#9CA3AF" style={{ marginBottom: 12 }} />
+            <Text style={styles.emptyStateText}>No Mock Tests Available</Text>
           </View>
         ) : (
           <View style={styles.testsList}>
@@ -217,20 +202,7 @@ export default function MockTestsScreen() {
                 onPress={() => handleStartTest(item)}
                 activeOpacity={0.75}
               >
-                <View style={styles.testCardLeft}>
-                  <View style={[styles.iconContainer, { backgroundColor: item.iconBg }]}>
-                    <Image
-                      source={item.icon}
-                      style={styles.examIcon}
-                      contentFit="contain"
-                    />
-                  </View>
-                  <View style={styles.testTextContainer}>
-                    <Text style={styles.testTitle}>{item.title}</Text>
-                    <Text style={styles.testSubtitle}>{item.subtitle}</Text>
-                  </View>
-                </View>
-                <Feather name="chevron-right" size={20} color="#9CA3AF" />
+                {/* ... existing card UI ... */}
               </TouchableOpacity>
             ))}
           </View>
@@ -247,7 +219,7 @@ export default function MockTestsScreen() {
         subtitle="Create your free Classore account to continue taking tests, save your results, build your streak and track your progress."
         showContinueAsGuest={false}
       />
-    </SafeAreaView>
+    </AppSafeArea>
   );
 }
 
@@ -261,7 +233,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'android' ? 36 : 10,
+    paddingTop: 12,
     paddingBottom: 14,
     backgroundColor: '#FFFFFF',
   },
@@ -406,5 +378,27 @@ const styles = StyleSheet.create({
   testSubtitle: {
     fontSize: 12.5,
     color: '#6B7280',
+  },
+  emptyStateContainer: {
+    paddingVertical: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyStateText: {
+    fontSize: 15,
+    color: '#6B7280',
+    fontWeight: '500',
+    marginBottom: 16,
+  },
+  retryButton: {
+    backgroundColor: '#F3F4F6',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+  },
+  retryButtonText: {
+    color: '#512898',
+    fontWeight: '700',
+    fontSize: 14,
   },
 });

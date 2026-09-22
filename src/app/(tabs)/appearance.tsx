@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { AppSafeArea } from '@/components/AppSafeArea';
 import {
   View,
   StyleSheet,
-  SafeAreaView,
   ScrollView,
   TouchableOpacity,
   Switch,
@@ -108,7 +108,7 @@ export default function AppearanceScreen() {
   const activeColor = activeColorObj.hex;
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <AppSafeArea style={styles.safeArea}>
       <View style={styles.container}>
         {/* Header */}
         <View style={styles.header}>
@@ -283,7 +283,7 @@ export default function AppearanceScreen() {
           <View style={{ height: 100 }} />
         </ScrollView>
       </View>
-    </SafeAreaView>
+    </AppSafeArea>
   );
 }
 
@@ -301,7 +301,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'android' ? 12 : 8,
+    paddingTop: 12,
     paddingBottom: 14,
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,

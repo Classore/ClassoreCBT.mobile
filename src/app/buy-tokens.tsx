@@ -1,16 +1,16 @@
 import React, { useState } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  SafeAreaView, 
-  ScrollView, 
-  TouchableOpacity, 
-  TextInput, 
+import { AppSafeArea } from '@/components/AppSafeArea';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  TextInput,
   Platform,
   Alert,
   Linking,
-  ActivityIndicator
+  ActivityIndicator,
 } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
 import { Image } from 'expo-image';
@@ -223,7 +223,7 @@ export default function BuyTokensScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <AppSafeArea style={styles.safeArea}>
       <View style={styles.container}>
         
         {/* Top Header */}
@@ -454,7 +454,7 @@ export default function BuyTokensScreen() {
 
       {/* Payment WebView Modal */}
       <Modal visible={showWebView} animationType="slide" onRequestClose={() => setShowWebView(false)}>
-        <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
+        <AppSafeArea style={{ flex: 1, backgroundColor: '#fff' }}>
           <View style={styles.header}>
             <TouchableOpacity style={styles.headerButton} onPress={() => setShowWebView(false)}>
               <Feather name="x" size={24} color="#111827" />
@@ -537,9 +537,9 @@ export default function BuyTokensScreen() {
               renderLoading={() => <ActivityIndicator size="large" color="#7C3AED" style={{ flex: 1, justifyContent: 'center' }} />}
             />
           )}
-        </SafeAreaView>
+        </AppSafeArea>
       </Modal>
-    </SafeAreaView>
+    </AppSafeArea>
   );
 }
 
@@ -557,7 +557,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'android' ? 40 : 12,
+    paddingTop: 12,
     paddingBottom: 12,
     backgroundColor: '#FFFFFF',
   },

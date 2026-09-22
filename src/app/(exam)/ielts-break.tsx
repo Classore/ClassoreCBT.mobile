@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { AppSafeArea } from '@/components/AppSafeArea';
 import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   ScrollView,
   TouchableOpacity,
   Platform,
@@ -12,6 +12,7 @@ import { Feather } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { examService } from '@/services/exam';
+import { useBackgroundAwareTimer } from '@/hooks/useBackgroundAwareTimer';
 
 export default function IELTSBreakScreen() {
   const router = useRouter();
@@ -33,31 +34,13 @@ export default function IELTSBreakScreen() {
   const [isBreakActive, setIsBreakActive] = useState(false);
   const [secondsRemaining, setSecondsRemaining] = useState(600);
 
-  useEffect(() => {
-    let interval: ReturnType<typeof setInterval> | null = null;
-    if (isBreakActive && secondsRemaining > 0) {
-      interval = setInterval(() => {
-        setSecondsRemaining((prev) => {
-          if (prev <= 1) {
-            handleProceed();
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    }
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [isBreakActive, secondsRemaining]);
-
   const formatTimer = (totalSeconds: number) => {
     const mins = Math.floor(totalSeconds / 60);
     const secs = totalSeconds % 60;
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const handleProceed = () => {
+  const handleProceed = useCallback(() => {
     const isSpeaking = nextSectionName.toLowerCase().includes('speaking');
     const isListening = nextSectionName.toLowerCase().includes('listening');
     const activeAttemptId = examService.parseAttemptId(params.attempt_id) || examService.getActiveAttemptIdSync();
@@ -109,7 +92,15 @@ export default function IELTSBreakScreen() {
         },
       });
     }
-  };
+  }, [nextSectionName, params, nextSectionIndex, router]);
+
+  // Background-aware break countdown — corrects the timer when the app resumes.
+  // syncBreakTimer is called when the user taps "Start Break" to anchor the end time.
+  const { syncTimer: syncBreakTimer } = useBackgroundAwareTimer(
+    setSecondsRemaining,
+    handleProceed,
+    isBreakActive,
+  );
 
   const handleStartBreak = () => {
     if (isBreakActive) {
@@ -117,11 +108,13 @@ export default function IELTSBreakScreen() {
       handleProceed();
     } else {
       setIsBreakActive(true);
+      // Anchor the wall-clock end time now that the break has started
+      syncBreakTimer(secondsRemaining);
     }
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <AppSafeArea style={styles.safeArea}>
       <View style={styles.container}>
         {/* Top Header */}
         <View style={styles.header}>
@@ -215,7 +208,7 @@ export default function IELTSBreakScreen() {
           <View style={{ height: 40 }} />
         </ScrollView>
       </View>
-    </SafeAreaView>
+    </AppSafeArea>
   );
 }
 
@@ -233,7 +226,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'android' ? 40 : 12,
+    paddingTop: 12,
     paddingBottom: 12,
     backgroundColor: '#FFFFFF',
   },

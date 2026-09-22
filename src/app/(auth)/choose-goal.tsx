@@ -1,7 +1,16 @@
-import { AppText } from '@/components/AppText';
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, ScrollView, Alert } from 'react-native';
+import {
+  AppText } from '@/components/AppText';
+import React,
+  { useState } from 'react';
+import { View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  Alert,
+} from 'react-native';
 import { useRouter } from 'expo-router';
+import { AppSafeArea } from '@/components/AppSafeArea';
 import { Image } from 'expo-image';
 import { CustomButton } from '@/components/CustomButton';
 import { api } from '@/services/api';
@@ -48,7 +57,7 @@ export default function ChooseGoalScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <AppSafeArea style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
         
         {/* Header */}
@@ -126,7 +135,7 @@ export default function ChooseGoalScreen() {
         </View>
 
       </ScrollView>
-    </SafeAreaView>
+    </AppSafeArea>
   );
 }
 

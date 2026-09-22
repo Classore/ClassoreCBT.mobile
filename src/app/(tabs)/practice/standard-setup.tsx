@@ -1,7 +1,20 @@
-import { AppText } from '@/components/AppText';
+import {
+  AppText } from '@/components/AppText';
 import { useAuth } from '@/context/AuthContext';
-import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, Platform, ActivityIndicator, Alert } from 'react-native';
+import { AppSafeArea } from '@/components/AppSafeArea';
+import React,
+  { useState,
+  useEffect,
+  useCallback } from 'react';
+import { View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  Platform,
+  ActivityIndicator,
+  Alert,
+} from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
@@ -129,7 +142,7 @@ export default function StandardSetupScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <AppSafeArea style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
         
         {/* Header */}
@@ -345,14 +358,14 @@ export default function StandardSetupScreen() {
           },
         }}
       />
-    </SafeAreaView>
+    </AppSafeArea>
   );
 }
 
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#FFF' },
-  container: { padding: 20, paddingTop: Platform.OS === 'android' ? 40 : 20 },
+  container: { padding: 20, paddingTop: 16 },
   header: { flexDirection: 'row', alignItems: 'center', marginBottom: 24, justifyContent: 'center' },
   backButton: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: '#E5E7EB', justifyContent: 'center', alignItems: 'center', position: 'absolute', left: 0 },
   headerTitle: { fontSize: 20, fontWeight: 'bold', color: '#111827' },

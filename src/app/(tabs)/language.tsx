@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
+import { AppSafeArea } from '@/components/AppSafeArea';
 import {
   View,
   StyleSheet,
-  SafeAreaView,
   ScrollView,
   TouchableOpacity,
   Platform,
@@ -69,7 +69,7 @@ export default function LanguageScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <AppSafeArea style={styles.safeArea}>
       <View style={styles.container}>
         {/* Header */}
         <View style={styles.header}>
@@ -189,7 +189,7 @@ export default function LanguageScreen() {
           </View>
         </Modal>
       </View>
-    </SafeAreaView>
+    </AppSafeArea>
   );
 }
 
@@ -207,7 +207,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'android' ? 12 : 8,
+    paddingTop: 12,
     paddingBottom: 14,
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,

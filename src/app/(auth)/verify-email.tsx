@@ -1,5 +1,8 @@
-import { AppText } from '@/components/AppText';
-import React, { useState, useRef } from 'react';
+import {
+  AppText } from '@/components/AppText';
+import React,
+  { useState,
+  useRef } from 'react';
 import {
   View,
   Text,
@@ -8,11 +11,11 @@ import {
   TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
-  SafeAreaView,
   ActivityIndicator,
-  Alert
+  Alert,
 } from 'react-native';
 import { Image } from 'expo-image';
+import { AppSafeArea } from '@/components/AppSafeArea';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { api } from '@/services/api';
 import { useAuth } from '@/context/AuthContext';
@@ -71,7 +74,7 @@ export default function VerifyEmailScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <AppSafeArea style={styles.safeArea}>
       <KeyboardAvoidingView
         style={styles.container}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -174,7 +177,7 @@ export default function VerifyEmailScreen() {
           </View>
         </View>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </AppSafeArea>
   );
 }
 

@@ -1,18 +1,18 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { 
-  View, 
-  Text, 
+import { AppSafeArea } from '@/components/AppSafeArea';
+import {
+  View,
+  Text,
   TextInput,
-  StyleSheet, 
-  SafeAreaView, 
-  ScrollView, 
-  TouchableOpacity, 
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
   Platform,
   Modal,
   Alert,
   Animated,
   ActivityIndicator,
-  Easing
+  Easing,
 } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -35,6 +35,7 @@ import {
   getSubscriptionErrorMessage,
 } from '@/components/SubscriptionRequiredModal';
 import { formatQuestionText } from '@/utils/questionFormatter';
+import { useBackgroundAwareTimer } from '@/hooks/useBackgroundAwareTimer';
 
 type SpeakingSubState = 'get-ready' | 'listen' | 'recording';
 
@@ -274,7 +275,7 @@ export default function IELTSSpeakingSessionScreen() {
         if (attemptId) {
           const res = await examService.resumeExam(attemptId);
           setAttempt(res);
-          setTotalTimeLeft(res.timer_info?.remaining_seconds ?? 900);
+          syncSpeakingTimer(res.timer_info?.remaining_seconds ?? 900);
           
           const speakSec = res.sections?.find(s => 
             s.section_name.toLowerCase().includes('speaking')
@@ -327,14 +328,15 @@ export default function IELTSSpeakingSessionScreen() {
     initIelts();
   }, [params.attempt_id]);
 
-  // Total Timer countdown
-  useEffect(() => {
-    if (loading) return;
-    const timer = setInterval(() => {
-      setTotalTimeLeft(prev => (prev > 0 ? prev - 1 : 0));
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [loading]);
+  // Forwarding ref to break the TDZ: executeSubmit is a const defined later.
+  const executeSubmitRef = useRef<() => void>(() => {});
+
+  // Background-aware countdown — corrects totalTimeLeft on foreground resume.
+  const { syncTimer: syncSpeakingTimer } = useBackgroundAwareTimer(
+    setTotalTimeLeft,
+    () => executeSubmitRef.current(),
+    !loading,
+  );
 
   // Concentric Rings Pulse Animation for 'recording'
   useEffect(() => {
@@ -812,6 +814,7 @@ export default function IELTSSpeakingSessionScreen() {
   };
 
   const executeSubmit = async () => {
+    executeSubmitRef.current = executeSubmit; // keep forwarding ref current
     const collatedUri = await stopAndFinalizeCollatedAudio();
     try {
       setIsSubmitting(true);
@@ -962,12 +965,12 @@ export default function IELTSSpeakingSessionScreen() {
 
   if (loading || !speakingSection) {
     return (
-      <SafeAreaView style={styles.safeArea}>
+      <AppSafeArea style={styles.safeArea}>
         <View style={styles.centerLoading}>
           <ActivityIndicator size="large" color="#4C1D95" />
           <Text style={styles.loadingText}>Setting up Speaking Assessment...</Text>
         </View>
-      </SafeAreaView>
+      </AppSafeArea>
     );
   }
 
@@ -1041,7 +1044,7 @@ export default function IELTSSpeakingSessionScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <AppSafeArea style={styles.safeArea}>
       <View style={styles.container}>
         
         {/* Top Header */}
@@ -1508,7 +1511,7 @@ export default function IELTSSpeakingSessionScreen() {
           router.replace('/(tabs)/bundles' as any);
         }}
       />
-    </SafeAreaView>
+    </AppSafeArea>
   );
 }
 
@@ -1539,7 +1542,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'android' ? 42 : 12,
+    paddingTop: 12,
     paddingBottom: 14,
     backgroundColor: '#FFFFFF',
   },

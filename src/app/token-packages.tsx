@@ -1,17 +1,22 @@
-import { paymentService, TokenPackage } from '@/services/payment';
+import {
+  paymentService,
+  TokenPackage } from '@/services/payment';
 import { useNotifications } from '@/context/NotificationContext';
-import { Feather, Ionicons } from '@expo/vector-icons';
-import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { AppSafeArea } from '@/components/AppSafeArea';
+import { Feather,
+  Ionicons } from '@expo/vector-icons';
+import { useRouter,
+  useLocalSearchParams } from 'expo-router';
+import { useEffect,
+  useState } from 'react';
 import {
   ActivityIndicator,
   Platform,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
-  View
+  View,
 } from 'react-native';
 
 export default function TokenPackagesScreen() {
@@ -74,7 +79,7 @@ export default function TokenPackagesScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <AppSafeArea style={styles.safeArea}>
       <View style={styles.container}>
         
         {/* Top Header */}
@@ -199,7 +204,7 @@ export default function TokenPackagesScreen() {
           <View style={{ height: 40 }} />
         </ScrollView>
       </View>
-    </SafeAreaView>
+    </AppSafeArea>
   );
 }
 
@@ -217,7 +222,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'android' ? 40 : 12,
+    paddingTop: 12,
     paddingBottom: 12,
     backgroundColor: '#FFFFFF',
   },

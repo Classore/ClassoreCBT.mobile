@@ -1,6 +1,12 @@
-import { AppText } from '@/components/AppText';
+import {
+  AppText } from '@/components/AppText';
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView } from 'react-native';
+import { AppSafeArea } from '@/components/AppSafeArea';
+import { View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+} from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Image } from 'expo-image';
 import { CustomButton } from '@/components/CustomButton';
@@ -10,7 +16,7 @@ export default function PasswordResetConfirmScreen() {
   const { email, otpCode } = useLocalSearchParams<{ email: string; otpCode?: string }>();
 
   return (
-    <SafeAreaView style={styles.container}>
+    <AppSafeArea style={styles.container}>
       <View style={styles.content}>
         {/* Header */}
         <View style={styles.header}>
@@ -34,7 +40,7 @@ export default function PasswordResetConfirmScreen() {
           style={styles.confirmButton} 
         />
       </View>
-    </SafeAreaView>
+    </AppSafeArea>
   );
 }
 

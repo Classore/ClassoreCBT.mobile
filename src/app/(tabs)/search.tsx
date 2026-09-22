@@ -1,22 +1,21 @@
-import React, { useState, useEffect, useRef } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  SafeAreaView,
-  ScrollView,
-  TouchableOpacity,
-  TextInput,
-  ActivityIndicator,
-  Platform,
-  Keyboard,
-} from 'react-native';
+import { AppSafeArea } from '@/components/AppSafeArea';
+import { AppText } from '@/components/AppText';
+import { useTabBarHeight } from '@/hooks/use-tab-bar-height';
+import { ExamType } from '@/services/exam';
+import { SearchHistoryItem, SearchResults, searchService } from '@/services/search';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import { AppText } from '@/components/AppText';
-import { searchService, SearchHistoryItem, SearchResults } from '@/services/search';
-import { ExamType } from '@/services/exam';
+import { useEffect, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Keyboard,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  TouchableOpacity,
+  View
+} from 'react-native';
 
 const DEFAULT_RECENT_SEARCHES: SearchHistoryItem[] = [
   { id: 1, query: 'JAMB Mathematics', created_at: '' },
@@ -51,7 +50,7 @@ const POPULAR_EXAMS = [
     logo: require('../../../assets/images/ielts-logo.png'),
     bgColor: '#FFF1F2',
     textColor: '#DC2626',
-    route: () => ({ pathname: '/(exam)/ielts-setup', params: { exam: '42' } }),
+    route: () => ({ pathname: '/(tabs)/pactice', params: { exam: 'ielts' } }),
   },
   {
     id: 'neco',
@@ -122,6 +121,7 @@ const FALLBACK_SUBJECTS = [
 export default function SearchScreen() {
   const router = useRouter();
   const inputRef = useRef<TextInput>(null);
+  const { totalHeight: tabBarHeight } = useTabBarHeight();
 
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
@@ -255,7 +255,7 @@ export default function SearchScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <AppSafeArea style={styles.safeArea}>
       <View style={styles.container}>
         {/* Search Header */}
         <View style={styles.header}>
@@ -291,7 +291,7 @@ export default function SearchScreen() {
 
         <ScrollView
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: tabBarHeight + 24 }]}
           keyboardShouldPersistTaps="handled"
         >
           {/* Loading indicator */}
@@ -469,7 +469,7 @@ export default function SearchScreen() {
           <View style={{ height: 40 }} />
         </ScrollView>
       </View>
-    </SafeAreaView>
+    </AppSafeArea>
   );
 }
 
@@ -486,7 +486,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'android' ? 36 : 10,
+    paddingTop: 12,
     paddingBottom: 14,
     backgroundColor: '#FFFFFF',
   },
@@ -517,7 +517,6 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: 20,
     paddingTop: 8,
-    paddingBottom: Platform.OS === 'ios' ? 100 : 80,
   },
   loadingBox: {
     flexDirection: 'row',

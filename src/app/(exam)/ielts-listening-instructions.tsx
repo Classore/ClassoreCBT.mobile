@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
+import { AppSafeArea } from '@/components/AppSafeArea';
 import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   ScrollView,
   TouchableOpacity,
   Platform,
@@ -111,7 +111,7 @@ export default function IELTSListeningInstructionsScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <AppSafeArea style={styles.safeArea}>
       <View style={styles.container}>
 
         {/* Top Header */}
@@ -236,7 +236,7 @@ export default function IELTSListeningInstructionsScreen() {
           router.push('/(tabs)/bundles' as any);
         }}
       />
-    </SafeAreaView>
+    </AppSafeArea>
   );
 }
 
@@ -256,7 +256,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'android' ? 42 : 12,
+    paddingTop: 12,
     paddingBottom: 12,
     backgroundColor: '#FFFFFF',
   },

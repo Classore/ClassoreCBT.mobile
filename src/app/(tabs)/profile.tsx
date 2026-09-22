@@ -1,15 +1,15 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  SafeAreaView, 
-  ScrollView, 
-  TouchableOpacity, 
+import { AppSafeArea } from '@/components/AppSafeArea';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
   Platform,
   RefreshControl,
   ActivityIndicator,
-  Animated
+  Animated,
 } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
@@ -18,21 +18,23 @@ import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'expo-router';
 import { navigateWithFrom } from '@/utils/helpNavigation';
 import { GuestAuthModal } from '@/components/GuestAuthModal';
+import { useTabBarHeight } from '@/hooks/use-tab-bar-height';
 
 export default function ProfileScreen() {
   const router = useRouter();
   const { user, refreshUser, token } = useAuth();
   const isGuest = !token;
+  const { totalHeight: tabBarHeight } = useTabBarHeight();
   const [refreshing, setRefreshing] = useState(false);
 
   if (isGuest) {
     return (
-      <SafeAreaView style={styles.container}>
+      <AppSafeArea style={styles.container}>
         <GuestAuthModal
           visible={true}
           onClose={() => router.replace('/(tabs)')}
         />
-      </SafeAreaView>
+      </AppSafeArea>
     );
   }
 
@@ -84,7 +86,7 @@ export default function ProfileScreen() {
     : require('@/assets/images/default-avatar.png');
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <AppSafeArea style={styles.safeArea}>
       <View style={styles.container}>
         
         {/* Top Header */}
@@ -108,7 +110,7 @@ export default function ProfileScreen() {
 
         <ScrollView 
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: tabBarHeight + 24 }]}
           refreshControl={
             <RefreshControl 
               refreshing={refreshing} 
@@ -389,7 +391,7 @@ export default function ProfileScreen() {
           <View style={{ height: 100 }} />
         </ScrollView>
       </View>
-    </SafeAreaView>
+    </AppSafeArea>
   );
 }
 
@@ -407,7 +409,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'android' ? 40 : 12,
+    paddingTop: 12,
     paddingBottom: 12,
     backgroundColor: '#FFFFFF',
   },

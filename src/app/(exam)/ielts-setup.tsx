@@ -1,17 +1,21 @@
-import { useLocalSearchParams } from 'expo-router';
-import { examService, resolveNumericExamId } from '@/services/exam';
+import {
+  useLocalSearchParams } from 'expo-router';
+import { examService,
+  resolveNumericExamId } from '@/services/exam';
 import { useAuth } from '@/context/AuthContext';
-import React, { useState, useEffect } from 'react';
+import { AppSafeArea } from '@/components/AppSafeArea';
+import React,
+  { useState,
+  useEffect } from 'react';
 import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  SafeAreaView, 
-  ScrollView, 
-  TouchableOpacity, 
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
   Platform,
   ActivityIndicator,
-  Alert
+  Alert,
 } from 'react-native';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
@@ -197,7 +201,7 @@ export default function IELTSSetupScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <AppSafeArea style={styles.safeArea}>
       <View style={styles.container}>
         
         {/* Top Header */}
@@ -415,7 +419,7 @@ export default function IELTSSetupScreen() {
           },
         }}
       />
-    </SafeAreaView>
+    </AppSafeArea>
   );
 }
 
@@ -434,7 +438,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'android' ? 40 : 12,
+    paddingTop: 12,
     paddingBottom: 12,
     backgroundColor: '#FFFFFF',
   },

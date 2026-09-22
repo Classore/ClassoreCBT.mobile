@@ -1,7 +1,21 @@
-import { AppText } from '@/components/AppText';
+import {
+  AppText } from '@/components/AppText';
 import { useAuth } from '@/context/AuthContext';
-import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, TextInput, Platform, Modal, ActivityIndicator, Alert } from 'react-native';
+import { AppSafeArea } from '@/components/AppSafeArea';
+import { useTabBarHeight } from '@/hooks/use-tab-bar-height';
+import React,
+  { useState,
+  useEffect } from 'react';
+import { View,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  TextInput,
+  Platform,
+  Modal,
+  ActivityIndicator,
+  Alert,
+} from 'react-native';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -76,9 +90,19 @@ export const getIeltsSubsectionsForSectionName = (sectionName?: string): IELTSSu
   return [];
 };
 
+export const QUESTION_PRESETS = [10, 20, 30, 40, 50, 60];
+
+export const getDefaultQuestionCountForSubject = (subName?: string): number => {
+  if (!subName) return 40;
+  const lower = subName.toLowerCase();
+  if (lower.includes('english') || lower.includes('use of english')) return 60;
+  return 40;
+};
+
 export default function PracticeSetupScreen() {
   const router = useRouter();
   const { user } = useAuth();
+  const { totalHeight: tabBarHeight, bottomInset } = useTabBarHeight();
   const params = useLocalSearchParams<{ 
     exam?: string; 
     subject?: string; 
@@ -180,7 +204,18 @@ export default function PracticeSetupScreen() {
   );
 
   const buildTopicItemsFromNames = (names: string[], subId: number): TopicItem[] => {
-    return names.map((name, index) => ({
+    // Deduplicate case-insensitively (backend may return duplicates with different casing/whitespace)
+    const seen = new Set<string>();
+    const unique = names
+      .map(n => n.trim())
+      .filter(n => {
+        if (!n) return false;
+        const key = n.toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    return unique.map((name, index) => ({
       id: `topic-${subId}-${index + 1}`,
       name,
       isLocked: !isGuestMode && !isSubscribed && index >= 3,
@@ -262,14 +297,24 @@ export default function PracticeSetupScreen() {
     return [];
   });
   const [difficulty, setDifficulty] = useState<string>('Medium');
+  const [questionCountBySubject, setQuestionCountBySubject] = useState<Record<number, number>>(() => {
+    const initial: Record<number, number> = {};
+    if (initialSections && initialSections.length > 0) {
+      const resolved = resolveSubjectSelection(initialSections);
+      resolved.forEach(subId => {
+        const sub = initialSections.find(s => s.id === subId);
+        initial[subId] = getDefaultQuestionCountForSubject(sub?.name);
+      });
+    }
+    return initial;
+  });
+  const [isCustomBySubject, setIsCustomBySubject] = useState<Record<number, boolean>>({});
+  const [customQuestionsBySubject, setCustomQuestionsBySubject] = useState<Record<number, string>>({});
   const [questionCount, setQuestionCount] = useState<number | null>(40);
-  const [isCustomQuestions, setIsCustomQuestions] = useState<boolean>(false);
-  const [customQuestionInput, setCustomQuestionInput] = useState<string>('');
   const [isTimed, setIsTimed] = useState<boolean>(true);
   const [timeMinutes, setTimeMinutes] = useState<number>(20);
   const [showTimeDropdown, setShowTimeDropdown] = useState<boolean>(false);
   const [isStarting, setIsStarting] = useState<boolean>(false);
-  const [isCustomInputFocused, setIsCustomInputFocused] = useState<boolean>(false);
   
   // Topic State
   const [selectedTopicsBySubject, setSelectedTopicsBySubject] = useState<Record<number, string[]>>({});
@@ -284,6 +329,23 @@ export default function PracticeSetupScreen() {
   const [modalTopicName, setModalTopicName] = useState<string>('');
   const [subscriptionMessage, setSubscriptionMessage] = useState<string | undefined>();
   const [guestLimitModalVisible, setGuestLimitModalVisible] = useState<boolean>(false);
+
+  // Ensure every selected subject has a default question count assigned
+  useEffect(() => {
+    if (selectedSubjects.length === 0) return;
+    setQuestionCountBySubject(prev => {
+      let changed = false;
+      const updated = { ...prev };
+      selectedSubjects.forEach(subId => {
+        if (updated[subId] === undefined) {
+          const sub = subjects.find(s => s.id === subId);
+          updated[subId] = getDefaultQuestionCountForSubject(sub?.name);
+          changed = true;
+        }
+      });
+      return changed ? updated : prev;
+    });
+  }, [selectedSubjects, subjects]);
 
   // Auto-initialize IELTS subsections for selected sections
   useEffect(() => {
@@ -324,12 +386,31 @@ export default function PracticeSetupScreen() {
     }, 0);
   }, [isSectionExam, selectedSubjects, subjects, selectedTopicsBySubject]);
 
-  // Keep questionCount synchronized with IELTS subsections
-  useEffect(() => {
-    if (isSectionExam && ieltsTotalQuestions !== null && ieltsTotalQuestions > 0) {
-      setQuestionCount(ieltsTotalQuestions);
+  // Compute total questions across all selected subjects
+  const totalPracticeQuestions = React.useMemo(() => {
+    if (isSectionExam) {
+      return ieltsTotalQuestions || questionCount || 40;
     }
-  }, [isSectionExam, ieltsTotalQuestions]);
+    if (selectedSubjects.length === 0) return 40;
+    return selectedSubjects.reduce((sum, subId) => {
+      const sub = subjects.find(s => s.id === subId);
+      const count = questionCountBySubject[subId] ?? getDefaultQuestionCountForSubject(sub?.name);
+      return sum + count;
+    }, 0);
+  }, [isSectionExam, ieltsTotalQuestions, questionCount, selectedSubjects, questionCountBySubject, subjects]);
+
+  // Keep questionCount synchronized
+  useEffect(() => {
+    if (isSectionExam) {
+      if (ieltsTotalQuestions !== null && ieltsTotalQuestions > 0) {
+        setQuestionCount(ieltsTotalQuestions);
+      }
+    } else {
+      if (totalPracticeQuestions > 0) {
+        setQuestionCount(totalPracticeQuestions);
+      }
+    }
+  }, [isSectionExam, ieltsTotalQuestions, totalPracticeQuestions]);
 
   const handleToggleIeltsSubsection = (sectionId: number, subsectionId: string) => {
     setSelectedTopicsBySubject(prev => {
@@ -378,6 +459,79 @@ export default function PracticeSetupScreen() {
     const qCount = ieltsTotalQuestions || 0;
     const qText = `${qCount} ${qCount === 1 ? 'question' : 'questions'}`;
     return `${totalChosenSubsections} ${totalChosenSubsections === 1 ? 'part' : 'parts'} (${qText}) • ${timerText}`;
+  };
+
+  const getTimeAndQuestionsSubtitle = () => {
+    if (isSectionExam) {
+      return getIeltsTimeAndSubsectionsSubtitle();
+    }
+    const timeStr = isTimed ? `${timeMinutes} mins` : 'Untimed';
+    if (selectedSubjects.length === 0) {
+      return `${timeStr} • Select subjects first`;
+    }
+    if (selectedSubjects.length === 1) {
+      const subId = selectedSubjects[0];
+      const sub = subjects.find(s => s.id === subId);
+      const qCount = questionCountBySubject[subId] ?? getDefaultQuestionCountForSubject(sub?.name);
+      return `${timeStr} • ${qCount} questions`;
+    }
+    const firstSub = subjects.find(s => s.id === selectedSubjects[0]);
+    const firstCount = questionCountBySubject[selectedSubjects[0]] ?? getDefaultQuestionCountForSubject(firstSub?.name);
+    const allSame = selectedSubjects.every(id => {
+      const sObj = subjects.find(s => s.id === id);
+      return (questionCountBySubject[id] ?? getDefaultQuestionCountForSubject(sObj?.name)) === firstCount;
+    });
+    if (allSame) {
+      return `${timeStr} • ${totalPracticeQuestions} questions (${firstCount} Qs each)`;
+    }
+    return `${timeStr} • ${totalPracticeQuestions} questions across ${selectedSubjects.length} subjects`;
+  };
+
+  const handleApplyToAll = (count: number) => {
+    setQuestionCountBySubject(prev => {
+      const updated = { ...prev };
+      selectedSubjects.forEach(id => {
+        updated[id] = count;
+      });
+      return updated;
+    });
+    setIsCustomBySubject({});
+  };
+
+  const handleSelectSubjectCount = (subId: number, count: number) => {
+    setQuestionCountBySubject(prev => ({
+      ...prev,
+      [subId]: count,
+    }));
+    setIsCustomBySubject(prev => ({
+      ...prev,
+      [subId]: false,
+    }));
+  };
+
+  const handleCustomSubjectToggle = (subId: number) => {
+    setIsCustomBySubject(prev => {
+      const nextVal = !prev[subId];
+      if (nextVal) {
+        const textVal = customQuestionsBySubject[subId];
+        if (textVal) {
+          const num = parseInt(textVal, 10);
+          if (!isNaN(num) && num > 0) {
+            setQuestionCountBySubject(p => ({ ...p, [subId]: num }));
+          }
+        }
+      }
+      return { ...prev, [subId]: nextVal };
+    });
+  };
+
+  const handleCustomSubjectInputChange = (subId: number, text: string) => {
+    const cleaned = text.replace(/[^0-9]/g, '');
+    setCustomQuestionsBySubject(prev => ({ ...prev, [subId]: cleaned }));
+    const val = parseInt(cleaned, 10);
+    if (!isNaN(val) && val > 0) {
+      setQuestionCountBySubject(prev => ({ ...prev, [subId]: val }));
+    }
   };
 
   // Modals
@@ -617,7 +771,7 @@ export default function PracticeSetupScreen() {
     }
   };
 
-  const isComplete = selectedSubjects.length > 0 && !!difficulty && !!questionCount;
+  const isComplete = selectedSubjects.length > 0 && !!difficulty && (isSectionExam ? !!questionCount : totalPracticeQuestions > 0);
 
   // Active topic subject & list
   const currentActiveSubject = subjects.find(s => s.id === (activeTopicSubjectId || selectedSubjects[0]));
@@ -735,7 +889,7 @@ export default function PracticeSetupScreen() {
       setShowDifficulty(true);
       return;
     }
-    if (!questionCount && !isSectionExam) {
+    if (!isSectionExam && (!totalPracticeQuestions || totalPracticeQuestions <= 0)) {
       setShowTime(true);
       return;
     }
@@ -757,7 +911,7 @@ export default function PracticeSetupScreen() {
       }
 
       const isSectionExam = isSectionBasedExam(currentExam?.name);
-      const finalQuestionCount = isSectionExam ? (ieltsTotalQuestions || questionCount || 40) : (questionCount || 40);
+      const finalQuestionCount = isSectionExam ? (ieltsTotalQuestions || questionCount || 40) : totalPracticeQuestions;
 
       const practiceConfig: Record<string, any> = {
         question_count: finalQuestionCount,
@@ -769,7 +923,7 @@ export default function PracticeSetupScreen() {
         const subTopics = selectedTopicsBySubject[subId] || [];
         allChosenTopics.push(...subTopics);
 
-        let secQCount = finalQuestionCount;
+        let secQCount = questionCountBySubject[subId] ?? getDefaultQuestionCountForSubject(subjects.find(s => s.id === subId)?.name);
         if (isSectionExam) {
           const sub = subjects.find(s => s.id === subId);
           if (sub) {
@@ -914,8 +1068,8 @@ export default function PracticeSetupScreen() {
   const selectedSubjectNames = selectedSubjects.map(id => subjects.find(s => s.id === id)?.name).filter(Boolean).join(', ');
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
+    <AppSafeArea style={styles.safeArea}>
+      <ScrollView contentContainerStyle={[styles.container, { paddingBottom: tabBarHeight + 24 }]} showsVerticalScrollIndicator={false}>
         
         {/* Header */}
         <View style={styles.header}>
@@ -1001,9 +1155,7 @@ export default function PracticeSetupScreen() {
               {isSectionExam ? 'Set time & subsections' : 'Set time & question count'}
             </AppText>
             <AppText style={styles.setupCardSubtitle}>
-              {isSectionExam 
-                ? getIeltsTimeAndSubsectionsSubtitle()
-                : (questionCount ? `${isTimed ? `${timeMinutes} mins` : 'Untimed'} & ${questionCount} questions` : 'Timed or Untimed')}
+              {getTimeAndQuestionsSubtitle()}
             </AppText>
           </View>
           <Feather name="chevron-right" size={20} color="#D1D5DB" />
@@ -1095,7 +1247,7 @@ export default function PracticeSetupScreen() {
               <View style={{height: 40}} />
             </ScrollView>
 
-            <View style={styles.footer}>
+            <View style={[styles.footer, { paddingBottom: Math.max(bottomInset, 16) }]}>
               <View style={styles.selectionInfo}>
                 <View style={styles.checkBadge}><Feather name="check" size={14} color="#6D28D9" /></View>
                 <View style={{ flex: 1 }}>
@@ -1296,7 +1448,7 @@ export default function PracticeSetupScreen() {
             </ScrollView>
 
             {/* Footer */}
-            <View style={styles.footer}>
+            <View style={[styles.footer, { paddingBottom: Math.max(bottomInset, 16) }]}>
               <View style={styles.selectionInfo}>
                 <View style={styles.checkBadge}>
                   <Feather name="check" size={14} color="#6D28D9" />
@@ -1343,7 +1495,7 @@ export default function PracticeSetupScreen() {
               <TouchableOpacity onPress={() => setShowDifficulty(false)}><Feather name="x" size={24} color="#9CA3AF" /></TouchableOpacity>
             </View>
 
-            <View style={{ paddingHorizontal: 24, paddingBottom: 40 }}>
+            <View style={{ paddingHorizontal: 24, paddingBottom: Math.max(bottomInset, 16) + 16 }}>
               {[
                 { id: 'Easy', desc: 'Build your basics', icon: 'feather', bg: '#ECFDF5', color: '#10B981' },
                 { id: 'Medium', desc: 'Balanced difficulty', icon: 'code', bg: '#F3E8FF', color: '#7E57C2' },
@@ -1508,78 +1660,166 @@ export default function PracticeSetupScreen() {
                   )}
                 </View>
               ) : (
-                <>
-                  <AppText style={styles.sectionLabel}>Number of Questions</AppText>
-                  <View style={styles.questionsRow}>
-                    {[100, 200, 400, 600].map(num => (
-                      <TouchableOpacity 
-                        key={num} 
-                        style={[styles.questionPill, !isCustomQuestions && questionCount === num && styles.questionPillSelected]}
-                        onPress={() => {
-                          setIsCustomQuestions(false);
-                          setQuestionCount(num);
-                        }}
-                        activeOpacity={0.7}
-                      >
-                        <AppText style={[styles.questionPillText, !isCustomQuestions && questionCount === num && styles.questionPillTextSelected]}>{num}</AppText>
-                      </TouchableOpacity>
-                    ))}
-
-                    <TouchableOpacity 
-                      style={[styles.customPill, isCustomQuestions && styles.customPillSelected]}
-                      onPress={() => {
-                        setIsCustomQuestions(true);
-                        if (customQuestionInput) {
-                          const val = parseInt(customQuestionInput, 10);
-                          if (!isNaN(val) && val > 0) {
-                            setQuestionCount(val);
-                          }
-                        }
-                      }}
-                      activeOpacity={0.7}
-                    >
-                      <AppText style={[styles.customPillText, isCustomQuestions && styles.customPillTextSelected]}>
-                        {isCustomQuestions && questionCount ? `Custom (${questionCount}) ` : 'Custom '}
-                      </AppText>
-                      <Feather name="edit-2" size={12} color={isCustomQuestions ? '#FFF' : '#111827'} />
-                    </TouchableOpacity>
-                  </View>
-
-                  {isCustomQuestions && (
-                    <View style={styles.customInputContainer}>
-                      <AppText style={styles.customInputLabel}>Enter custom question count (1 - 1000):</AppText>
-                      <View style={[styles.customInputRow, isCustomInputFocused && styles.customInputRowFocused]}>
-                        <TextInput
-                          style={styles.customTextInput}
-                          keyboardType="number-pad"
-                          placeholder="e.g. 50"
-                          placeholderTextColor="#9CA3AF"
-                          value={customQuestionInput}
-                          onFocus={() => setIsCustomInputFocused(true)}
-                          onBlur={() => setIsCustomInputFocused(false)}
-                          selectionColor="#7C3AED"
-                          underlineColorAndroid="transparent"
-                          onChangeText={(text) => {
-                            const cleaned = text.replace(/[^0-9]/g, '');
-                            setCustomQuestionInput(cleaned);
-                            const val = parseInt(cleaned, 10);
-                            if (!isNaN(val) && val > 0) {
-                              setQuestionCount(val);
-                            } else {
-                              setQuestionCount(null);
-                            }
-                          }}
-                          maxLength={4}
-                          autoFocus
-                        />
-                        <AppText style={styles.customInputUnit}>questions</AppText>
+                <View style={{ marginBottom: 20 }}>
+                  <View style={styles.subsectionsHeaderRow}>
+                    <AppText style={styles.sectionLabel}>Questions per Subject</AppText>
+                    {selectedSubjects.length > 0 && (
+                      <View style={styles.totalQuestionsBadge}>
+                        <Feather name="help-circle" size={13} color="#6D28D9" />
+                        <AppText style={styles.totalQuestionsBadgeText}>
+                          {totalPracticeQuestions} {totalPracticeQuestions === 1 ? 'question' : 'questions'} total
+                        </AppText>
                       </View>
+                    )}
+                  </View>
+                  <AppText style={styles.subsectionsSubtitle}>
+                    Choose how many questions to practice for each selected subject.
+                  </AppText>
+
+                  {selectedSubjects.length === 0 ? (
+                    <View style={styles.noSectionBox}>
+                      <Feather name="info" size={18} color="#6B7280" />
+                      <AppText style={styles.noSectionText}>Please select at least one subject first.</AppText>
+                      <TouchableOpacity 
+                        style={styles.selectSectionBtn} 
+                        onPress={() => {
+                          setShowTime(false);
+                          setShowSubjects(true);
+                        }}
+                      >
+                        <AppText style={styles.selectSectionBtnText}>Choose Subjects</AppText>
+                      </TouchableOpacity>
                     </View>
+                  ) : (
+                    <>
+                      {selectedSubjects.length > 1 && (
+                        <View style={styles.applyToAllCard}>
+                          <View style={styles.applyToAllHeader}>
+                            <Feather name="layers" size={14} color="#6D28D9" />
+                            <AppText style={styles.applyToAllTitle}>Apply count to all subjects:</AppText>
+                          </View>
+                          <View style={styles.applyToAllRow}>
+                            {QUESTION_PRESETS.map((num) => (
+                              <TouchableOpacity
+                                key={`all-${num}`}
+                                style={styles.applyToAllPill}
+                                onPress={() => handleApplyToAll(num)}
+                                activeOpacity={0.7}
+                              >
+                                <AppText style={styles.applyToAllPillText}>{num}</AppText>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        </View>
+                      )}
+
+                      <View style={styles.subjectsQuestionsList}>
+                        {selectedSubjects.map((subId) => {
+                          const sub = subjects.find(s => s.id === subId);
+                          const subName = sub?.name || `Subject ${subId}`;
+                          const currentCount = questionCountBySubject[subId] ?? getDefaultQuestionCountForSubject(subName);
+                          const isCustom = Boolean(isCustomBySubject[subId]);
+                          const customVal = customQuestionsBySubject[subId] || '';
+
+                          return (
+                            <View key={subId} style={styles.subjectQuestionCard}>
+                              {/* Subject Header */}
+                              <View style={styles.subjectQuestionHeader}>
+                                <View style={styles.subjectQuestionTitleRow}>
+                                  <View style={styles.subjectQuestionDot} />
+                                  <AppText style={styles.subjectQuestionName} numberOfLines={1}>
+                                    {subName}
+                                  </AppText>
+                                </View>
+                                <View style={styles.subjectCountBadge}>
+                                  <AppText style={styles.subjectCountBadgeText}>
+                                    {currentCount} Qs
+                                  </AppText>
+                                </View>
+                              </View>
+
+                              {/* Presets and Custom Pill */}
+                              <View style={styles.subjectPillsRow}>
+                                {QUESTION_PRESETS.map((num) => {
+                                  const isSelected = !isCustom && currentCount === num;
+                                  return (
+                                    <TouchableOpacity
+                                      key={num}
+                                      style={[
+                                        styles.subjectQCountPill,
+                                        isSelected && styles.subjectQCountPillSelected,
+                                      ]}
+                                      onPress={() => handleSelectSubjectCount(subId, num)}
+                                      activeOpacity={0.7}
+                                    >
+                                      <AppText
+                                        style={[
+                                          styles.subjectQCountPillText,
+                                          isSelected && styles.subjectQCountPillTextSelected,
+                                        ]}
+                                      >
+                                        {num}
+                                      </AppText>
+                                    </TouchableOpacity>
+                                  );
+                                })}
+
+                                <TouchableOpacity
+                                  style={[
+                                    styles.subjectCustomPill,
+                                    isCustom && styles.subjectCustomPillSelected,
+                                  ]}
+                                  onPress={() => handleCustomSubjectToggle(subId)}
+                                  activeOpacity={0.7}
+                                >
+                                  <AppText
+                                    style={[
+                                      styles.subjectCustomPillText,
+                                      isCustom && styles.subjectCustomPillTextSelected,
+                                    ]}
+                                  >
+                                    {isCustom && currentCount ? `Custom (${currentCount})` : 'Custom'}
+                                  </AppText>
+                                  <Feather
+                                    name="edit-2"
+                                    size={11}
+                                    color={isCustom ? '#FFFFFF' : '#4B5563'}
+                                  />
+                                </TouchableOpacity>
+                              </View>
+
+                              {/* Inline Custom Input */}
+                              {isCustom && (
+                                <View style={styles.subjectCustomInputContainer}>
+                                  <AppText style={styles.subjectCustomInputLabel}>
+                                    Enter questions (1 - 200):
+                                  </AppText>
+                                  <View style={styles.subjectCustomInputRow}>
+                                    <TextInput
+                                      style={styles.subjectCustomTextInput}
+                                      keyboardType="number-pad"
+                                      placeholder="e.g. 25"
+                                      placeholderTextColor="#9CA3AF"
+                                      value={customVal}
+                                      selectionColor="#7C3AED"
+                                      underlineColorAndroid="transparent"
+                                      onChangeText={(text) => handleCustomSubjectInputChange(subId, text)}
+                                      maxLength={3}
+                                    />
+                                    <AppText style={styles.subjectCustomInputUnit}>questions</AppText>
+                                  </View>
+                                </View>
+                              )}
+                            </View>
+                          );
+                        })}
+                      </View>
+                    </>
                   )}
-                </>
+                </View>
               )}
 
-              <AppText style={[styles.sectionLabel, { marginTop: (!isSectionExam && isCustomQuestions) ? 8 : 12 }]}>Timer</AppText>
+              <AppText style={[styles.sectionLabel, { marginTop: 12 }]}>Timer</AppText>
               <View style={styles.timerRow}>
                 <TouchableOpacity style={[styles.timerCard, isTimed && styles.timerCardSelected]} onPress={() => setIsTimed(true)} activeOpacity={0.8}>
                   <View style={styles.timerCardHeader}>
@@ -1641,13 +1881,15 @@ export default function PracticeSetupScreen() {
                 style={[
                   styles.continueButton, 
                   { marginTop: 24 },
-                  isSectionExam && (ieltsTotalQuestions === null || ieltsTotalQuestions === 0) && styles.continueButtonDisabled
+                  (isSectionExam 
+                    ? (ieltsTotalQuestions === null || ieltsTotalQuestions === 0) 
+                    : totalPracticeQuestions <= 0) && styles.continueButtonDisabled
                 ]} 
-                disabled={isSectionExam && (ieltsTotalQuestions === null || ieltsTotalQuestions === 0)}
+                disabled={isSectionExam ? (ieltsTotalQuestions === null || ieltsTotalQuestions === 0) : totalPracticeQuestions <= 0}
                 onPress={() => setShowTime(false)}
               >
                 <AppText style={styles.continueButtonText}>
-                  {isSectionExam ? `Done (${ieltsTotalQuestions || 0} Questions)` : 'Continue'}
+                  {isSectionExam ? `Done (${ieltsTotalQuestions || 0} Questions)` : `Done (${totalPracticeQuestions} Questions)`}
                 </AppText>
               </TouchableOpacity>
               <View style={{ height: 40 }} />
@@ -1689,13 +1931,13 @@ export default function PracticeSetupScreen() {
         showContinueAsGuest={false}
       />
       
-    </SafeAreaView>
+    </AppSafeArea>
   );
 }
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#FFF' },
-  container: { paddingHorizontal: 20, paddingTop: Platform.OS === 'android' ? 40 : 20 },
+  container: { paddingHorizontal: 20, paddingTop: 16 },
   header: { flexDirection: 'row', alignItems: 'center', marginBottom: 24, justifyContent: 'center' },
   backButton: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: '#E5E7EB', justifyContent: 'center', alignItems: 'center', position: 'absolute', left: 0 },
   headerTitle: { fontSize: 20, fontWeight: 'bold', color: '#111827' },
@@ -1755,7 +1997,7 @@ const styles = StyleSheet.create({
   checkbox: { width: 24, height: 24, borderRadius: 6, borderWidth: 2, borderColor: '#D1D5DB', justifyContent: 'center', alignItems: 'center' },
   checkboxSelected: { backgroundColor: '#6D28D9', borderColor: '#6D28D9' },
   
-  footer: { paddingHorizontal: 24, paddingTop: 16, paddingBottom: Platform.OS === 'ios' ? 40 : 20, borderTopWidth: 1, borderTopColor: '#F3F4F6', backgroundColor: '#FFF' },
+  footer: { paddingHorizontal: 24, paddingTop: 16, borderTopWidth: 1, borderTopColor: '#F3F4F6', backgroundColor: '#FFF' },
   selectionInfo: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
   checkBadge: { width: 24, height: 24, borderRadius: 12, backgroundColor: '#F3E8FF', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
   selectedCountText: { fontSize: 14, fontWeight: 'bold', color: '#111827' },
@@ -2166,5 +2408,169 @@ const styles = StyleSheet.create({
   },
   ieltsQCountTextSelected: {
     color: '#6D28D9',
+  },
+  applyToAllCard: {
+    backgroundColor: '#F5F3FF',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
+  },
+  applyToAllHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 8,
+  },
+  applyToAllTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#6D28D9',
+  },
+  applyToAllRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  applyToAllPill: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#C4B5FD',
+    paddingVertical: 5,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+  },
+  applyToAllPillText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#6D28D9',
+  },
+  subjectsQuestionsList: {
+    gap: 12,
+  },
+  subjectQuestionCard: {
+    backgroundColor: '#FAFAFA',
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  subjectQuestionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  subjectQuestionTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+    marginRight: 10,
+  },
+  subjectQuestionDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#7C3AED',
+  },
+  subjectQuestionName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  subjectCountBadge: {
+    backgroundColor: '#EDE9FE',
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+  },
+  subjectCountBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#6D28D9',
+  },
+  subjectPillsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    alignItems: 'center',
+  },
+  subjectQCountPill: {
+    paddingVertical: 6,
+    paddingHorizontal: 11,
+    borderRadius: 8,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  subjectQCountPillSelected: {
+    backgroundColor: '#6D28D9',
+    borderColor: '#6D28D9',
+  },
+  subjectQCountPillText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  subjectQCountPillTextSelected: {
+    color: '#FFFFFF',
+  },
+  subjectCustomPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  subjectCustomPillSelected: {
+    backgroundColor: '#6D28D9',
+    borderColor: '#6D28D9',
+  },
+  subjectCustomPillText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  subjectCustomPillTextSelected: {
+    color: '#FFFFFF',
+  },
+  subjectCustomInputContainer: {
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+  },
+  subjectCustomInputLabel: {
+    fontSize: 11,
+    color: '#6B7280',
+    marginBottom: 6,
+  },
+  subjectCustomInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    paddingHorizontal: 10,
+    height: 38,
+  },
+  subjectCustomTextInput: {
+    flex: 1,
+    fontSize: 13,
+    color: '#111827',
+    paddingVertical: 0,
+  },
+  subjectCustomInputUnit: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    fontWeight: '500',
   },
 });

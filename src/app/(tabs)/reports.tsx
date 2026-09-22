@@ -1,11 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  SafeAreaView, 
-  ScrollView, 
-  TouchableOpacity, 
+import { AppSafeArea } from '@/components/AppSafeArea';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
   Platform,
   Animated,
 } from 'react-native';
@@ -16,6 +16,7 @@ import Svg, { Path, Circle, Polyline } from 'react-native-svg';
 import { examService } from '@/services/exam';
 import { useAuth } from '@/context/AuthContext';
 import { GuestAuthModal } from '@/components/GuestAuthModal';
+import { useTabBarHeight } from '@/hooks/use-tab-bar-height';
 
 // Component for Circular Progress Ring using SVG
 function CircularProgress({ 
@@ -135,6 +136,7 @@ export default function ReportsScreen() {
   const { token } = useAuth();
   const router = useRouter();
   const isGuest = !token;
+  const { totalHeight: tabBarHeight } = useTabBarHeight();
 
   const [activeTab, setActiveTab] = useState<'Overview' | 'JAMB' | 'IELTS' | 'Mock Tests' | 'Subjects'>('Overview');
   const [timeframe, setTimeframe] = useState('This Week');
@@ -145,12 +147,12 @@ export default function ReportsScreen() {
 
   if (isGuest) {
     return (
-      <SafeAreaView style={styles.container}>
+      <AppSafeArea style={styles.container}>
         <GuestAuthModal
           visible={true}
           onClose={() => router.replace('/(tabs)')}
         />
-      </SafeAreaView>
+      </AppSafeArea>
     );
   }
 
@@ -257,7 +259,7 @@ export default function ReportsScreen() {
   const { overall, trend, sectional, subjects, recent_mocks, topics } = currentReport || {};
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <AppSafeArea style={styles.safeArea}>
       <View style={styles.container}>
         
         {/* Header */}
@@ -297,7 +299,7 @@ export default function ReportsScreen() {
 
         <ScrollView 
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: tabBarHeight + 24 }]}
         >
           {!currentReport ? (
             <ReportsSkeleton shimmerAnim={shimmerAnim} />
@@ -449,7 +451,11 @@ export default function ReportsScreen() {
                 </TouchableOpacity>
               </View>
 
-              <View style={styles.sectionalRow}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.sectionalRow}
+              >
                 {sectional.map((sec: any) => {
                   let icon = '📝';
                   let color = '#6366F1';
@@ -463,14 +469,14 @@ export default function ReportsScreen() {
                     <View key={sec.name} style={styles.sectionalItem}>
                       <View style={styles.sectionalIconTitle}>
                         <Text style={{ fontSize: 13, marginRight: 4 }}>{icon}</Text>
-                        <Text style={styles.sectionalName}>{sec.name.substring(0, 8)}</Text>
+                        <Text style={styles.sectionalName}>{sec.name.substring(0, 9)}</Text>
                       </View>
-                      <CircularProgress percentage={sec.score} size={50} strokeWidth={4} color={color} trackColor={trackColor} />
+                      <CircularProgress percentage={sec.score} size={52} strokeWidth={4} color={color} trackColor={trackColor} />
                       <Text style={[styles.ratingTag, { color: sec.rating === 'Good' ? '#10B981' : sec.rating === 'Average' ? '#F59E0B' : '#EF4444' }]}>{sec.rating}</Text>
                     </View>
                   )
                 })}
-              </View>
+              </ScrollView>
             </View>
           )}
 
@@ -586,7 +592,7 @@ export default function ReportsScreen() {
           <View style={{ height: 100 }} />
         </ScrollView>
       </View>
-    </SafeAreaView>
+    </AppSafeArea>
   );
 }
 
@@ -604,7 +610,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'android' ? 40 : 12,
+    paddingTop: 12,
     paddingBottom: 12,
     backgroundColor: '#FFFFFF',
   },
@@ -891,12 +897,13 @@ const styles = StyleSheet.create({
   // Sectional Breakdown
   sectionalRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 6,
+    paddingVertical: 8,
+    gap: 12,
+    paddingRight: 4,
   },
   sectionalItem: {
-    flex: 1,
+    width: 96,
     alignItems: 'center',
   },
   sectionalIconTitle: {
